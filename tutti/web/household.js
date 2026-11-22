@@ -68,8 +68,8 @@ function renderMainMachine(s) {
             class: 'btn btn--text', type: 'button', text: 'Make it my main machine',   // a viewer may (their own)
             onclick: async () => {
                 if (!window.confirm(`Move your Tutti, logins and main agent to ${pick.value}? This computer becomes its client.`)) return;
-                const res = await fetch('/api/user/main-machine', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
-                    body: JSON.stringify({ machine: pick.value }) });
+                const res = await fetch('/api/user/main-host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+                    body: JSON.stringify({ host: pick.value }) });
                 const a = await res.json().catch(() => ({}));
                 note.textContent = res.ok ? `Moving to ${pick.value}: this page reconnects there by itself.` : (a.error || `refused (${res.status})`);
             },

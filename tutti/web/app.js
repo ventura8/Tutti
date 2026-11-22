@@ -696,7 +696,7 @@ function limitForm(m) {
         'aria-label': `${m.name}: limited hours, HH-HH` });
     const pct = el('input', { type: 'number', class: 'field', min: 1, max: 100, step: 5, value: String(lim.pct ?? 60),
         'aria-label': `${m.name}: the most Tutti uses then, percent` });
-    const save = (body, fail) => fetch('/api/machine-limit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+    const save = (body, fail) => fetch('/api/host-limit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
         body: JSON.stringify(body) }).then(async (res) => {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `the dashboard answered ${res.status}`);
         await refresh();
@@ -706,10 +706,10 @@ function limitForm(m) {
             : 'Limited hours: none set (type HH-HH, e.g. 18-01, to add):' }),
         win, pct, el('span', { text: '%' }),
         el('button', { class: 'btn btn--tonal', type: 'button', text: 'Save',
-            onclick: () => save({ machine: m.name, window: win.value.trim(), pct: pct.value.trim() === '' ? null : Number(pct.value) },
+            onclick: () => save({ host: m.name, window: win.value.trim(), pct: pct.value.trim() === '' ? null : Number(pct.value) },
                 'The limited hours were not saved.') }),
         lim.window ? el('button', { class: 'btn btn--text', type: 'button', text: 'No limit',
-            onclick: () => save({ machine: m.name, window: 'off' }, 'The limited hours were not removed.') }) : null);
+            onclick: () => save({ host: m.name, window: 'off' }, 'The limited hours were not removed.') }) : null);
 }
 
 function bytes(n) {

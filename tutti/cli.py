@@ -1949,7 +1949,9 @@ def parser():
     def add(name, fn, text):
         if name not in SUBCOMMANDS:
             SUBCOMMANDS.append(name)
-        s = sub.add_parser(name, help=text, description=text)
+        aliases = ['hosts'] if name == 'machines' else []   # t406: machine -> host; the old name still works
+        s = sub.add_parser(name, help=text, description=text, aliases=aliases)
+        SUBCOMMANDS.extend(a for a in aliases if a not in SUBCOMMANDS)
         s.set_defaults(fn=fn)
         return s
 

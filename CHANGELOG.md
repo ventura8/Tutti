@@ -18,6 +18,12 @@
 - Backups (t246): `tutti backup` puts the config and the state folder in a dated archive, verified against its checksums
   as it is made, the newest 14 kept; the dashboard backs up daily by default into any folder (a mounted NAS too); restore
   checks first and keeps the old state aside; the Self-test card shows the last backup (docs/BACKUP.md).
+- Hosts (t406, first slice): "machine" becomes "host". The dashboard's tab and card say **Hosts** (`#hosts`; `#machines`
+  still opens it), the config takes `hosts:` (or `machines:`, not both), `tutti hosts` is `tutti machines`, and the API
+  has `GET /api/hosts`, `POST /api/host-limit` and `POST /api/user/main-host`, which the dashboard now uses. The old routes
+  still work, deprecated (`Deprecation` and `Link` headers) (docs/API.md, *Hosts*).
+- API: an OpenAPI 3.1 (Swagger) document of the dashboard's routes at `GET /api/openapi.json`, made from docs/API.md and
+  kept as docs/openapi.json; the dashboard shows it at `/api-docs.html` (docs/API.md, *OpenAPI*).
 
 ### Fixed
 

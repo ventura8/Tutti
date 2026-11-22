@@ -63,6 +63,7 @@ docs/WORKERS.md
 docs/_config.yml
 docs/github-app.html
 docs/index.md
+docs/openapi.json
 install/bootstrap.ps1
 install/bootstrap.sh
 install/install.ps1
@@ -147,6 +148,8 @@ tests/test_groksetup.py
 tests/test_helper_parse.py
 tests/test_hhjobs.py
 tests/test_homeassistant.py
+tests/test_hostapi.py
+tests/test_hosts_name.py
 tests/test_hostsetup.py
 tests/test_hours.py
 tests/test_household.py
@@ -314,6 +317,7 @@ tutti/handover.py
 tutti/helper.py
 tutti/hhjobs.py
 tutti/homeassistant.py
+tutti/hostapi.py
 tutti/hostsetup.py
 tutti/hours.py
 tutti/household.py
@@ -348,6 +352,7 @@ tutti/needs.py
 tutti/netpolicy.py
 tutti/official.py
 tutti/openai_api.py
+tutti/openapi.py
 tutti/owner.py
 tutti/ownerday.py
 tutti/pacing.py
@@ -417,6 +422,8 @@ tutti/waitlist.py
 tutti/watchdog.py
 tutti/web/a11y.js
 tutti/web/agents.js
+tutti/web/api-docs.html
+tutti/web/api-docs.js
 tutti/web/app.css
 tutti/web/app.js
 tutti/web/attention.js

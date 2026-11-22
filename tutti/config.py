@@ -331,10 +331,24 @@ def machine_of(cfg, name, own):
     return m
 
 
+def hosts_as_machines(raw):
+    """`hosts:` is the name (t406: machine -> host); `machines:` still works. Inside, Tutti keeps `machines` for now (the
+    migration goes in slices). Both at once is refused: which one is meant cannot be guessed."""
+    if 'hosts' not in raw:
+        return raw
+    if raw.get('machines'):
+        raise ConfigError('the config has both hosts: and machines:: keep one (hosts: is the new name), moving the entries '
+                          'of the other into it')
+    out = {k: v for k, v in raw.items() if k != 'hosts'}
+    out['machines'] = raw['hosts']
+    return out
+
+
 def normalise(raw):
     """Defaults filled in; every machine gets its name, the machine defaults and its own merged runner."""
     if not isinstance(raw, dict):
-        raise ConfigError('the config must be a mapping at the top level (machines:, workers:, accounts:, ...)')
+        raise ConfigError('the config must be a mapping at the top level (hosts:, workers:, accounts:, ...)')
+    raw = hosts_as_machines(raw)
     cfg = merge(DEFAULTS, raw)
     cfg['_ai_assist_file'] = dict(raw.get('ai_assist') or {}) if isinstance(raw.get('ai_assist'), dict) else {}   # as written
     for name, m in list(cfg['machines'].items()):

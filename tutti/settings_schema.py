@@ -26,7 +26,7 @@ SECTIONS = [
     ('workers', 'Workers', 'The agents and local models Tutti can brief, and the order `tutti run auto` tries them.',
      ['workers', 'routing.workers', 'brief']),
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),
-    ('machines', 'Machines', 'The computers that run heavy commands, their slot queues and how commands run there.',
+    ('machines', 'Hosts', 'The computers that run heavy commands, their slot queues and how commands run there.',
      ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard', 'home_assistant']),
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',

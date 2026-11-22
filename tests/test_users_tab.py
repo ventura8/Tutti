@@ -203,7 +203,7 @@ class TabTest(unittest.TestCase):
         page = self.page()
         links = re.findall(r'<a class="nav-menu__link"[^>]*>([^<]+)</a>', page)
         # Chat first: the default (docs/CHAT.md)
-        self.assertEqual(links, ['Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Machines', 'Discovered', 'Agents',
+        self.assertEqual(links, ['Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Hosts', 'Discovered', 'Agents',
                                  'Settings', 'Users'])
         self.assertIn('id="nav-menu-btn"', page)
         self.assertRegex(page, r'<a class="nav-menu__link" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>')

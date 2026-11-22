@@ -87,7 +87,7 @@
                 <a class="nav-menu__link" href="#tasks" data-view="tasks">Tasks</a>
                 <a class="nav-menu__link" href="#schedule" data-view="schedule">Schedule</a>
                 <a class="nav-menu__link" href="#devices" data-view="devices">Devices</a>
-                <a class="nav-menu__link" href="#machines" data-view="machines">Machines</a>
+                <a class="nav-menu__link" href="#hosts" data-view="machines">Hosts</a>
                 <a class="nav-menu__link" href="#discovered" data-view="discovered" data-admin>Discovered</a>
                 <a class="nav-menu__link" href="#agents" data-view="agents">Agents</a>
                 <a class="nav-menu__link" href="#settings" data-view="settings">Settings</a>
@@ -247,7 +247,7 @@
             <!-- Machines directly below Usage & pacing (the owner, 2026-11-14) -->
             <section class="card card--machines span-full" aria-labelledby="machines-h" data-layout-id="machines">
                 <header class="card__head">
-                    <h2 id="machines-h">Machines</h2>
+                    <h2 id="machines-h">Hosts</h2>
                     <p class="card__meta" id="machines-meta"></p>
                 </header>
                 <div id="machines-disk"></div>
@@ -424,7 +424,7 @@
                 <div id="device-actions" class="row" role="group" aria-label="Pair or move devices"></div>
                 <div id="device-tools" aria-live="polite"></div>
                 <h3 class="card__sub">Pause or resume</h3>
-                <div id="pausable" aria-label="Machines, devices and agents to pause or resume, by category"></div>
+                <div id="pausable" aria-label="Hosts, devices and agents to pause or resume, by category"></div>
                 <h3 class="card__sub">Opt-in <a class="link" href="#settings/optins">In Settings</a></h3>
                 <ul id="optin" class="list" aria-label="Opt-in items"></ul>
                 <h3 class="card__sub" id="autocompact-h">Autocompact <a class="link" href="#settings/autocompact.threshold_pct">In Settings</a></h3>
@@ -595,7 +595,7 @@
         <div id="devices-settings" class="settings__body" data-admin></div>
       </section>
       <section id="machines-view" class="agents" aria-labelledby="machines-title" hidden>
-        <h2 id="machines-title">Machines and their settings</h2>
+        <h2 id="machines-title">Hosts and their settings</h2>
         <p class="agents__lead">Every machine and its settings: roles, quiet hours, presence, sensors, local models, resume delay. Admins change them here; the change is saved into the config. <a class="link view-ok" href="#dashboard">Live state on the Dashboard</a></p>
         <p class="row__note view-ok" data-viewer-only>Only an admin sees and changes these settings.</p>
         <section class="card" aria-labelledby="ha-h"><h3 id="ha-h" class="card__sub">Home Assistant</h3>

@@ -65,6 +65,21 @@ The check is on the immediate peer only: a reverse proxy on this computer or the
 it (sign-in still applies), so never put the dashboard behind a public proxy or tunnel. Binding to another address than loopback, or naming `dashboard.origins`, needs sign-in (`tutti auth setup`): the
 dashboard refuses to start otherwise.
 
+### OpenAPI (Swagger)
+
+`GET /api/openapi.json` is this section as an OpenAPI 3.1 document (`tutti/openapi.py`): one operation per row of the
+tables below, with who may call it, what it answers and, for a POST, its example body. Load it into any Swagger UI, editor
+or client generator; the dashboard shows it itself at `/api-docs.html` (no third-party script). The same document is kept
+as `docs/openapi.json`; `python3 -m tutti.apidoc --write` makes both and the check fails when either is stale.
+
+### Hosts (machine -> host, t406)
+
+"Machine" is becoming "host" everywhere. The new routes are `GET /api/hosts`, `POST /api/host-limit` and
+`POST /api/user/main-host` (a body names `"host"`); the dashboard uses them. The old routes, `/api/machine-limit` and
+`/api/user/main-machine` (a body names `"machine"`), still work and are deprecated: each answer carries
+`Deprecation: true` and a `Link` to its successor. In the config, `hosts:` is the new name of `machines:` (either works,
+not both); `tutti hosts` is `tutti machines`.
+
 ### Requests and answers
 
 - Every answer is JSON (`Content-Type: application/json`) except the page, its static files and the chat's stream.
@@ -88,6 +103,8 @@ dashboard refuses to start otherwise.
 | `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.5"}`; `started` changes on a restart. |
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
+| `/api/hosts` | GET | signed in | Every host with its live state (t406: the new name of the machines list; `machines` in `/api/state` stays). |
+| `/api/openapi.json` | GET | signed in | This API as an OpenAPI 3.1 document (Swagger), made from these tables; any Swagger UI loads it, and the dashboard shows it at `/api-docs.html`. |
 | `/api/discovered` | GET | admin | The Discovered tab (t220): what is on the network and not set up yet (media scan, neighbour table, adb, ssh check), what each seems to be, its roles and the roles it could take; a failing source is named in `problems`. |
 | `/api/home-assistant` | GET | signed in | The Machines tab's Home Assistant card (t268): configured or not, its name, address, online, version, roles and what to do when it does not answer; never the token. |
 | `/api/role-matrix` | GET | signed in | The Machines tab's role matrix (t234): each machine, each role it has, could have or cannot have, why and the fix, from the last daily probe (never probing on the request). |
@@ -142,7 +159,8 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/work/move` | `{"job": "<id>", "to": "<target>"\|"auto", "bump": false}` or `{"evacuate": "<machine>"}` | `{"ok": true, "done": [...]}`; 409 when the job cannot move. |
 | `/api/queue` | `{"kind": "task", "id": "t12", "action": "run"\|"move"\|"cancel"\|"up"\|"down", "to": "<account>"}` or `{"kind": "scout", "id": "s3", "action": "cancel"}` | The Queued list's actions. 404: no such queued item. |
 | `/api/vpn` | `{"action": "status"}`, `{"action": "qr", "phone": "<name>"}`, `{"action": "router"}`, `{"action": "open-port", "consent": true}` | The private network card (`tutti vpn`). |
-| `/api/machine-limit` | `{"machine": "build1", "window": "18-01"\|"off", "pct": 60}` | A machine's limited-usage window, saved in the config. |
+| `/api/host-limit` | `{"host": "build1", "window": "18-01", "pct": 60}` (window `off` removes it) | A host's limited-usage window, saved in the config (t406). |
+| `/api/machine-limit` | `{"machine": "build1", "window": "18-01", "pct": 60}` | Deprecated (t406): use `/api/host-limit`. Answers as before, with `Deprecation: true` and a `Link` to it. |
 | `/api/ai-assist` | `{"switch": "enabled", "on": true}` or `{"undo": "u1"}` | AI assist's switches and undo (`tutti ai-assist`). |
 
 ### Changing (viewer and self)
@@ -155,7 +173,8 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/github` | self | `{"action": "status"\|"start"\|"poll"\|"disconnect"}` | The person's own GitHub connection (device flow, docs/GITHUB.md). |
 | `/api/needs` | self | `{"answer": "q3", "choice": "retry"}` or `{"notify": "always", "batch": 3, "quiet": "22-07"}` | Answer one's own question; notify settings. |
 | `/api/welcome` | self | `{"action": "read"\|"miss"\|"on"\|"off"}` | One's own summary: mark read, "What did I miss?", switch on or off. |
-| `/api/user/main-machine` | self | `{"machine": "build1"}` or `{"action": "plan", "machine": "build1"}` | One's own main machine (docs/MOVE.md). |
+| `/api/user/main-host` | self | `{"host": "build1"}` or `{"action": "plan", "host": "build1"}` | One's own main host (docs/MOVE.md; t406). |
+| `/api/user/main-machine` | self | `{"machine": "build1"}` | Deprecated (t406): use `/api/user/main-host`. Answers as before, with `Deprecation: true` and a `Link` to it. |
 | `/api/users/manage` | self, admin for others | `{"member": "<id>", "act": "<action>", "args": {...}}` or `{"list": true}` | The Users tab: household members' actions. |
 | `/api/browser` | viewer | `{"action": "sign-in", "url": "https://example.com/usage"}`, `{"action": "read"}`, `{"action": "check"}` | The household's work browser, for the sites the admin chose (docs/BROWSER.md). 403 out of scope, 503 browser down. |
 | `/api/chat` | viewer, per-action checks | `{"action": "list"\|"get"\|"send"\|"follow"\|"stop"\|"new"\|"rename"\|"delete"\|"clear"\|"undo"\|"activity"\|"confirm"\|"model"\|"settings"\|"mentions"\|"branch"\|"empty"\|"plan", ...}` | JSON; `send` and `follow` stream `application/x-ndjson`, one event per line (docs/CHAT.md). |
@@ -996,6 +1015,25 @@ usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--stage-only] 
 | `--auto` | quiet no-op when turned off (self_update.enabled) or not a release install |  |
 
 ### `tutti machines`
+
+probe every machine: free slots, load, yield flag (add: set up a computer found on the network; add-android: set up a Termux machine)
+
+```text
+usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [--roles] [--refresh]
+                      [{add,add-android}]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {add,add-android}` | add: key, ssh-copy-id (you type its password once, into ssh), check, save; add-android: the Termux steps |  |
+| `--name` | add, add-android: the machine name (add: from the address when not given) |  |
+| `--host` | add: its address or host name; add-android: the device IP address |  |
+| `--user` | add: the account to log in to (default: yours); add-android: the Termux user (whoami) |  |
+| `--port` | add: ssh port (22); add-android: Termux sshd port (8022) |  |
+| `--roles` | each machine's and device's roles and why (tutti/roles.py) |  |
+| `--refresh` | --roles: probe again now instead of the daily answer |  |
+
+### `tutti hosts`
 
 probe every machine: free slots, load, yield flag (add: set up a computer found on the network; add-android: set up a Termux machine)
 

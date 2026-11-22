@@ -167,6 +167,7 @@ tests/test_limits.py
 tests/test_linkheal.py
 tests/test_local_share.py
 tests/test_machine_card.py
+tests/test_max_effort.py
 tests/test_mayrun.py
 tests/test_move.py
 tests/test_navmenu.py

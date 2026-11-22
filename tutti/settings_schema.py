@@ -164,6 +164,9 @@ FIELDS = {
     'main.command_timeout': field('One round may take', 'A round that takes longer is stopped.', **SEC),
     # machines
     'machines.*.host': field('Host', 'An ssh alias from ~/.ssh/config, or local for this computer.', 'text'),
+    'accounts.*.max_effort': field('Highest effort', 'The highest effort its plan should run at (low, medium, high, xhigh, max): '
+                                   'Tutti never runs it above, whatever its pace asks (docs/USAGE-PACING.md, Model and effort). '
+                                   'Empty: no cap.', 'select', choices=['', 'low', 'medium', 'high', 'xhigh', 'max']),
     'machines.*.mac': field('Wake-on-LAN address', 'Its network card\'s MAC (aa:bb:cc:dd:ee:ff): when it stops answering, '
                             'Tutti wakes it (docs/NETWORK.md, Link repair). Empty: never woken.', 'text'),
     'machines.*.physical_machine': field('Physical machine',

@@ -195,6 +195,10 @@ small, and stays simple enough to check by hand:
   the account's own `args`. The model names come from the worker's own list (`agy models`, `cursor-agent --list-models`,
   `claude --help`), never guessed; an account without tiers keeps its args. A running task shows its choice and why
   (`claude-opus-5-5-high/high: agy-claude behind: agy-claude-weekly projected to end at 60 %`), and so does `tutti run auto`.
+- **The plan's highest effort** (`accounts.<name>.max_effort`: low, medium, high, xhigh or max, next to its plan label
+  `subscription`). Whatever the pace asks, a run never goes above it: a model's effort suffix (`gemini-4-neon-xhigh` ->
+  `-low`) and an `--effort` flag are both lowered, and the run's reason says *effort capped at low by the AI Pro plan*.
+  Empty: no cap.
 - **Room in tasks.** The allowance left, in the window's own points, divided by `task_pct` (0: no tasks), is how many tasks
   the autopilot sends now (its trigger accounts) and the room `tutti run auto` sees. With several limits, the one that allows
   the fewest tasks binds (points of different limits do not compare). An account without limits gets its pace's room, never

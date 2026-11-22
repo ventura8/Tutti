@@ -186,6 +186,7 @@ tests/test_releases.py
 tests/test_rendered_text.py
 tests/test_reroute.py
 tests/test_review_policy.py
+tests/test_rolematrix.py
 tests/test_roles.py
 tests/test_routing.py
 tests/test_runner_suite.py
@@ -355,6 +356,7 @@ tutti/report.py
 tutti/reroute.py
 tutti/resolver.py
 tutti/review.py
+tutti/rolematrix.py
 tutti/roles.py
 tutti/rolescmd.py
 tutti/routing.py

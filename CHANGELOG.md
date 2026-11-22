@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Machines (t234): the **role matrix**: for every machine, each role it has, could have (turned off) or cannot have, why,
+  and the command or setting that fixes it, on the Machines tab and in `tutti roles matrix` (docs/MACHINES.md, *Role matrix*).
+
 ## 0.31.9 (2026-11-22)
 
 ### Fixed

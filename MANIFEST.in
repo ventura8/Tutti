@@ -187,6 +187,7 @@ include tests/test_releases.py
 include tests/test_rendered_text.py
 include tests/test_reroute.py
 include tests/test_review_policy.py
+include tests/test_rolematrix.py
 include tests/test_roles.py
 include tests/test_routing.py
 include tests/test_runner_suite.py
@@ -356,6 +357,7 @@ include tutti/report.py
 include tutti/reroute.py
 include tutti/resolver.py
 include tutti/review.py
+include tutti/rolematrix.py
 include tutti/roles.py
 include tutti/rolescmd.py
 include tutti/routing.py

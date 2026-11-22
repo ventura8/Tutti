@@ -199,7 +199,7 @@ def _probe(m, rec, now, sh, refresh):
         r = (sh or remote.sh)(m, MACHINE_PROBE, capture=True, timeout=30)
         if getattr(r, 'returncode', 0) == 255:   # ssh could not reach it: keep the last answer
             raise OSError('ssh failed')
-        return {'at': now, 'detected': detect_machine(r.stdout)}, True
+        return {'at': now, 'detected': detect_machine(r.stdout), 'facts': parse(r.stdout)}, True   # facts: the role matrix (t234)
     except (OSError, ValueError, subprocess.SubprocessError):
         return {**rec, 'at': now}, True
 

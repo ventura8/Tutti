@@ -61,6 +61,7 @@ from . import (
     releases,
     remote,
     report,
+    rolematrix,
     scouts,
     settings,
     setupcmd,
@@ -1149,6 +1150,8 @@ def viewer_json(collector, path):
     """The JSON GETs every signed-in viewer may read (no secret in any), or None for any other path."""
     if path == homeassistant.API:   # the Machines tab's Home Assistant card (t268)
         code, answer = 200, homeassistant.status(collector.cfg)
+    elif path == rolematrix.API:   # the Machines tab's role matrix (t234)
+        code, answer = rolematrix.get(collector.cfg)
     elif path == tasklist.API:   # the Tasks tab (t307), like the Queued list
         code, answer = tasklist.get(collector.cfg)
     elif path == taskdetail.BOARD_API:   # the Queued card's Board (t243)

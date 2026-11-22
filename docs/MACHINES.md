@@ -28,6 +28,16 @@ An admin edits them in the config or the dashboard's Settings: `roles:` is the w
 A suite asks for roles with `roles: [windows-test-runner, ui-desktop, gpu-ai]`: only a target with every one gets it, and
 among those the power score and routing pick as before. An unknown role is a config error.
 
+## Role matrix
+
+`tutti roles matrix` and the **Machines** tab (t234, `tutti/rolematrix.py`, `GET /api/role-matrix`) show, for every machine,
+each machine role Tutti knows: **has** it (with why), **could have** it (detected, but turned off by `roles_off` or a
+`roles:` override; the fix is `tutti roles set <machine> <role>`), or **cannot** have it, with the reason from the daily
+probe (no docker, 4 cores and 8 GB, no desktop session, another OS...) and the one command or setting that fixes it (an
+install link, `tutti devices --install-adb`, `tutti move --to`, failover.backup on Settings). A reason nothing Tutti can
+tell would change (the OS) has no fix. The probe runs once a day per machine; a machine never probed says so and how to
+probe it now (`tutti machines --roles --refresh`).
+
 ## Home Assistant
 
 Tutti shows a Home Assistant instance on the dashboard's **Machines** tab (t268, `tutti/homeassistant.py`): its name,

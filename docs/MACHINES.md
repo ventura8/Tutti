@@ -248,6 +248,11 @@ machines:
 
 `tutti devices add` and `tutti machines add-android` print the owner's one-time steps on the device and the config lines.
 
+
+**A watch** (Wear OS, `kind: watch`): pair it with `tutti devices pair --watch` (it has no camera, so the 6-digit code
+flow: Settings > Developer options > ADB debugging, then Wireless debugging > Pair new device). It runs only on its charger,
+at 60 % or more and under 38 °C (`policy:` overrides each). The dashboard's Devices tab lists every device Tutti knows,
+and says how to pair one that is not there yet.
 ## The yield flag
 
 `yield_file` is a path on the machine. While the file exists:

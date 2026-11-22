@@ -101,3 +101,23 @@ if (typeof document === 'object' && document.addEventListener) {
 }
 
 if (typeof module !== 'undefined') module.exports.haNodes = haNodes;
+
+// The Devices tab's list (t208): every configured device with its state, then the media devices found on the network
+function deviceListNodes(s) {
+    const items = s.devices?.items || [];
+    const lan = s.devices?.lan || [];
+    const rows = items.map((d) => el('li', { class: 'row', 'data-device': d.name },
+        el('p', { class: 'row__name', text: `${d.name} · ${d.kind}` }),
+        el('p', { class: 'row__note', text: [d.status, d.reason, d.battery != null ? `battery ${d.battery} %` : ''].filter(Boolean).join(' · ') })));
+    rows.push(...lan.map((d) => el('li', { class: 'row', 'data-device': d.address },
+        el('p', { class: 'row__name', text: `${d.name} · on the network` }),
+        el('p', { class: 'row__note', text: (d.roles || []).map((r) => r.role).join(', ') || 'no role yet' }))));
+    return rows.length ? rows : [el('li', { class: 'row__note', text: 'No device yet: pair one (below).' })];
+}
+
+function renderDeviceList(s) {
+    const list = document.getElementById('device-list');
+    if (list) list.replaceChildren(...deviceListNodes(s));
+}
+
+if (typeof module !== 'undefined') Object.assign(module.exports, { deviceListNodes });

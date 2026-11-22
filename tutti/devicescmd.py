@@ -34,6 +34,8 @@ def kind_hint(host, a, usb):
     """The device's kind before pairing: --tv, else read over USB, else unknown (a phone or tablet: the QR flow)."""
     if a.tv:
         return 'tv'
+    if getattr(a, 'watch', False):
+        return 'watch'
     if usb:
         return adbpair.describe(host, usb[0])['kind']
     return None
@@ -463,6 +465,7 @@ def add_arguments(s):
     s.add_argument('--install-adb', action='store_true', help='pair, move: install platform-tools in user space if adb is missing')
     s.add_argument('--flow', choices=adbpair.FLOWS, help='pair: qr (default), code (a TV: default) or usb')
     s.add_argument('--tv', action='store_true', help='pair: a TV (no camera): the pairing-code flow')
+    s.add_argument('--watch', action='store_true', help='pair: a Wear OS watch: the pairing-code flow, its stricter battery rules')
     s.add_argument('--code', help='pair: the 6-digit code the device shows (asked when missing)')
     s.add_argument('--adb', help='pair: the adb to use on the machine (default: found by itself)')
     s.add_argument('--wait', type=int, default=180, help='pair: seconds to wait for the device (180)')

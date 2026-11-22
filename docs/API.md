@@ -628,7 +628,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `lan_devices.*.roles` | list |  | Roles (override): A media device on the network (by its address): the whole list. | admin |
 | `lan_devices.*.roles_add` | list |  | Roles added: Added to what mDNS and SSDP found, e.g. bluetooth-audio. | admin |
 | `lan_devices.*.roles_off` | list |  | Roles removed: Taken from what mDNS and SSDP found. | admin |
-| `devices.*.kind` | select phone, tablet, tv |  | Kind: Set by `tutti devices pair`: phone, tablet or tv. | admin |
+| `devices.*.kind` | select phone, tablet, watch, tv |  | Kind: Set by `tutti devices pair`: phone, tablet, watch or tv. | admin |
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
 | `devices.*.adb` | text |  | adb: The adb on its machine; empty: found by itself (PATH, the Android SDK, Tutti's own copy). | admin |
@@ -1018,8 +1018,8 @@ Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and 
 
 ```text
 usage: tutti devices [-h] [--name NAME] [--serial SERIAL] [--machine MACHINE] [--to TO] [--dry-run] [--replace-key]
-                     [--keep-key] [--repair] [--install-adb] [--flow {qr,code,usb}] [--tv] [--code CODE] [--adb ADB]
-                     [--wait WAIT] [--who WHO] [--runner RUNNER] [--minutes MINUTES] [--days DAYS]
+                     [--keep-key] [--repair] [--install-adb] [--flow {qr,code,usb}] [--tv] [--watch] [--code CODE]
+                     [--adb ADB] [--wait WAIT] [--who WHO] [--runner RUNNER] [--minutes MINUTES] [--days DAYS]
                      [{add,pair,move,claim,release,install,hours,lease,night}] [names ...]
 ```
 
@@ -1038,6 +1038,7 @@ usage: tutti devices [-h] [--name NAME] [--serial SERIAL] [--machine MACHINE] [-
 | `--install-adb` | pair, move: install platform-tools in user space if adb is missing |  |
 | `--flow` | pair: qr (default), code (a TV: default) or usb |  |
 | `--tv` | pair: a TV (no camera): the pairing-code flow |  |
+| `--watch` | pair: a Wear OS watch: the pairing-code flow, its stricter battery rules |  |
 | `--code` | pair: the 6-digit code the device shows (asked when missing) |  |
 | `--adb` | pair: the adb to use on the machine (default: found by itself) |  |
 | `--wait` | pair: seconds to wait for the device (180) | `180` |

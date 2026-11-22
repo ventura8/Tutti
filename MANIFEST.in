@@ -218,6 +218,7 @@ include tests/test_users.py
 include tests/test_users_tab.py
 include tests/test_vpn.py
 include tests/test_waitlist.py
+include tests/test_watch.py
 include tests/test_watchdog_bind.py
 include tests/test_week.py
 include tests/test_welcome.py

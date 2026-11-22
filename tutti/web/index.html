@@ -580,6 +580,10 @@
         <h2 id="devices-title">Devices and their settings</h2>
         <p class="agents__lead">Every device and its settings: brightness, volume, roles, keep-awake, resume delay, enabled. Admins change them here; the change is saved into the config. <a class="link view-ok" href="#dashboard">Live state on the Dashboard</a></p>
         <p class="row__note view-ok" data-viewer-only>Only an admin sees and changes these settings.</p>
+        <section class="card" aria-labelledby="device-list-h"><h3 id="device-list-h" class="card__sub">Every device Tutti knows</h3>
+            <ul id="device-list" class="list" aria-live="polite"><li class="row__note">Loading…</li></ul>
+            <p class="row__note">Not listed (a watch, a new phone)? Pair it once from this computer: <code>tutti devices pair --watch</code>
+                (a Wear OS watch), <code>tutti devices pair --tv</code> (a TV) or <code>tutti devices pair</code> (a phone or tablet). It then shows here.</p></section>
         <div id="devices-settings" class="settings__body" data-admin></div>
       </section>
       <section id="machines-view" class="agents" aria-labelledby="machines-title" hidden>

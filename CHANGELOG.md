@@ -1,20 +1,13 @@
 # Changelog
 
-## 0.31.10 (2026-11-22)
+## Unreleased
 
 ### Added
 
 - Dashboard (t254): every new idle-with-work case is logged (`<state>/idle-with-work.json`, last 500) and the Queued card
   lists the last 5, so a machine or account left idle with work waiting is never silent (docs/DASHBOARD.md).
-
-## 0.31.9 (2026-11-22)
-
-### Added
-
 - Dashboard (t243): **Board** on the Queued card opens to Blocked, Ready and Grouped lanes, each task with why it waits,
   what it depends on, what needs it and its group (`GET /api/board`, docs/DASHBOARD.md).
-
-## 0.31.8 (2026-11-22)
 
 ### Changed
 

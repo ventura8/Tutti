@@ -86,6 +86,8 @@ def seed_backlog(cfg):
     task['criteria'] = ['The legend fits a 360 px phone.', 'No text is cut off.']
     task['attempts'] = [{'at': 1794856100 + i, 'step': 'cursor', 'ok': False, 'why': 'the check failed: ' + 'x' * 120,
                          'signature': 'abc123', 'run': f'1794856100-{i}'} for i in range(3)]
+    parked, _ = backlog.add(data, backlog.new_task('app', 'Rename the settings key: it needs the owner to pick a name', check='npm test'))
+    parked.update(status='needs-person', parked='two names fit: the owner picks one')   # Needs you opens it too (t237)
     backlog.save(cfg, data)
 
 

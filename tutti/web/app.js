@@ -1388,7 +1388,21 @@ function attentionItem(it) {
     return el('li', { class: 'row row--attention', 'data-tone': it.tone },
         el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
         chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
-        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
+        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null, it.task ? taskDetails(it.task.id) : null);
+}
+
+// t237: a task that needs you opens to everything it has, like a queued one (queue.js loadTaskDetail); kept open across polls
+function taskDetails(id) {
+    const key = `attention:${id}`;
+    const open = ui.open.has(key);
+    const body = el('div', { class: 'qdetail' });
+    if (open) void loadTaskDetail(id, body, false);
+    return el('details', { class: 'qitem', 'data-task-detail': id, open, ontoggle: (e) => {
+        const shown = e.currentTarget.open;
+        if (shown === ui.open.has(key)) return;   // a redraw restoring the open state, not the reader: nothing to fetch
+        if (shown) { ui.open.add(key); void loadTaskDetail(id, body); } else ui.open.delete(key);
+        if (typeof saveUi === 'function') saveUi();
+    } }, el('summary', { text: 'All details', 'aria-label': `All details of ${id}` }), body);
 }
 
 function openJob(id) {

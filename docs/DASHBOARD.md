@@ -77,6 +77,25 @@ works while their own computer is off. Each action is a card with Undo and goes 
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
 before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
+## Agents
+
+The **Agents** tab (`#agents`, t252, `tutti/agentsview.py`, `tutti/web/agents.js`) has one card per agent Tutti can use:
+each worker (a coding CLI, a local model, an online API), each account no worker or scout spends, and each scout. A card
+shows:
+
+- **Roles**, only from the config, each with why: *Main agent* (`main.preferred`, or which `main.fallback`), *Worker*
+  (`routing.workers`, the autopilot's accounts and ladder), *Reviewer* (`review.reviewers`, `review.fallback`), *Decisional
+  model* (`decisional.candidates`), *Chat* (every worker that answers), *Scout* (`scouts`). An agent with none says how to
+  give it one.
+- **Can**: its kind (local model with native tool calls, coding CLI through Tutti's ACTION lines, online API), whether it
+  reads images, its context size; a scout's skills.
+- **Limits**: each account it spends, its weekly bounds included: percent used and pace, the reset, panic, a reading
+  problem.
+- **Now**: ready, not ready (with the reason), checking (no probe yet); how many of its runs are going.
+
+It comes with `/api/state` (`agents`), for every signed-in user. Not yet: learned strengths, benchmark scores, cost so far
+and admin actions on the card.
+
 ## Layout
 
 The **Dashboard** tab's cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and
@@ -135,6 +154,17 @@ held by another tool, a machine asleep). An admin acts on a task: **Run now** (f
 **Move to…** (a ladder step it goes to first), **Cancel** (dropped, with a note), **Priority up** or **down**; and cancels a
 queued scout question (`POST /api/queue`, admins only). A viewer sees the list read-only. Household jobs wait at the
 household's coordinator and show on the shared machine's own dashboard once claimed.
+
+A queued task opens (click, or Enter or Space on its title; it stays open across refreshes and reloads) to everything it has
+(t237): id, repository, project, priority, size, source, status, when it was added, scope, check, who claimed it, the last
+worker, step, model and run, its branch and pull request, what *done* means, its last 10 attempts newest first (when,
+where, why it failed) and its last 8 notes. They are read from `GET /api/task/<id>` when the row opens, not sent in every
+state poll, with credentials replaced. Running jobs open the same way to their log (above).
+**Idle with work** (t254, `tutti/idlecheck.py`): above the list, a note whenever a machine has a free slot (its share,
+presence, quiet hours and heat already counted) or an account is behind its pace (not in panic, not paused) while tasks wait. It names each one with
+its room and the queue's own top reasons (`2 waiting: agy-claude weekly binding until 12:55`; *the autopilot is off* first
+when it is). A reason there is a rule doing its job, or a bug to fix: nothing idles silently. Not yet: a log of these
+events and the improvement loop acting on them.
 
 ## Autopilot
 

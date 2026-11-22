@@ -88,6 +88,7 @@ dashboard refuses to start otherwise.
 | `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.5"}`; `started` changes on a restart. |
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
+| `/api/task/` + task id | GET | signed in | A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 says why. |
 | `/api/vpn/status` | GET | viewer | The private network card: `{"state": ..., ...}`, 200 also when no VPN is set up. |
 | `/api/needs` | GET | viewer (self) | The viewer's own open questions (an admin: everyone's) and notify settings. |
 | `/api/welcome` | GET | viewer (self) | The viewer's own "welcome back" summary. |
@@ -1532,13 +1533,13 @@ the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, see
 
 ```text
 usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
-                     [--all]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority} [repo] [title]
+                     [--all] [--on ON] [--with TOGETHER] [--merged-into MERGED_INTO]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board} [repo] [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority}` |  |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board}` |  |  |
 | `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |
@@ -1548,6 +1549,9 @@ usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,
 | `--source` |  | `orchestrator` |
 | `--note` | a note for the worker (retry: the reviewer's notes) |  |
 | `--all` | list: also done and dropped tasks |  |
+| `--on` | link: the tasks it depends on, comma-separated ("" clears) (t243) |  |
+| `--with` | link: the tasks that go together with it, comma-separated ("" clears) |  |
+| `--merged-into` | link: the task it was folded into ("" clears) |  |
 
 ### `tutti lease`
 

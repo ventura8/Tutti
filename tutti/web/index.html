@@ -31,6 +31,7 @@
     <script src="setup.js?v=__TUTTI_VERSION__" defer></script>
     <script src="energy.js?v=__TUTTI_VERSION__" defer></script>
     <script src="queue.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="agents.js?v=__TUTTI_VERSION__" defer></script>
     <script src="household.js?v=__TUTTI_VERSION__" defer></script>
     <script src="userstab.js?v=__TUTTI_VERSION__" defer></script>
     <script src="where.js?v=__TUTTI_VERSION__" defer></script>
@@ -81,6 +82,7 @@
             <div class="nav-menu__panel" id="nav-menu-panel" hidden>
                 <a class="nav-menu__link" href="#chat" data-view="chat" aria-current="page">Chat</a>
                 <a class="nav-menu__link" href="#dashboard" data-view="dashboard">Dashboard</a>
+                <a class="nav-menu__link" href="#agents" data-view="agents">Agents</a>
                 <a class="nav-menu__link" href="#settings" data-view="settings">Settings</a>
                 <a class="nav-menu__link" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
             </div>
@@ -287,7 +289,8 @@
                         <h2 id="queued-h">Queued</h2>
                         <p class="card__meta" id="queued-meta"></p>
                     </header>
-                    <div id="queued" class="jobs"></div>
+                    <div id="idle-with-work" aria-live="polite"></div>
+              <div id="queued" class="jobs"></div>
                 </section>
             </div>
 
@@ -554,6 +557,11 @@
         <div id="users-manage"></div>
       </div>
 
+      <section id="agents-view" class="agents" aria-labelledby="agents-title" hidden>
+        <h2 id="agents-title">Agents</h2>
+        <p class="agents__lead">Every agent Tutti can use: the roles the config gives it and why, what it can do, its limits and what it does now.</p>
+        <div class="agents__grid" id="agents-grid"><p class="row__note">Loading…</p></div>
+      </section>
       <div id="settings-view" class="settings" hidden>
         <header class="settings__head">
             <h2 id="view-settings-title">Settings</h2>

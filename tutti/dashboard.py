@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from . import (
     __version__,
+    agentsview,
     aiassist,
     authweb,
     autocompact,
@@ -43,6 +44,7 @@ from . import (
     helper,
     householduse,
     httpguard,
+    idlecheck,
     joblog,
     keepon,
     local,
@@ -63,6 +65,7 @@ from . import (
     sleepwatch,
     state,
     stuck,
+    taskdetail,
     telemetry,
     transfer,
     trial,
@@ -331,6 +334,7 @@ class Collector:
         out['work_queue'] = workq.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
+        out['agents'] = agentsview.cards(self.cfg, out)   # the Agents tab (t252)
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)
@@ -360,6 +364,7 @@ class Collector:
         from . import waitlist  # the Queued list beside Running jobs: everything waiting and why
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
+        out['idle_with_work'] = idlecheck.find(out)   # t254: room somewhere while queued work waits, with the queue's reasons
         last = update.load(self.cfg)
         from . import diskroom
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)
@@ -1095,6 +1100,9 @@ def get(collector, path, token, headers):
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
         code, answer = layout_get(collector, headers)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    if path.startswith(taskdetail.API):   # a queued task's expanded row (t237): every signed-in viewer, like the Queued list
+        code, answer = taskdetail.get(collector.cfg, path)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     refused = authorize(collector, headers) if path in ADMIN_PATHS or path.startswith(joblog.API) else None
     if refused:

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from test_auth import jwks_doc, rsa_key
 
-from tutti import auth, config, dashboard, energy, pacing, routing, state
+from tutti import auth, backlog, config, dashboard, energy, pacing, routing, state
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLIENT = '1234567890-abcdefgh12345678.apps.googleusercontent.com'
@@ -76,6 +76,19 @@ def seed_jobs(cfg, now):
                 f.write(f'{rc}\n')
 
 
+def seed_backlog(cfg):
+    """One queued task with a long history, for the Queued list's expanded row (t237)."""
+    data = backlog.load(cfg)
+    task, _ = backlog.add(data, backlog.new_task('app', 'Fix the map legend on phones: it runs past the screen edge on narrow widths',
+                                                 scope=['web/legend.js'], check='npm test', size='M', source='mcp',
+                                                 notes=[f'A long note {i} about why the last attempt failed: ' + 'details ' * 12
+                                                        for i in range(10)]))
+    task['criteria'] = ['The legend fits a 360 px phone.', 'No text is cut off.']
+    task['attempts'] = [{'at': 1794856100 + i, 'step': 'cursor', 'ok': False, 'why': 'the check failed: ' + 'x' * 120,
+                         'signature': 'abc123', 'run': f'1794856100-{i}'} for i in range(3)]
+    backlog.save(cfg, data)
+
+
 def probe(machine):
     if machine.get('host') == 'gpu-box.example':
         return routing.Probe(True, 1, 1.75, 8, False, 61000, gpu_temp=55.5, mem_gb=11.333333333)
@@ -109,6 +122,7 @@ def main(folder):
     cfg = config.load(path)
     seed(cfg, datetime.now(timezone.utc))
     seed_jobs(cfg, datetime.now(timezone.utc))
+    seed_backlog(cfg)
     collector = dashboard.Collector(cfg, probe_fn=probe, available_fn=available, stored_fn=lambda m: None, reader=Readers(),
                                     activity_fn=lambda *a, **k: {}, prs_fn=lambda c: {}, readings_fn=lambda m, d: {'state': 'unreachable'},
                                     power_fn=power, ollama_fn=ollama)

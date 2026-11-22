@@ -10,7 +10,7 @@ others are read-only here. Pure but for the reads of the state files in `view`."
 import json
 import time
 
-from . import autopilot, backlog, config, dispatch, scouts, tasketa
+from . import autopilot, backlog, config, dispatch, scouts, taskdeps, tasketa
 
 ACTIONS = ('run', 'move', 'cancel', 'up', 'down')
 
@@ -25,6 +25,7 @@ def task_items(cfg, tasks, last):
     reason = (last or {}).get('reason') or 'the autopilot has not run a round yet'
     out = []
     history = tasketa.profiles(tasks)
+    blocked = taskdeps.holds(tasks)   # t243: known now, before the next round says it
     for t in tasks:
         if t.get('status') != 'queued' or backlog.is_question(t):
             continue
@@ -33,7 +34,8 @@ def task_items(cfg, tasks, last):
         out.append({**_project(cfg, config.project_of_repo(cfg, t['repo'])), 'kind': 'task', 'id': t['id'], 'title': t['title'][:160],
                     'size': t.get('size') or 'S', 'to': to, 'eta': 'unknown (may start next round)' if not waiting.get(t['id'])
                     else 'unknown (waiting for a condition)',
-                    'why': waiting.get(t['id']) or reason, 'rank': t.get('rank', 0), 'urgent': bool(t.get('urgent')),
+                    'why': blocked.get(t['id']) or waiting.get(t['id']) or reason, 'rank': t.get('rank', 0),
+                    'urgent': bool(t.get('urgent')),
                     'attempt_eta': tasketa.estimate(t, to, history, None), 'actions': list(ACTIONS)})
     return out
 

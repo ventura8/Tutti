@@ -97,6 +97,7 @@ tests/fixtures/sigstore/forged.sigstore.json
 tests/fixtures/sigstore/gh-verify-v0.5.2.json
 tests/run.py
 tests/test_absence.py
+tests/test_agentsview.py
 tests/test_aiassist.py
 tests/test_apibudget.py
 tests/test_apidoc.py
@@ -142,6 +143,7 @@ tests/test_hhjobs.py
 tests/test_hours.py
 tests/test_household.py
 tests/test_hygiene.py
+tests/test_idlecheck.py
 tests/test_intake.py
 tests/test_joblog.py
 tests/test_jobprogress.py
@@ -196,6 +198,8 @@ tests/test_shared_status.py
 tests/test_ship.py
 tests/test_slot.py
 tests/test_strangers.py
+tests/test_taskdeps.py
+tests/test_taskdetail.py
 tests/test_tasketa.py
 tests/test_telemetry.py
 tests/test_temps.py
@@ -218,6 +222,7 @@ tutti.config.example.yaml
 tutti/__init__.py
 tutti/adbhost.py
 tutti/adbpair.py
+tutti/agentsview.py
 tutti/aiassist.py
 tutti/apibudget.py
 tutti/apidoc.py
@@ -294,6 +299,7 @@ tutti/householduse.py
 tutti/httpguard.py
 tutti/hygiene.py
 tutti/hygienecheck.py
+tutti/idlecheck.py
 tutti/insights.py
 tutti/install.py
 tutti/intake.py
@@ -362,6 +368,8 @@ tutti/state.py
 tutti/statebudget.py
 tutti/stuck.py
 tutti/target.py
+tutti/taskdeps.py
+tutti/taskdetail.py
 tutti/tasketa.py
 tutti/telemetry.py
 tutti/telemetrycmd.py
@@ -380,6 +388,7 @@ tutti/waiting.py
 tutti/waitlist.py
 tutti/watchdog.py
 tutti/web/a11y.js
+tutti/web/agents.js
 tutti/web/app.css
 tutti/web/app.js
 tutti/web/attention.js

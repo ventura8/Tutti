@@ -98,6 +98,7 @@ include tests/fixtures/sigstore/forged.sigstore.json
 include tests/fixtures/sigstore/gh-verify-v0.5.2.json
 include tests/run.py
 include tests/test_absence.py
+include tests/test_agentsview.py
 include tests/test_aiassist.py
 include tests/test_apibudget.py
 include tests/test_apidoc.py
@@ -143,6 +144,7 @@ include tests/test_hhjobs.py
 include tests/test_hours.py
 include tests/test_household.py
 include tests/test_hygiene.py
+include tests/test_idlecheck.py
 include tests/test_intake.py
 include tests/test_joblog.py
 include tests/test_jobprogress.py
@@ -197,6 +199,8 @@ include tests/test_shared_status.py
 include tests/test_ship.py
 include tests/test_slot.py
 include tests/test_strangers.py
+include tests/test_taskdeps.py
+include tests/test_taskdetail.py
 include tests/test_tasketa.py
 include tests/test_telemetry.py
 include tests/test_temps.py
@@ -219,6 +223,7 @@ include tutti.config.example.yaml
 include tutti/__init__.py
 include tutti/adbhost.py
 include tutti/adbpair.py
+include tutti/agentsview.py
 include tutti/aiassist.py
 include tutti/apibudget.py
 include tutti/apidoc.py
@@ -295,6 +300,7 @@ include tutti/householduse.py
 include tutti/httpguard.py
 include tutti/hygiene.py
 include tutti/hygienecheck.py
+include tutti/idlecheck.py
 include tutti/insights.py
 include tutti/install.py
 include tutti/intake.py
@@ -363,6 +369,8 @@ include tutti/state.py
 include tutti/statebudget.py
 include tutti/stuck.py
 include tutti/target.py
+include tutti/taskdeps.py
+include tutti/taskdetail.py
 include tutti/tasketa.py
 include tutti/telemetry.py
 include tutti/telemetrycmd.py
@@ -381,6 +389,7 @@ include tutti/waiting.py
 include tutti/waitlist.py
 include tutti/watchdog.py
 include tutti/web/a11y.js
+include tutti/web/agents.js
 include tutti/web/app.css
 include tutti/web/app.js
 include tutti/web/attention.js
@@ -403,10 +412,10 @@ include tutti/web/icons/icon-maskable.svg
 include tutti/web/icons/icon.svg
 include tutti/web/icons/maskable-512.png
 include tutti/web/index.html
+include tutti/web/layout.js
 include tutti/web/login.html
 include tutti/web/login.js
 include tutti/web/manifest.webmanifest
-include tutti/web/layout.js
 include tutti/web/navmenu.js
 include tutti/web/needs.js
 include tutti/web/outside.js

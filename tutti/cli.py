@@ -49,6 +49,7 @@ from . import (
     selfimprove,
     ship,
     state,
+    taskdeps,
     telemetry,
     telemetrycmd,
     transfer,
@@ -1329,11 +1330,31 @@ def cmd_backlog(cfg, a):
         if a.action == 'list':
             print(backlog.listing(backlog.load(cfg), a.all))
             return 0
+        if a.action in ('deps', 'board'):
+            return backlog_deps(backlog.load(cfg), a)
         with backlog.locked(cfg) as data:
             return backlog_change(cfg, a, data)
-    except backlog.BacklogError as e:
+    except (backlog.BacklogError, taskdeps.DepError) as e:
         say(str(e))
         return 2
+
+
+def backlog_deps(data, a):
+    """`tutti backlog deps <id>`: what a task waits for, goes with and is needed by; `board`: the Blocked / Ready / Grouped lanes."""
+    tasks = data['tasks']
+    if a.action == 'board':
+        lanes = taskdeps.lanes(tasks)
+        for name in ('blocked', 'ready', 'grouped'):
+            print(f'{name.capitalize()} ({len(lanes[name])}): ' + (', '.join(lanes[name]) or 'none'))
+        return 0
+    task = backlog.find(data, a.repo)
+    print(f'{task["id"]} ({task["status"]}): {task["title"][:90]}')
+    print('\n'.join(taskdeps.describe(task, tasks)) or 'No dependencies, groups or merges.')
+    return 0
+
+
+def split_ids(value):
+    return None if value is None else [i.strip() for i in value.split(',') if i.strip()]
 
 
 def backlog_change(cfg, a, data):
@@ -1344,6 +1365,11 @@ def backlog_change(cfg, a, data):
         candidate['check_explicit'] = bool(a.check)
         task, new = backlog.add(data, candidate)
         print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
+    elif a.action == 'link':
+        if a.on is None and a.together is None and a.merged_into is None:
+            raise backlog.BacklogError(f'link: say what to set: tutti backlog link {a.repo} --on t1,t2 [--with t3] [--merged-into t4]')
+        task = taskdeps.link(data['tasks'], a.repo, split_ids(a.on), split_ids(a.together), a.merged_into)
+        print(f'{task["id"]}: ' + ('; '.join(taskdeps.describe(task, data['tasks'])) or 'no links'))
     elif a.action == 'seed':
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
         print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
@@ -2120,7 +2146,8 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'priority'])
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'priority',
+                                      'deps', 'link', 'board'])
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
@@ -2131,6 +2158,9 @@ def parser():
     s.add_argument('--source', default='orchestrator')
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
+    s.add_argument('--on', help='link: the tasks it depends on, comma-separated ("" clears) (t243)')
+    s.add_argument('--with', dest='together', help='link: the tasks that go together with it, comma-separated ("" clears)')
+    s.add_argument('--merged-into', help='link: the task it was folded into ("" clears)')
     s = add('lease', cmd_lease, 'a session\'s lease on a machine or a device for a task (docs/INTAKE.md): claim, release, list')
     s.add_argument('action', nargs='?', default='list', choices=['claim', 'release', 'list'])
     s.add_argument('kind', nargs='?', choices=['machine', 'device'])

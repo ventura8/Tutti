@@ -166,6 +166,19 @@ class ClaudeWorker(Base):
         self.assertIn('panic', why)
         self.assertEqual(autopilot.candidates(cfg, self.task(cfg, 't2')), ['claude'])   # only the claude account runs it later
 
+    def test_a_blocked_task_is_never_dispatched(self):
+        # t243: `tutti run claude` finds the same queued task; a dependency still open holds it
+        cfg = self.cfg()
+        with backlog.locked(cfg) as data:
+            other, _ = backlog.add(data, backlog.new_task('app', 'First this', check='true'))
+            mine, _ = backlog.add(data, {**backlog.new_task('app', 'Check the map by eye', check='true'), 'pin': 'worker:claude'})
+            mine['depends_on'] = [other['id']]
+        started = []
+        tid, run, why = claudework.start(cfg, 'app', 'Check the map by eye', state_fn=lambda c, n: {'name': n, 'verdict': 'behind'},
+                                         dispatch_fn=lambda *a: started.append(a))
+        self.assertEqual((tid, run, started), (mine['id'], None, []))
+        self.assertIn(f'blocked until {other["id"]}', why)
+
     def test_no_claude_account_or_unknown_repo_is_refused(self):
         cfg = self.cfg()
         with self.assertRaises(claudework.ClaudeError):

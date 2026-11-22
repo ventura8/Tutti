@@ -23,7 +23,8 @@ class NavMenuMarkup(unittest.TestCase):
         self.assertIn('class="nav-menu" aria-label="Views"', self.html)
         panel = self.html.split('id="nav-menu-panel"', 1)[1].split('</div>', 1)[0]
         views = re.findall(r'href="#([a-z]+)" data-view="([a-z]+)"', panel)
-        self.assertEqual(views, [('chat', 'chat'), ('dashboard', 'dashboard'), ('settings', 'settings'), ('users', 'users')])
+        self.assertEqual(views, [('chat', 'chat'), ('dashboard', 'dashboard'), ('agents', 'agents'),
+                                 ('settings', 'settings'), ('users', 'users')])
         self.assertIn('navmenu.js?v=', self.html)
 
     def test_script_closes_on_escape_and_exports_helpers(self):

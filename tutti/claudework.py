@@ -6,7 +6,7 @@ policy, a retry or a parked question. Pure: account_of, verdict_of; I/O: start."
 import time
 from datetime import datetime, timezone
 
-from . import autopilot, backlog, pacing, state
+from . import autopilot, backlog, pacing, state, taskdeps
 
 WORKER = 'claude'
 NO_ROOM = ('panic', 'spent')
@@ -57,5 +57,8 @@ def start(cfg, repo, title, size='S', check='', notes=(), now=None, state_fn=Non
             return task['id'], task.get('run'), f'already in the backlog as {task["status"]}'
         if go != 'start':
             return task['id'], None, why
+        held = taskdeps.holds(data['tasks']).get(task['id'])   # t243: blocked by a dependency, or merged into another
+        if held:
+            return task['id'], None, held
         run = (dispatch_fn or autopilot.dispatch)(cfg, task, name, now)
     return task['id'], run, why

@@ -78,7 +78,18 @@ function haNodes(d) {
     return [el('p', { class: 'row__name', text: `${h.name} · ${h.address}` }),
         el('p', { class: 'row__note', text: [h.online ? 'online' : 'offline', h.version && `version ${h.version}`, h.time_zone].filter(Boolean).join(' · ') }),
         el('p', { class: 'row__note', text: `Roles: ${h.roles.map((r) => r.role).join(', ')}` }),
+        ...haOverview(h.overview),
         h.problem ? el('p', { class: 'row__note', role: 'status', text: h.problem }) : null].filter(Boolean);
+}
+
+// t233: who is home, power now and the biggest users, and each Tutti machine's own plug
+function haOverview(o) {
+    if (!o) return [];
+    const people = o.people.map((p) => `${p.name} ${p.home ? 'home' : 'away'}`).join(', ');
+    const machines = Object.entries(o.machines).map(([m, w]) => `${m} ${w} W`).join(', ');
+    return [people && el('p', { class: 'row__note', text: `People: ${people}` }),
+        el('p', { class: 'row__note', text: `Power now: ${o.power_w} W from ${o.sensors} sensors · ${o.top.map((t) => `${t.name} ${t.w} W`).join(', ')}` }),
+        machines && el('p', { class: 'row__note', text: `Tutti machines: ${machines}` })].filter(Boolean);
 }
 
 async function loadHa() {

@@ -55,6 +55,11 @@ prints or sends it elsewhere. Without a token the card still says whether the ad
 address or an instance that is off each say what to do. Over mDNS (`_home-assistant._tcp`) an instance not configured
 yet shows on the **Discovered** tab with the same role; the configured one is left out there.
 
+With a token the card also shows (t233, from `/api/states`) who is home (each `person.*`), the power in use now (every
+power sensor, unavailable ones left out) with the biggest users, and each Tutti machine's own plug: a power sensor whose
+id has the machine's name as a word (`sensor.nuc_plug_power` is `nuc`'s), or the one `home_assistant.plugs.<machine>`
+names, e.g. `{w5090: sensor.pc_plug_power}`.
+
 ## Set up a found computer
 
 A computer on the **Discovered** tab has **Set up**: one command to run in a terminal here (t225, `tutti/hostsetup.py`):

@@ -33,7 +33,7 @@ class Status(unittest.TestCase):
             seen.append((url, token))
             return DOC
         d = homeassistant.status(CFG, fetch, token_fn=lambda name: 'tok' if name == 'TUTTI_HA_TOKEN' else '')
-        self.assertEqual(seen, [('http://ha.example:8123/api/config', 'tok')])
+        self.assertEqual(seen, [('http://ha.example:8123/api/config', 'tok'), ('http://ha.example:8123/api/states', 'tok')])
         item = d['item']
         self.assertEqual((item['name'], item['address'], item['online'], item['version']), ('Home', 'ha.example', True, '2026.11.1'))
         self.assertEqual(item['roles'][0]['role'], 'home-automation-hub')
@@ -105,6 +105,37 @@ class Lookup(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+STATES = [
+    {'entity_id': 'person.owner', 'state': 'home', 'attributes': {'friendly_name': 'Owner'}},
+    {'entity_id': 'person.guest', 'state': 'not_home', 'attributes': {'friendly_name': 'Guest'}},
+    {'entity_id': 'sensor.nuc_plug_power', 'state': '81.3', 'attributes': {'device_class': 'power', 'unit_of_measurement': 'W',
+                                                                           'friendly_name': 'NUC Plug NUC Plug Power'}},
+    {'entity_id': 'sensor.pc_plug_power', 'state': '0.35', 'attributes': {'device_class': 'power', 'unit_of_measurement': 'kW'}},
+    {'entity_id': 'sensor.pi5_plug_power', 'state': 'unavailable', 'attributes': {'device_class': 'power', 'unit_of_measurement': 'W'}},
+    {'entity_id': 'sensor.nuc_plug_energy', 'state': '173', 'attributes': {'device_class': 'energy', 'unit_of_measurement': 'kWh'}},
+]
+
+
+class Overview(unittest.TestCase):
+    def test_people_power_and_each_machines_plug(self):
+        o = homeassistant.overview(STATES, ['nuc', 'w5090', 'pi5'], {'w5090': 'sensor.pc_plug_power'})
+        self.assertEqual(o['people'], [{'name': 'Owner', 'home': True}, {'name': 'Guest', 'home': False}])
+        self.assertEqual((o['power_w'], o['sensors']), (431, 2))   # kW read as W; unavailable and energy left out
+        self.assertEqual(o['top'][0], {'name': 'pc plug', 'w': 350})
+        self.assertEqual(o['top'][1]['name'], 'NUC Plug')   # "NUC Plug NUC Plug" said once
+        self.assertEqual(o['machines'], {'nuc': 81.3, 'w5090': 350.0})   # by name, and by the config's plugs
+        self.assertEqual(homeassistant.overview('junk'), {'people': [], 'power_w': 0, 'top': [], 'machines': {}, 'sensors': 0})
+
+    def test_a_failed_states_read_keeps_the_card(self):
+        def fetch(url, token):
+            if url.endswith('/api/states'):
+                raise OSError('timed out')
+            return DOC
+        d = homeassistant.status(CFG, fetch, token_fn=lambda n: 'tok')
+        self.assertEqual(d['item']['version'], '2026.11.1')
+        self.assertIn('people and power could not be read', d['item']['problem'])
+
+
 class Found(unittest.TestCase):
     def test_mdns_names_it_and_discovered_leaves_out_the_configured_one(self):
         self.assertEqual(lanmedia.SERVICES['_home-assistant._tcp'], 'home-automation-hub')
@@ -119,11 +150,12 @@ class Found(unittest.TestCase):
         stub = ('function el(tag, attrs, ...kids) { return { tag, attrs: attrs || {}, kids: kids.flat() }; }\n'
                 "function text(n) { return typeof n === 'string' ? n : n ? "
                 "[(n.attrs || {}).text || '', ...(n.kids || []).map(text)].join(' ') : ''; }\n")
-        on = homeassistant.status(CFG, lambda u, t: DOC, token_fn=lambda n: 'tok')
+        on = homeassistant.status(CFG, lambda u, t: STATES if u.endswith('/api/states') else DOC, token_fn=lambda n: 'tok')
         js = (f'{stub}\n{src}\nconsole.log(JSON.stringify([haNodes({json.dumps(on)}).map(text).join(" "), '
               f'haNodes({{configured: false}}).map(text).join(" ")]));')
         shown, off = json.loads(subprocess.run(['node', '-e', js], capture_output=True, text=True, check=True).stdout)
-        for part in ('Home · ha.example', 'online · version 2026.11.1', 'Roles: home-automation-hub'):
+        for part in ('Home · ha.example', 'online · version 2026.11.1', 'Roles: home-automation-hub', 'People: Owner home',
+                     'Power now: 431 W'):
             self.assertIn(part, shown)
         self.assertIn('home-assistant.env', off)
 

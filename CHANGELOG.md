@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.32.0 (2026-11-22)
+## Unreleased
 
 ### Added
 
@@ -9,11 +9,15 @@
   `--wait` waits (docs/FLEET.md, *May it run*).
 - Heat watchdog: at `heat.stop_c` the dispatch round throttles (`docker update --cpus`, `heat.throttle_cpus`) or stops
   (`heat.on_stop: stop`) only Tutti's containers (the machine's `containers` prefixes).
+- Machines tab (t233): the Home Assistant card shows who is home, the power in use now with the biggest users, and each
+  Tutti machine's own plug (found by name, or `home_assistant.plugs`) (docs/MACHINES.md, *Home Assistant*).
 
 ### Fixed
 
 - A paused or hot machine took runs that bypassed routing: `tutti test --on` with a Windows tree and `--device` on a paused
   or too-hot machine now refuse.
+- Scouts: a scout's diff whose hunk headers miscount their lines (a model's common slip) still applies (`git apply
+  --recount`); the first real Grok patch, t259, had one.
 
 ## 0.31.11 (2026-11-22)
 

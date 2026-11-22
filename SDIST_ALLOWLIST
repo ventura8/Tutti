@@ -137,6 +137,7 @@ tests/test_files.py
 tests/test_fill.py
 tests/test_fleet.py
 tests/test_github.py
+tests/test_grokpatch.py
 tests/test_groksetup.py
 tests/test_helper_parse.py
 tests/test_hhjobs.py
@@ -286,6 +287,7 @@ tutti/fill.py
 tutti/fleet.py
 tutti/github.py
 tutti/githubcmd.py
+tutti/grokpatch.py
 tutti/groksetup.py
 tutti/grokweek.py
 tutti/guided.py

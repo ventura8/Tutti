@@ -27,6 +27,7 @@ from . import (
     delegate,
     durable,
     github,
+    grokpatch,
     pacing,
     planner,
     priority,
@@ -2292,6 +2293,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             events += depbots.apply(cfg, data, sec)
         hold_unready_bridge(hold, data['tasks'], bridge_problem)
         hold.update({i: why for i, why in taskdeps.holds(data['tasks']).items() if i not in hold})   # t243: blocked or merged
+        hold.update({i: why for i, why in grokpatch.holds(data['tasks']).items() if i not in hold})   # t206: a scout drafts it
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc), hold)
         elapsed = monotonic() - started_at
         filter_scoped_dispatch(cfg, data, shared, p, machines, cfg['_now'] + timedelta(seconds=max(0, elapsed)), elapsed)

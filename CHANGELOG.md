@@ -4,6 +4,9 @@
 
 ### Added
 
+- Scouts (t206): a scout drafts a backlog task as one diff (`tutti scout patch <task>`); Tutti keeps it only when it stays
+  in scope, applies it at the base in its own worktree and runs the check (`tutti scout apply <task>`), and sends a failure
+  back once. Grok agreed to the contract; it never pushes, builds or tests (docs/SCOUTS.md, *Patches*).
 - Chat (t304): **Terminal** and **Browser** panels, hidden until their buttons: Terminal follows the log of this chat's
   work (admin-only `GET /api/job-log/<id>`, listed jobs only, scrubbed), Browser opens chat links in a sandbox. Bare URLs
   are links, host paths copy on click, and Markdown, HTML, SVG and JSON code blocks have **Preview** (docs/CHAT.md).

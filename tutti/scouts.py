@@ -346,12 +346,12 @@ def find(data, rid):
     raise ScoutError(f'no scout request {rid}: `tutti scout list` shows them')
 
 
-def new_request(data, sc, task, kind='ask', watch=None, repo=None, skill=None, now=None):
+def new_request(data, sc, task, kind='ask', watch=None, repo=None, skill=None, now=None, limit=4000):
     if not task.strip():
         raise ScoutError('a scout task needs words: what to find out, watch or draft')
     rid = f's{data["next"]}'
     data['next'] += 1
-    r = {'id': rid, 'scout': sc['name'], 'kind': kind, 'watch': watch, 'task': task.strip()[:4000], 'skill': skill,
+    r = {'id': rid, 'scout': sc['name'], 'kind': kind, 'watch': watch, 'task': task.strip()[:limit], 'skill': skill,
          'repo': repo or sc['reply']['github_repo'], 'status': 'queued', 'added': now or time.time()}
     data['requests'].append(r)
     return r
@@ -466,7 +466,7 @@ def collect(sc, r, gh_fn=gh, now=None):
                         f'to {r["repo"]}; if the scout posts as it, set scouts.{sc.get("name", "<name>")}.github_login: <that login>')
     if found:
         r.update(status='answered', answer=found[0], answered_by=found[1], answered=now)
-        if r['kind'] == 'ask':   # a watch's issue stays open for the orchestrator to triage
+        if r['kind'] in ('ask', 'patch'):   # a watch's issue stays open for the orchestrator to triage
             gh_fn(['issue', 'close', str(r['issue']), '--repo', r['repo'], '--reason', 'completed'])
     elif now - r['sent'] > float(sc['give_up_hours']) * 3600:
         r.update(status='timeout', why=f'no answer in {sc["give_up_hours"]} h: look at the Grok Bot chat for the run\'s error')
@@ -573,9 +573,12 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
             answers = spendrest.second_answers(data)
             from . import aiassist
             ai_answers = aiassist.answered(data)   # fed below, outside the scouts' lock
+            from . import grokpatch
+            patches = grokpatch.answered(data)   # t206: a scout's diffs, kept on their tasks below
             left = spendrest.room(sc, data, acc, sent + n, now) if acc else 0
         events += spendrest.feed_seconds(cfg, answers)   # the backlog's lock: never inside the scouts' lock
         events += aiassist.feed(cfg, ai_answers, now)
+        events += grokpatch.feed(cfg, patches)
         events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
     return events
 

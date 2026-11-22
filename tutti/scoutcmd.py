@@ -4,7 +4,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import review, scouts, state, trial
+from . import backlog, grokpatch, review, scouts, state, trial
 from .review import gh
 
 
@@ -123,8 +123,37 @@ def _setup(cfg, a, gh_fn, post_fn):
 
 def run(cfg, a, gh_fn=gh, post_fn=scouts.post):
     actions = {'list': _list, 'setup': _setup, 'ask': _ask, 'answer': _answer, 'watch': _watch, 'tick': _tick,
-               'review': review_pr, 'trial': lambda c, x, g, _p: trial_cmd(c, x, g)}
+               'review': review_pr, 'trial': lambda c, x, g, _p: trial_cmd(c, x, g), 'patch': _patch, 'apply': _apply}
     return actions[a.action](cfg, a, gh_fn, post_fn)
+
+
+def _patch(cfg, a, gh_fn=gh, post_fn=scouts.post):
+    """`tutti scout patch <task> [--via <scout>]`: the scout drafts the task as one diff (t206, docs/SCOUTS.md, *Patches*)."""
+    if not a.scout:
+        raise scouts.ScoutError('usage: tutti scout patch <task id> [--via <scout>]')
+    name = scout_name(cfg, a.via)
+    failure = ((backlog.find(backlog.load(cfg), a.scout).get('patch') or {}).get('failure'))
+    try:
+        r = grokpatch.ask(cfg, a.scout, name, gh_fn, post_fn, failure=failure)
+    except grokpatch.PatchError as e:
+        raise scouts.ScoutError(str(e)) from e
+    print(f'{r["id"]} sent: {name} drafts {a.scout} as one diff ({r.get("url")}). The scout round keeps its diff; then '
+          f'`tutti scout apply {a.scout}`' + (' (second try, with the failing output)' if failure else ''))
+    return 0
+
+
+def _apply(cfg, a, _gh_fn=gh, _post_fn=scouts.post):
+    """`tutti scout apply <task>`: the scout's diff applied at its base in a worktree of its own, then the check."""
+    if not a.scout:
+        raise scouts.ScoutError('usage: tutti scout apply <task id>')
+    try:
+        ok, wt, out = grokpatch.apply(cfg, a.scout)
+    except grokpatch.PatchError as e:
+        raise scouts.ScoutError(str(e)) from e
+    print(out[-2000:])
+    print(f'{a.scout}: {"the check passed" if ok else "the check failed"} in {wt}'
+          + (f' (branch grok/{a.scout}: review and land it)' if ok else ''))
+    return 0 if ok else 1
 
 
 def scout_name(cfg, via, want_trial=False):

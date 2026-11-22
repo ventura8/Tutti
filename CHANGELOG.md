@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- A WSL machine its owner paused is no longer probed (each probe's ssh restarted its Linux VM, e.g. during a disk
+  compaction); `tutti may-run` never probes a paused machine.
 - A paused or hot machine took runs that bypassed routing: `tutti test --on` with a Windows tree and `--device` on a paused
   or too-hot machine now refuse.
 - Scouts: a scout's diff whose hunk headers miscount their lines (a model's common slip) still applies (`git apply

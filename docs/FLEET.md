@@ -277,3 +277,6 @@ minute. `tutti test --on`, a device's machine and a Windows-tree run make the sa
 Each dispatch round, a machine at or above `heat.stop_c` gets its Tutti containers throttled
 (`docker update --cpus <heat.throttle_cpus>`, default 1) or, with `heat.on_stop: stop`, stopped. Only containers whose names
 start with one of the machine's `containers` prefixes (default `tutti-`) are touched; the owner's other containers never.
+
+A WSL machine its owner paused is never probed (an ssh into WSL starts its Linux VM again); it shows as not reachable until
+it is resumed. A heat pause is still probed, so it clears when the machine cools.

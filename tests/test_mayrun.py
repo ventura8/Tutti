@@ -56,6 +56,20 @@ class Pick(unittest.TestCase):
         self.assertIn('nuc: unreachable', str(e.exception))
         self.assertIn('ghost: not a machine', str(e.exception))
 
+    def test_a_paused_machine_is_not_probed(self):
+        ms = {**machines(), 'pc': {'name': 'pc', 'slots': 1, 'paused': {'by': 'owner (cli)', 'at': NOW}}}
+        asked = []
+        with self.assertRaises(mayrun.Refused):
+            mayrun.pick(ms, ['pc'], lambda n: asked.append(n) or COOL, {}, 'me', NOW)
+        self.assertEqual(asked, [])
+
+    def test_paused_wsl_is_not_reached_but_a_heat_pause_is(self):
+        from tutti import remote
+        self.assertTrue(remote.asleep_on_purpose({'transport': 'wsl', 'paused': {'by': 'owner (cli)'}}))
+        self.assertFalse(remote.asleep_on_purpose({'transport': 'wsl', 'paused': {'by': 'owner (heat)'}}))
+        self.assertFalse(remote.asleep_on_purpose({'transport': 'ssh', 'paused': {'by': 'owner (cli)'}}))
+        self.assertFalse(remote.probe({'name': 'pc', 'transport': 'wsl', 'paused': {'by': 'x (cli)'}}).reachable)
+
     def test_claim_and_release(self):
         leases = {'old': {'machine': 'pc', 'who': 'z', 'until': NOW - 5}}
         lid = mayrun.claim(leases, 'pc', 'ship.sh', 10, NOW, token='t1')

@@ -127,6 +127,7 @@ tests/test_devclass.py
 tests/test_devicecard.py
 tests/test_devices.py
 tests/test_devpair.py
+tests/test_discovered.py
 tests/test_diskroom.py
 tests/test_dispatch.py
 tests/test_doctor.py
@@ -202,6 +203,7 @@ tests/test_strangers.py
 tests/test_taskdeps.py
 tests/test_taskdetail.py
 tests/test_tasketa.py
+tests/test_tasklist.py
 tests/test_telemetry.py
 tests/test_temps.py
 tests/test_tz.py
@@ -274,6 +276,7 @@ tutti/devicescmd.py
 tutti/devicesweb.py
 tutti/devmove.py
 tutti/discover.py
+tutti/discovered.py
 tutti/diskroom.py
 tutti/dispatch.py
 tutti/doctor.py
@@ -373,6 +376,7 @@ tutti/target.py
 tutti/taskdeps.py
 tutti/taskdetail.py
 tutti/tasketa.py
+tutti/tasklist.py
 tutti/telemetry.py
 tutti/telemetrycmd.py
 tutti/tiers.py
@@ -399,6 +403,7 @@ tutti/web/chatctl.js
 tutti/web/connect.js
 tutti/web/controls.js
 tutti/web/devices.js
+tutti/web/discovered.js
 tutti/web/energy.js
 tutti/web/format.js
 tutti/web/github.js
@@ -427,6 +432,7 @@ tutti/web/roles.js
 tutti/web/settings.js
 tutti/web/setup.js
 tutti/web/sw.js
+tutti/web/tasks.js
 tutti/web/telemetry.js
 tutti/web/update.js
 tutti/web/users.js

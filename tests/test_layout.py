@@ -33,14 +33,18 @@ class Order(unittest.TestCase):
                                  'connect', 'outside', 'where', 'setup', 'controls',
                                  'selfimprove', 'aiassist', 'insights', 'jobs', 'vpn', 'users'])
 
-    def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):
-        # the served page: online agents' usage cards, then Local models, then "You and the main agent" (#owner)
+    def test_usage_shows_the_accounts_then_local_models_and_the_owner_is_on_the_schedule_tab(self):
+        # the served page: online agents' usage cards, then Local models; the owner's panel (#owner) moved to Schedule (t281)
         _, page, _, _ = dashboard.route(dashboard.Collector(config.normalise({}), reader=object()), '/', 'tok')
         page = page.decode()
         usage = page[page.index('id="usage-h"'):page.index('id="attention-h"')]
         # whole ids: id="usage" is not id="usage-h"
-        at = [usage.index(x) for x in ('id="usage" ', 'id="local-h" ', 'id="local-models" ', 'id="owner" ')]
+        at = [usage.index(x) for x in ('id="usage" ', 'id="local-h" ', 'id="local-models" ')]
         self.assertEqual(at, sorted(at))
+        self.assertNotIn('id="owner"', usage)
+        schedule = page[page.index('id="schedule-view"'):page.index('id="agents-view"')]
+        for part in ('id="owner" ', 'id="my-schedule" '):
+            self.assertIn(part, schedule)
         # Settings follows the same order: accounts, then energy, then the main agent
         names = [s[0] for s in settings_schema.SECTIONS]
         self.assertLess(names.index('accounts'), names.index('energy'))

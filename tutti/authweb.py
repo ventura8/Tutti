@@ -23,7 +23,7 @@ LOGIN_PAGES = ('/login', '/invite')
 USERS, LOGOUT, LOGIN, INVITES = '/api/auth/users', '/api/auth/logout', '/api/auth/login', '/api/auth/invites'
 DEVICE_START, DEVICE_POLL = '/api/auth/device/start', '/api/auth/device/poll'
 SCHEDULE = '/api/me/schedule'   # every user's own schedule (viewers included); anyone's for an admin
-ADMIN_GET = ('/api/settings', '/settings', '/helper', USERS, '/api/job-log/')   # job logs (t304): an admin's
+ADMIN_GET = ('/api/settings', '/settings', '/helper', USERS, '/api/job-log/', '/api/discovered')   # job logs (t304): an admin's
 # a viewer may POST these; each handler checks its own target (auth.may_act_for: one's own, or an admin for anyone)
 # /api/chat: every user's own conversations; each action has its own role checks (tutti/chat.py)
 VIEWER_POST = (LOGOUT, '/api/telemetry', '/api/report', '/api/github', SCHEDULE, '/api/user/main-machine', '/api/users/manage',

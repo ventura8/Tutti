@@ -32,6 +32,8 @@
     <script src="energy.js?v=__TUTTI_VERSION__" defer></script>
     <script src="queue.js?v=__TUTTI_VERSION__" defer></script>
     <script src="agents.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="tasks.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="discovered.js?v=__TUTTI_VERSION__" defer></script>
     <script src="household.js?v=__TUTTI_VERSION__" defer></script>
     <script src="userstab.js?v=__TUTTI_VERSION__" defer></script>
     <script src="where.js?v=__TUTTI_VERSION__" defer></script>
@@ -82,6 +84,11 @@
             <div class="nav-menu__panel" id="nav-menu-panel" hidden>
                 <a class="nav-menu__link" href="#chat" data-view="chat" aria-current="page">Chat</a>
                 <a class="nav-menu__link" href="#dashboard" data-view="dashboard">Dashboard</a>
+                <a class="nav-menu__link" href="#tasks" data-view="tasks">Tasks</a>
+                <a class="nav-menu__link" href="#schedule" data-view="schedule">Schedule</a>
+                <a class="nav-menu__link" href="#devices" data-view="devices">Devices</a>
+                <a class="nav-menu__link" href="#machines" data-view="machines">Machines</a>
+                <a class="nav-menu__link" href="#discovered" data-view="discovered" data-admin>Discovered</a>
                 <a class="nav-menu__link" href="#agents" data-view="agents">Agents</a>
                 <a class="nav-menu__link" href="#settings" data-view="settings">Settings</a>
                 <a class="nav-menu__link" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
@@ -235,8 +242,6 @@
                     <p class="card__meta" id="local-meta">All figures are estimates; open "how they are made" on a card.</p>
                     <div id="local-models" class="accounts" tabindex="0" role="group" aria-label="Local models: scroll sideways for more on a small screen"></div>
                 </div>
-                <!-- The owner's own prompting after both kinds of usage: subscription accounts, then local models. -->
-                <div id="owner" class="owner"></div>
             </section>
 
             <!-- Machines directly below Usage & pacing (the owner, 2026-11-14) -->
@@ -462,23 +467,6 @@
                 <div id="insights" class="autopilot"></div>
             </section>
 
-            <!-- viewer-safe: every signed-in user changes their own schedule here (the server allows only their own) -->
-            <section class="card span-full view-ok" id="my-schedule" aria-labelledby="my-schedule-h" hidden data-layout-id="my-schedule">
-                <header class="card__head">
-                    <h2 id="my-schedule-h">My schedule</h2>
-                    <p class="card__meta">Your working days and hours, and whether you are away: your own main agent is paced by them.</p>
-                </header>
-                <form id="my-schedule-form" class="row">
-                    <fieldset class="row__stats" id="my-days"><legend class="row__note">Working days</legend></fieldset>
-                    <label class="row__stats">Hours (local, HH-HH) <input id="my-window" type="text" pattern="\d{2}-\d{2}" size="6" required></label>
-                    <label class="row__stats">Hours a day <input id="my-hours" type="number" min="1" max="24" step="1" required></label>
-                    <label class="row__stats">Mode <select id="my-mode"><option value="auto">Auto</option><option value="active">Active</option>
-                        <option value="away">Away today</option><option value="vacation">On vacation until…</option></select></label>
-                    <label class="row__stats" id="my-until-label" hidden>Until <input id="my-until" type="date"></label>
-                    <span class="row__stats"><button class="btn btn--filled" type="submit">Save my schedule</button></span>
-                    <p class="row__note" id="my-schedule-note" aria-live="polite"></p>
-                </form>
-            </section>
 
 
             <!-- viewer-safe: each user's own questions and when they reach them (needs.js, docs/NEEDS.md) -->
@@ -559,6 +547,54 @@
         <div id="users-manage"></div>
       </div>
 
+ <section id="tasks-view" class="agents" aria-labelledby="tasks-title" hidden>
+        <h2 id="tasks-title">Tasks</h2>
+        <p class="agents__lead">Every backlog task by status, P0 first. A task opens to everything it has.</p>
+        <div class="tasks__tabs" role="tablist" aria-label="Task status" id="tasks-tabs"></div>
+        <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-title"><p class="row__note">Loading…</p></div>
+      </section>
+      <section id="schedule-view" class="agents" aria-labelledby="schedule-title" hidden>
+        <h2 id="schedule-title">Schedule</h2>
+        <p class="agents__lead">When you work and when you are away: Tutti paces your agents and keeps the reserve by it.</p>
+        <!-- the owner's prompting (admin): mode, away until, I'm back, the learned week, one day's hours (app.js ownerPanel) -->
+        <section class="card" data-admin aria-label="The household's owner"><div id="owner" class="owner"></div></section>
+            <!-- viewer-safe: every signed-in user changes their own schedule here (the server allows only their own) -->
+            <section class="card span-full view-ok" id="my-schedule" aria-labelledby="my-schedule-h" hidden>
+                <header class="card__head">
+                    <h2 id="my-schedule-h">My schedule</h2>
+                    <p class="card__meta">Your working days and hours, and whether you are away: your own main agent is paced by them.</p>
+                </header>
+                <form id="my-schedule-form" class="row">
+                    <fieldset class="row__stats" id="my-days"><legend class="row__note">Working days</legend></fieldset>
+                    <label class="row__stats">Hours (local, HH-HH) <input id="my-window" type="text" pattern="\d{2}-\d{2}" size="6" required></label>
+                    <label class="row__stats">Hours a day <input id="my-hours" type="number" min="1" max="24" step="1" required></label>
+                    <label class="row__stats">Mode <select id="my-mode"><option value="auto">Auto</option><option value="active">Active</option>
+                        <option value="away">Away today</option><option value="vacation">On vacation until…</option></select></label>
+                    <label class="row__stats" id="my-until-label" hidden>Until <input id="my-until" type="date"></label>
+                    <span class="row__stats"><button class="btn btn--filled" type="submit">Save my schedule</button></span>
+                    <p class="row__note" id="my-schedule-note" aria-live="polite"></p>
+                </form>
+            </section>
+      </section>
+      <section id="devices-view" class="agents" aria-labelledby="devices-title" hidden>
+        <h2 id="devices-title">Devices and their settings</h2>
+        <p class="agents__lead">Every device and its settings: brightness, volume, roles, keep-awake, resume delay, enabled. Admins change them here; the change is saved into the config. <a class="link view-ok" href="#dashboard">Live state on the Dashboard</a></p>
+        <p class="row__note view-ok" data-viewer-only>Only an admin sees and changes these settings.</p>
+        <div id="devices-settings" class="settings__body" data-admin></div>
+      </section>
+      <section id="machines-view" class="agents" aria-labelledby="machines-title" hidden>
+        <h2 id="machines-title">Machines and their settings</h2>
+        <p class="agents__lead">Every machine and its settings: roles, quiet hours, presence, sensors, local models, resume delay. Admins change them here; the change is saved into the config. <a class="link view-ok" href="#dashboard">Live state on the Dashboard</a></p>
+        <p class="row__note view-ok" data-viewer-only>Only an admin sees and changes these settings.</p>
+        <div id="machines-settings" class="settings__body" data-admin></div>
+      </section>
+      <section id="discovered-view" class="agents" aria-labelledby="discovered-title" hidden>
+        <h2 id="discovered-title">Discovered</h2>
+        <p class="agents__lead">Devices and computers on the network that Tutti has not set up yet: what each seems to be, its roles now and the roles it could take. Checked again every minute while this tab is open.</p>
+        <p class="row__note view-ok" data-viewer-only>Only an admin sees what is on the network.</p>
+        <p data-admin><button class="btn btn--tonal" type="button" id="discovered-refresh">Look again</button> <span class="row__note" id="discovered-meta" aria-live="polite"></span></p>
+        <ul id="discovered-list" class="list" data-admin></ul>
+      </section>
       <section id="agents-view" class="agents" aria-labelledby="agents-title" hidden>
         <h2 id="agents-title">Agents</h2>
         <p class="agents__lead">Every agent Tutti can use: the roles the config gives it and why, what it can do, its limits and what it does now.</p>

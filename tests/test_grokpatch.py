@@ -138,6 +138,13 @@ class RoundTrip(unittest.TestCase):
         self.assertTrue(self.task()['patch']['second'])
         subprocess.run(['git', '-C', self.repo, 'worktree', 'remove', '--force', wt], check=True)
 
+    def test_a_diff_whose_hunk_header_miscounts_its_lines_still_applies(self):
+        r = self.ask()
+        self.answer(r, answer(DIFF.replace('@@ -1 +1 @@', '@@ -1,1 +1,4 @@')))   # says 4 new lines, has 1 (t259's diff)
+        ok, wt, _out = grokpatch.apply(self.cfg, 't1')
+        self.assertTrue(ok)
+        subprocess.run(['git', '-C', self.repo, 'worktree', 'remove', '--force', wt], check=True)
+
     def test_a_task_without_file_scope_or_not_queued_is_refused(self):
         with backlog.locked(self.cfg) as data:
             backlog.find(data, 't1')['scope'] = ['src/']

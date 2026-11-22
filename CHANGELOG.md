@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Scouts: a scout's diff whose hunk headers miscount their lines (a model's common slip) still applies (`git apply
+  --recount`); the first real Grok patch, t259, had one.
 - Dashboard: the state the page polls is built about twice as fast (the live self-test found it took 7.8 s): task groups
   are found in one pass instead of once per queued task, and the autopilot's state is parsed once per change for its
   read-only callers instead of once per task.

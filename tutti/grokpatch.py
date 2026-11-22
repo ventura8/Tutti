@@ -239,8 +239,9 @@ def apply(cfg, tid, run=subprocess.run):
     with open(p['diff'], encoding='utf-8') as f:
         diff = f.read()
     check_scope(diff, task.get('scope') or [])   # checked again here: the saved file is read, never passed to git as an argument
-    _git(wt, 'apply', '--check', stdin=diff)
-    _git(wt, 'apply', stdin=diff)
+    # --recount: a model's hunk headers often miscount their lines (Grok said larger diffs risk it; t259's did): git counts
+    _git(wt, 'apply', '--recount', '--check', stdin=diff)
+    _git(wt, 'apply', '--recount', stdin=diff)
     _git(wt, 'add', '-A')
     _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-F', '-',
          stdin=f'{task["title"][:60]} ({tid})\n\nDrafted by scout {p["scout"]} ({p["request"]}), applied and checked by Tutti.')

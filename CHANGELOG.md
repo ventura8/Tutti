@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.7 (2026-11-22)
+
+### Changes
+
+- feat(scouts): Grok drafts a task as one diff; Tutti applies and checks it (t206) (#2140)
+- feat: expandable tasks, dependencies, Agents tab, idle with work (t237, t243, t252, t254) (#2138)
+- feat(chat): panels, links, previews; chat E2E; lean tokens (t304, t202, t199, t462) (#2137)
+- feat(chat): this chat's work, with live status (t298) (#2136)
+
 ## 0.31.6 (2026-11-21)
 
 ### Added

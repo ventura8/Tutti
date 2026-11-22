@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Delegated runs (`tutti run`, MCP delegate_task) start from the fetched upstream when the local checkout is behind it;
+  before, a stale checkout made workers redo old code and write broken tests. Local commits are kept.
+
 ### Added
 
 - Tasks (t245): an opened task says **Who runs it**: the autopilot's own order for it now (first choice, then the ranked

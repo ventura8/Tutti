@@ -18,11 +18,25 @@ NULL = 'null'   # what `settings get` prints for a key that is not set: restored
 # replaces one): screen at about 30 %, media volume at about 10 % (2 of 15 to 25 steps, only lowered; Cast plays on the
 # media stream, so it is the cast volume too), and a TV's
 # screensaver off and its screen on for 30 min. Every value read first is put back exactly at release.
+# Android stores screen_brightness linearly (1-255), but its slider is perceptual (BrightnessUtils, HLG curve).
+def linear_brightness(slider_pct):
+    """The screen_brightness value (1-255) that shows as slider_pct on Android's brightness slider."""
+    import math
+    g = max(0.0, min(1.0, slider_pct / 100))
+    a, b, c = 0.17883277, 0.28466892, 0.55991073
+    lin = (g / 0.5) ** 2 / 12 if g <= 0.5 else (math.exp((g - c) / a) + b) / 12
+    return max(1, min(255, round(1 + lin * 254)))
+
+
 VOLUME = {'name': 'media volume', 'read': 'cmd media_session volume --stream 3 --get', 'parse': r'volume is (\d+)',
           'set': 'cmd media_session volume --stream 3 --set {value}', 'value': 2, 'cap': True}
 DEFAULTS = {
-    'phone': [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': 77}, VOLUME],
-    'tv': [{'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
+    'phone': [{'setting': 'system screen_brightness_mode', 'value': 0},
+              {'setting': 'system screen_brightness', 'value': linear_brightness(30)}, VOLUME],
+    # A panel may dim; a streamer's HDMI output may ignore the setting. Restore the original either way.
+    'tv': [{'setting': 'system screen_brightness_mode', 'value': 0},
+           {'setting': 'system screen_brightness', 'value': linear_brightness(30)},
+           {'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
            {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
 }
 # Read before a run and put back after it, never set by Tutti (value: keep): a test that rotates the screen, changes the
@@ -33,6 +47,7 @@ RESTORE = [{'setting': 'system accelerometer_rotation', 'value': KEEP}, {'settin
            {'setting': 'system screen_off_timeout', 'value': KEEP}, {'setting': 'secure screensaver_enabled', 'value': KEEP}]
 DEFAULTS['phone'] = DEFAULTS['phone'] + RESTORE
 DEFAULTS['tablet'] = DEFAULTS['phone']
+DEFAULTS['watch'] = DEFAULTS['phone']   # a Wear OS watch: same slider, same 30 %, same restore
 # A TV must never start a run with its screensaver able to come on (its photos covered the app, RoRadio 2026-11-15): these
 # settings are required, and a prep that cannot read one fails loudly instead of running
 REQUIRED = ('screensaver_enabled', 'screensaver_activate_on_sleep', 'screen_off_timeout', 'sleep_timeout',
@@ -216,6 +231,12 @@ def restore_script(device):
     values = {}
     for it in items(device, False) + items(device, True):   # Tutti's own values, day and night
         values.setdefault(it['key'], set()).add(str(it['value']))
+    # Saved prep files may predate the perceptual default. The old phone preset was 77; only accept it when the
+    # current phone-family default is in use, so a custom preset does not broaden the restore guard.
+    if device.get('kind', 'phone') in ('phone', 'tablet', 'watch') and device.get('prep_defaults') is not False:
+        for it in items(device, False):
+            if it['name'] == 'screen_brightness' and it['value'] == linear_brightness(30):
+                values[it['key']].add('77')
     legacy = {it['key']: str(i) for i, it in enumerate(items(device, False))}   # a file written by 0.9.7 or older
     cases = []
     for it in its:

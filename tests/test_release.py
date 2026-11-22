@@ -70,9 +70,28 @@ class Base(unittest.TestCase):
 
 
 class ReleaseTest(Base):
+    def test_legacy_prepared_brightness_is_restored_after_upgrade(self):
+        self.bash(prep.prep_script(self.d))
+        self.set('screen_brightness', '77')
+        self.bash(prep.restore_script(self.d))
+        self.assertEqual(self.get('screen_brightness'), '200')
+
+    def test_persons_changed_brightness_is_not_overwritten_after_upgrade(self):
+        self.bash(prep.prep_script(self.d))
+        self.set('screen_brightness', '50')
+        self.bash(prep.restore_script(self.d))
+        self.assertEqual(self.get('screen_brightness'), '50')
+
+    def test_legacy_value_is_not_accepted_for_a_custom_brightness(self):
+        device = {**self.d, 'prep': [{'setting': 'system screen_brightness', 'value': 20}]}
+        self.bash(prep.prep_script(device))
+        self.set('screen_brightness', '77')
+        self.bash(prep.restore_script(device))
+        self.assertEqual(self.get('screen_brightness'), '77')
+
     def test_a_run_prepares_the_device_and_the_last_user_restores_it(self):
         r = self.bash(devices.external_wrap([self.d], 'cat "$FAKE/settings/screen_brightness" "$FAKE/settings/vol"'))
-        self.assertIn('77\n2\n', r.stdout)   # about 30 % and about 10 % while in use
+        self.assertIn('9\n2\n', r.stdout)   # about 30 % and about 10 % while in use
         self.assertIn('tutti: device released pixel', r.stdout)
         self.assertEqual((self.get('screen_brightness'), self.get('screen_brightness_mode'), self.get('vol')), ('200', '1', '9'))
 
@@ -83,7 +102,7 @@ class ReleaseTest(Base):
         r = self.bash(devices.external_wrap([self.d], 'true'))
         self.assertIn('stays in use by claim-roradio', r.stdout)
         self.assertNotIn('device released', r.stdout)
-        self.assertEqual(self.get('screen_brightness'), '77')   # still prepared for the other user
+        self.assertEqual(self.get('screen_brightness'), '9')   # still prepared for the other user
         os.remove(os.path.join(users, 'claim-roradio'))
         r = self.bash(prep.release_script(self.d))
         self.assertIn('tutti: device released pixel', r.stdout)
@@ -103,7 +122,7 @@ class ReleaseTest(Base):
         os.makedirs(users)
         open(os.path.join(users, 'claim-x'), 'w').close()
         self.bash(devices.external_wrap([self.d], 'true'))
-        self.bash(devices.external_wrap([self.d], 'true'))   # reads 77 now: must keep 200 saved
+        self.bash(devices.external_wrap([self.d], 'true'))   # reads 9 now: must keep 200 saved
         os.remove(os.path.join(users, 'claim-x'))
         self.bash(prep.release_script(self.d))
         self.assertEqual(self.get('screen_brightness'), '200')
@@ -115,15 +134,16 @@ class ReleaseTest(Base):
         self.bash(prep.prep_script(self.d))
         r = self.bash(prep.release_script(self.d, ext, 1800))
         self.assertIn('stays in use by  phone-e2e subagent', r.stdout)
-        self.assertEqual(self.get('screen_brightness'), '77')
+        self.assertEqual(self.get('screen_brightness'), '9')
 
     def test_a_tv_gets_its_screensaver_and_sleep_back(self):
         tv = {**self.d, 'kind': 'tv'}
         self.set('screensaver_enabled', '1')
         self.set('screen_off_timeout', '600000')
-        r = self.bash(devices.external_wrap([tv], 'cat "$FAKE/settings/screensaver_enabled"'))
-        self.assertIn('0\n', r.stdout)
+        r = self.bash(devices.external_wrap([tv], 'cat "$FAKE/settings/screen_brightness" "$FAKE/settings/screensaver_enabled"'))
+        self.assertIn('9\n0\n', r.stdout)
         self.assertEqual((self.get('screensaver_enabled'), self.get('screen_off_timeout')), ('1', '600000'))
+        self.assertEqual(self.get('screen_brightness'), '200')
 
 
 class LeaseTest(Base):
@@ -136,7 +156,7 @@ class LeaseTest(Base):
         r = self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))
         self.assertIn('leased to roradio for 60 min', r.stdout)
         self.assertIn('SERIAL=S1', r.stdout)
-        self.assertEqual(self.get('screen_brightness'), '77')
+        self.assertEqual(self.get('screen_brightness'), '9')
         with open(self.claim(), encoding='utf8') as f:
             self.assertGreater(int(f.read()), time.time() + 3000)   # its end time
         os.remove(self.claim())
@@ -188,7 +208,7 @@ class LeaseTest(Base):
         self.bash(script)   # the same requester again: no second loop
         with open(pidfile, encoding='utf8') as f:
             self.assertEqual(f.read().strip(), first)
-        self.assertEqual(self.get('screen_brightness'), '77')
+        self.assertEqual(self.get('screen_brightness'), '9')
         with open(self.claim(), 'w', encoding='utf8') as f:
             f.write(str(int(time.time()) - 1))   # nobody calls release: the loop sees the end and restores by itself
         self.assertTrue(self.wait_for(lambda: self.get('screen_brightness') == '200'))
@@ -269,7 +289,7 @@ class NightTest(Base):
         self.assertEqual((names['screen_brightness'], names['screen_brightness_mode']), (1, 0))
         self.assertEqual({names[n] for n in ('media volume', 'ring volume', 'notification volume', 'system volume')}, {0})
         self.assertFalse(any('--stream 4' in it['set'] for it in prep.items(self.night())))   # 4: the alarm
-        self.assertEqual({it['name']: it['value'] for it in prep.items(self.d)}['screen_brightness'], 77)   # by day
+        self.assertEqual({it['name']: it['value'] for it in prep.items(self.d)}['screen_brightness'], 9)   # by day
 
     def test_off_or_not_listed_means_the_day_settings(self):
         self.assertFalse(prep.night_now(self.night(on=False)))

@@ -173,6 +173,7 @@ include tests/test_perf.py
 include tests/test_planner_pace.py
 include tests/test_power.py
 include tests/test_prep.py
+include tests/test_prep_brightness.py
 include tests/test_presence.py
 include tests/test_procs.py
 include tests/test_projects.py

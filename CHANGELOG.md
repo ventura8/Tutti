@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Machines tab: Home Assistant at a `.local` name no longer flips to offline when an mDNS lookup fails now and then:
+  the lookup is retried, then the last address the name had is used; a name that never resolved says to put the address
+  in home_assistant.url.
 - Scouts: the scout no longer stops after a dashboard restart. Under systemd the dashboard's environment has no
   XDG_CONFIG_HOME and its secrets are scrubbed at start, so the webhook variables were looked up there, found empty, and
   every round skipped the scout in silence. Secrets are now read from their file for the process's own environment, and a

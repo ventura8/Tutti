@@ -27,7 +27,7 @@ SECTIONS = [
      ['workers', 'routing.workers', 'brief']),
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),
     ('machines', 'Machines', 'The computers that run heavy commands, their slot queues and how commands run there.',
-     ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
+     ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard', 'home_assistant']),
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos', 'depbots']),
@@ -251,6 +251,11 @@ FIELDS = {
     'machines.*.roles_off': field(ROLES_REMOVED, 'Taken from the detected roles (`tutti roles unset`).', 'list', item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
+    'home_assistant.url': field('Home Assistant', 'Its address, e.g. http://homeassistant.local:8123 (no user or password in '
+                                'it). Shown on the Machines tab (docs/MACHINES.md, Home Assistant).', 'text'),
+    'home_assistant.token_env': field('Its token name', 'The name its long-lived access token has in '
+                                      '~/.config/tutti/home-assistant.env (default TUTTI_HA_TOKEN); the token itself is never '
+                                      'in the config.', 'text'),
     'lan_devices.*.roles': field(ROLES_OVERRIDE, 'A media device on the network (by its address): the whole list.', 'list',
                                  item='role'),
     'lan_devices.*.roles_add': field(ROLES_ADDED, 'Added to what mDNS and SSDP found, e.g. bluetooth-audio.', 'list', item='role'),

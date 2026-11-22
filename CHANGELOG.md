@@ -15,6 +15,10 @@
 - Agents tab (t252): each card says what the agent costs, from the config: pay per use (and whether it is kept off),
   pay per token, electricity only, or a paced subscription (docs/DASHBOARD.md, *Agents*).
 
+- Machines tab (t268): the configured **Home Assistant** shows its name, address, online state, version and its
+  `home-automation-hub` role; its token lives in `~/.config/tutti/home-assistant.env`, never in the config. mDNS finds an
+  unconfigured one for the Discovered tab (docs/MACHINES.md, *Home Assistant*).
+
 ### Changed
 
 - Dashboard (t281): a **Schedule** tab holds the owner's panel (mode, away until, I'm back, working days, the learned week)

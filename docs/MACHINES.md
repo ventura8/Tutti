@@ -28,6 +28,23 @@ An admin edits them in the config or the dashboard's Settings: `roles:` is the w
 A suite asks for roles with `roles: [windows-test-runner, ui-desktop, gpu-ai]`: only a target with every one gets it, and
 among those the power score and routing pick as before. An unknown role is a config error.
 
+## Home Assistant
+
+Tutti shows a Home Assistant instance on the dashboard's **Machines** tab (t268, `tutti/homeassistant.py`): its name,
+address, online or offline, version, time zone and its role, `home-automation-hub`. Configure it once:
+
+```yaml
+home_assistant:
+  url: http://homeassistant.local:8123   # no user or password in it
+  token_env: TUTTI_HA_TOKEN              # optional; the default
+```
+
+Make a long-lived access token in your Home Assistant profile and put it in `~/.config/tutti/home-assistant.env` (mode
+600) as `TUTTI_HA_TOKEN=...`. Tutti reads it only when it asks Home Assistant (`GET <url>/api/config`), never stores,
+prints or sends it elsewhere. Without a token the card still says whether the address answers. A refused token, a wrong
+address or an instance that is off each say what to do. Over mDNS (`_home-assistant._tcp`) an instance not configured
+yet shows on the **Discovered** tab with the same role; the configured one is left out there.
+
 ## Slots
 
 `scripts/slot.sh` is the queue on each machine: `slots` lock files, taken with `flock`. A run takes a free lock, waits

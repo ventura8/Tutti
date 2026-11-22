@@ -89,6 +89,7 @@ dashboard refuses to start otherwise.
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
 | `/api/discovered` | GET | admin | The Discovered tab (t220): what is on the network and not set up yet (media scan, neighbour table, adb, ssh check), what each seems to be, its roles and the roles it could take; a failing source is named in `problems`. |
+| `/api/home-assistant` | GET | signed in | The Machines tab's Home Assistant card (t268): configured or not, its name, address, online, version, roles and what to do when it does not answer; never the token. |
 | `/api/tasks` | GET | signed in | The Tasks tab (t307): every backlog task in Active, Queued, Needs a person, To review, Suggested and Done (newest 50), P0 first; a blocked task says why. |
 | `/api/board` | GET | signed in | The Queued card's Board (t243): queued tasks in Blocked, Ready and Grouped lanes, each with why it waits, what it depends on, what needs it and its group. |
 | `/api/task/` + task id | GET | signed in | A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 says why. |
@@ -622,6 +623,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `machines.*.roles_add` | list |  | Roles added: Added to the detected roles (`tutti roles set`). | admin |
 | `machines.*.roles_off` | list |  | Roles removed: Taken from the detected roles (`tutti roles unset`). | admin |
 | `devices.*.hours` | yaml |  | Blocked hours: Daily local hours when the device is not used at all, e.g. {window: "22-07", days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none. | admin |
+| `home_assistant.url` | text |  | Home Assistant: Its address, e.g. http://homeassistant.local:8123 (no user or password in it). Shown on the Machines tab (docs/MACHINES.md, Home Assistant). | admin |
+| `home_assistant.token_env` | text |  | Its token name: The name its long-lived access token has in ~/.config/tutti/home-assistant.env (default TUTTI_HA_TOKEN); the token itself is never in the config. | admin |
 | `lan_devices.*.roles` | list |  | Roles (override): A media device on the network (by its address): the whole list. | admin |
 | `lan_devices.*.roles_add` | list |  | Roles added: Added to what mDNS and SSDP found, e.g. bluetooth-audio. | admin |
 | `lan_devices.*.roles_off` | list |  | Roles removed: Taken from what mDNS and SSDP found. | admin |

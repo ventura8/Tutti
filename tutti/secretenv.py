@@ -10,7 +10,7 @@ import sys
 
 from . import config
 
-FILES = ('grok.env',)
+FILES = ('grok.env', 'home-assistant.env')   # each secret's own file, mode 600
 SECRET_RX = re.compile(r'(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|DSN|AUTH)', re.I)
 KEEP = {'TUTTI_GROK_URL'}           # set by the same file; a webhook URL carries its routine id, treat it as secret too
 OWNED = {'TUTTI_GROK_KEY', 'TUTTI_GROK_URL'}   # plus every name a secret file holds; never a run's own TUTTI_BROWSER_TOKEN

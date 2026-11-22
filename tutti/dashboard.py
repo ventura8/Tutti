@@ -43,6 +43,7 @@ from . import (
     github,
     handover,
     helper,
+    homeassistant,
     householduse,
     httpguard,
     idlecheck,
@@ -1132,15 +1133,9 @@ def get(collector, path, token, headers):
     if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
         code, answer = layout_get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
-    if path == tasklist.API:   # the Tasks tab (t307): every signed-in viewer, like the Queued list
-        code, answer = tasklist.get(collector.cfg)
-        return code, safe_json(answer), JSON_TYPE, 'no-store', None
-    if path == taskdetail.BOARD_API:   # the Queued card's Board (t243): every signed-in viewer, like the Queued list
-        code, answer = taskdetail.get_board(collector.cfg)
-        return code, safe_json(answer), JSON_TYPE, 'no-store', None
-    if path.startswith(taskdetail.API):   # a queued task's expanded row (t237): every signed-in viewer, like the Queued list
-        code, answer = taskdetail.get(collector.cfg, path)
-        return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    shown = viewer_json(collector, path)
+    if shown:
+        return shown
     refused = authorize(collector, headers) if path in ADMIN_PATHS or path.startswith(joblog.API) or path == discovered.API else None
     if refused:
         return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
@@ -1148,6 +1143,21 @@ def get(collector, path, token, headers):
     if answered:
         return answered
     return (*route(collector, path, token), None)
+
+
+def viewer_json(collector, path):
+    """The JSON GETs every signed-in viewer may read (no secret in any), or None for any other path."""
+    if path == homeassistant.API:   # the Machines tab's Home Assistant card (t268)
+        code, answer = 200, homeassistant.status(collector.cfg)
+    elif path == tasklist.API:   # the Tasks tab (t307), like the Queued list
+        code, answer = tasklist.get(collector.cfg)
+    elif path == taskdetail.BOARD_API:   # the Queued card's Board (t243)
+        code, answer = taskdetail.get_board(collector.cfg)
+    elif path.startswith(taskdetail.API):   # a task's expanded row (t237)
+        code, answer = taskdetail.get(collector.cfg, path)
+    else:
+        return None
+    return code, safe_json(answer), JSON_TYPE, 'no-store', None
 
 
 def admin_json(collector, path):

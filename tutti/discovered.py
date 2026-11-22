@@ -40,6 +40,11 @@ def known(cfg, resolve=None):
                 out.add(str(h))
                 if resolve:
                     out.add(resolve(str(h)) or '')
+    ha = cfg.get('home_assistant') or {}
+    if isinstance(ha, dict) and isinstance(ha.get('url'), str):
+        from urllib.parse import urlsplit
+        host = urlsplit(ha['url']).hostname
+        out.update({host, resolve(host) if resolve and host else ''} - {None})
     for d in (cfg.get('devices') or {}).values():
         serial = str((d or {}).get('serial') or '')
         if serial:

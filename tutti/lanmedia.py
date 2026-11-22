@@ -14,7 +14,7 @@ import time
 
 CAST_SVC = '_googlecast._tcp'
 SERVICES = {'_airplay._tcp': 'airplay-receiver', '_raop._tcp': 'airplay-receiver', CAST_SVC: 'chromecast-builtin',
-            '_spotify-connect._tcp': 'spotify-connect'}
+            '_spotify-connect._tcp': 'spotify-connect', '_home-assistant._tcp': 'home-automation-hub'}
 ROLES = {
     'airplay-receiver': 'plays AirPlay (an Apple TV, an AirPlay speaker or soundbar)',
     'airplay-sender': 'sends AirPlay (macOS, iOS)',
@@ -23,11 +23,13 @@ ROLES = {
     'bluetooth-audio': 'a Bluetooth speaker or headset paired to a machine',
     'chromecast-builtin': 'Chromecast built-in (audio or video)',
     'smart-tv': 'a smart TV',
+    'home-automation-hub': 'Home Assistant (presence, power, smart plugs and sensors)',
 }
 FILE, EVERY = 'lan-devices.json', 86400
 SSDP = ('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\n'
         'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n')
-NAME_KEYS = {CAST_SVC: ('fn', 'md'), '_airplay._tcp': ('model',), '_raop._tcp': ('am',), '_spotify-connect._tcp': ()}
+NAME_KEYS = {CAST_SVC: ('fn', 'md'), '_airplay._tcp': ('model',), '_raop._tcp': ('am',), '_spotify-connect._tcp': (),
+             '_home-assistant._tcp': ('location_name',)}
 TV_WORDS = ('tv', 'bravia', 'shield', 'chromecast with google tv')
 
 

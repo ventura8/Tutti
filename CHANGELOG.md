@@ -27,6 +27,9 @@
 
 ### Fixed
 
+- Autopilot: a run with no report whose process could not be confirmed is held at most 6 h, then counted as ended without
+  a report and its task queued again. Before, such runs held every slot (20 of 20 for 33 h) and the autopilot started
+  nothing new.
 - `tutti may-run`: the caller who holds a machine's session lease (`--who`, or `$TUTTI_SESSION`) is not refused for load,
   since that load is its own work (pause, heat, limited hours and slots still apply). A machine's `capped` containers (a
   worker its governor holds to a CPU share) count as yielding, not as load.

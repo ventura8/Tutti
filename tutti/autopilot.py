@@ -1639,10 +1639,28 @@ def explicitly_local_run(task):
     return not (task.get('gates') or '').strip()
 
 
-def hold_or_resume_unreported(cfg, task, events):
-    """After a reboot, fully-local work can resume; bridged, routed or unknown work waits for a report. Never signals a PID."""
+UNREPORTED_MAX = 6 * 3600   # a run with no report this long after it started will not send one: its slot is given back
+
+
+def hold_or_resume_unreported(cfg, task, events, now=None):
+    """After a reboot, fully-local work can resume; bridged, routed or unknown work waits for a report. Never signals a PID.
+    The wait is bounded (2026-11-22: 20 such runs held all 20 slots for 33 h and the autopilot started nothing): after
+    UNREPORTED_MAX the attempt is counted as ended without a report and the task queued again with a new run id, so a late
+    report of the old run is never taken for the new one."""
+    now = now or time.time()
     if durable.died_with_host(task.get('boot')) and explicitly_local_run(task):
         events.append(interrupt(cfg, task))
+    elif task.get('started') and now - float(task['started']) > UNREPORTED_MAX:
+        hours, run, step = (now - float(task['started'])) / 3600, task.get('run'), task.get('step')
+        events.append(interrupt(cfg, task))
+        a = {'at': now, 'step': step, 'run': run, 'ok': False, 'class': 'environment', 'signature': f'unreported:{step}',
+             'why': f'the run ended without a report (held {hours:.0f} h: its process could not be confirmed, so its slot '
+                    'is given back)'}
+        task['attempts'].append(a)
+        task['interrupted'] = max(0, int(task.get('interrupted') or 1) - 1)   # counted as an attempt, not an interruption
+        task['resume_note'] = f'the previous run ({run}) never reported in {hours:.0f} h: queued again, counted as an attempt'
+        record_attempt(cfg, task, a, now)
+        events[-1] = f'{task["id"]}: its run {run} never reported in {hours:.0f} h: slot given back, queued again (counted)'
     else:
         task['recovery_note'] = ('run ended without a report: process ownership is unverified; '
                                  'waiting for its report before retrying')
@@ -1662,7 +1680,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         if not ended and not stuck_why:
             continue
         if report is None:
-            hold_or_resume_unreported(cfg, t, events)
+            hold_or_resume_unreported(cfg, t, events, now)
             continue
         t.pop('recovery_note', None)
         a = attempt_of(cfg, t, report, now)

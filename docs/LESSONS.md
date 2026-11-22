@@ -706,3 +706,12 @@ in its WSL (another agent's included). `tutti machines` reached that WSL fine at
 Fix: a hang must show 3 rounds in a row, survive a last 120 s look, and a restart happens at most once an hour.
 Lesson: a repair that destroys running work needs stronger evidence than one slow answer, and a rate limit.
 
+## Twenty dead runs held every autopilot slot (2026-11-22)
+
+The autopilot made 2 attempts in a day. All 20 slots were "running" tasks whose runs had ended without a report on
+21 Nov; since their processes could not be confirmed (routed or bridged work), each was held "waiting for its report
+before retrying", with no limit. The hold protects against running a task twice, but a report that has not come in hours
+will not come. Fix: the hold is bounded (6 h), then the attempt is counted and the task queued again under a new run id.
+Found by reading the new per-agent track record (Agents tab), whose numbers looked impossible. Lesson: every wait for an
+outside event needs a bound and a visible count of what it holds.
+

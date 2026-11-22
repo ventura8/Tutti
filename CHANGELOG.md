@@ -4,6 +4,13 @@
 
 ### Added
 
+- Dashboard (t237): a task under **Needs you** (needing a person, or to review) has **All details**, which opens to
+  everything it has, like a queued task; it stays open across refreshes (docs/DASHBOARD.md).
+
+## Unreleased
+
+### Added
+
 - Agents tab (t252): each card says what the agent costs, from the config: pay per use (and whether it is kept off),
   pay per token, electricity only, or a paced subscription (docs/DASHBOARD.md, *Agents*).
 

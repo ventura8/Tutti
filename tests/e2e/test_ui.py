@@ -469,6 +469,18 @@ class QueuedTaskDetail(unittest.TestCase):
         page.wait_for_selector('#queued .qitem[open] .qdetail__facts')
         ctx.close()
 
+    def test_a_task_that_needs_you_opens_to_all_its_details(self):
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#dashboard')
+        page.locator('#attention [data-task-detail] > summary').first.click()
+        page.wait_for_selector('#attention [data-task-detail][open] .qdetail__facts')
+        text = page.text_content('#attention [data-task-detail][open] .qdetail')
+        for part in ('needs-person', 'two names fit: the owner picks one', 'npm test'):
+            self.assertIn(part, text)
+        self.assertEqual(axe(page), [])
+        self.assertEqual(page.errors, [])
+        ctx.close()
+
     def test_the_board_opens_with_three_lanes_and_stays_clean(self):
         problems = {}
         for width in ('phone', 'laptop'):

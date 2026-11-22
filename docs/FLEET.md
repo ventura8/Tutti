@@ -270,7 +270,9 @@ tutti may-run --release "$lease"             # when the run ends
 A machine is refused when it is paused (owner, heat guard, blocked hours), at or above `heat.stop_c` (or capped at
 `heat.cap_c`), inside its limited hours, unreachable, yielding, over its load ratio, without a free slot, or when other
 callers' live slot leases (<project.state>/slot-leases.json) already fill its `slots`. `--wait <min>` asks again each
-minute. `tutti test --on`, a device's machine and a Windows-tree run make the same check; the MCP tool is `may_run`.
+minute. The caller who holds the machine's session lease (`tutti lease claim machine <m> --who <w>`; pass `--who` or set
+`$TUTTI_SESSION`) is not refused for load: that load is its own. `machines.<m>.capped: [<container>…]` names containers a
+governor caps (docker `--cpus`): their caps are subtracted from the load. `tutti test --on`, a device's machine and a Windows-tree run make the same check; the MCP tool is `may_run`.
 
 ### Heat watchdog
 

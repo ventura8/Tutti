@@ -43,6 +43,44 @@ class Verdict(unittest.TestCase):
         self.assertEqual(mayrun.verdict(machines()['pc'], COOL, leases, 'me', NOW), '')
 
 
+class LeaseAndCapped(unittest.TestCase):
+    BUSY = Probe(True, 2, 12.0, 16, temp=60.0)
+
+    def test_load_refuses_others_but_not_the_lease_holder(self):
+        m = {**machines()['pc'], 'max_load_ratio': 0.5}
+        self.assertIn('load 12', mayrun.verdict(m, self.BUSY, {}, 'me', NOW))
+        self.assertEqual(mayrun.verdict(m, self.BUSY, {}, 'me', NOW, leased=True), '')
+
+    def test_the_lease_holder_is_still_refused_when_paused_or_hot(self):
+        m = {**machines()['nuc'], 'max_load_ratio': 0.5}
+        self.assertIn('too hot', mayrun.verdict(m, Probe(True, 2, 12.0, 16, temp=99.0), {}, 'me', NOW, leased=True))
+
+    def test_capped_cpus_are_not_load(self):
+        from tutti import routing
+        m = {**machines()['pc'], 'max_load_ratio': 0.5}
+        capped = Probe(True, 2, 12.0, 16, temp=60.0, capped_cpus=6.0)
+        self.assertEqual(routing.unfit(m, capped), '')
+        self.assertIn('capped not counted', routing.unfit(m, Probe(True, 2, 14.0, 16, temp=60.0, capped_cpus=4.0)))
+
+    def test_holds_lease_reads_the_session_leases(self):
+        import tempfile
+
+        from tutti import intake
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {'project': {'state': d}, 'machines': machines()}
+            with intake.leases_locked(cfg) as data:
+                intake.claim(data, 'machine', 'pc', 'map', '', 30, NOW)
+            self.assertTrue(mayrun.holds_lease(cfg, 'pc', 'map', NOW + 60))
+            self.assertFalse(mayrun.holds_lease(cfg, 'pc', 'other', NOW + 60))
+            self.assertFalse(mayrun.holds_lease(cfg, 'pc', 'map', NOW + 3600))
+            self.assertFalse(mayrun.holds_lease({}, 'pc', 'map', NOW))
+
+    def test_capped_script_and_config(self):
+        from tutti import remote
+        self.assertEqual(remote.capped_script({}), '')
+        self.assertIn("docker inspect", remote.capped_script({'capped': ['map-worker']}))
+
+
 class Pick(unittest.TestCase):
     def test_falls_back_to_the_next_fit_machine(self):
         probes = {'nuc': Probe(True, 2, 1.0, 16, temp=99.0), 'pc': COOL}

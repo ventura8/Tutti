@@ -40,8 +40,21 @@ def leased_by_others(leases, name, who, now):
     return [v for v in leases.values() if v.get('machine') == name and v.get('who') != who and v.get('until', 0) > now]
 
 
-def verdict(machine, probe, leases, who, now, now_dt=None):
-    """Why `machine` may not take a heavy run now, or '' when it may. `probe` is a routing.Probe, `leases` the slot leases."""
+def holds_lease(cfg, name, who, now):
+    """True when `who` holds a live session lease on machine `name` (`tutti lease claim machine`, docs/INTAKE.md)."""
+    if not who or not (cfg.get('project') or {}).get('state'):
+        return False
+    from . import intake
+    held = intake.read_leases(cfg).get(intake.lease_key('machine', name)) or {}
+    return held.get('who') == who and held.get('until', 0) > now
+
+
+def verdict(machine, probe, leases, who, now, now_dt=None, leased=False):
+    """Why `machine` may not take a heavy run now, or '' when it may. `probe` is a routing.Probe, `leases` the slot leases.
+    `leased`: the caller holds the machine's session lease, so the load is its own work: the load ratio is not applied
+    (paused, heat, limited hours and slots still are)."""
+    if leased:
+        machine = {k: v for k, v in machine.items() if k != 'max_load_ratio'}
     why = routing.unfit(machine, probe, now=now_dt, heavy=True)
     if why:
         return why
@@ -52,7 +65,7 @@ def verdict(machine, probe, leases, who, now, now_dt=None):
     return ''
 
 
-def pick(machines, names, probe_fn, leases, who, now, now_dt=None):
+def pick(machines, names, probe_fn, leases, who, now, now_dt=None, leased=lambda n: False):
     """(the first named machine that may run, its notes) or raises Refused with each machine's reason, in order."""
     notes = []
     for name in names:
@@ -60,7 +73,7 @@ def pick(machines, names, probe_fn, leases, who, now, now_dt=None):
         if m is None:
             notes.append(f'{name}: not a machine in this config (`tutti machines` lists them)')
             continue
-        why = routing.owner_unfit(m) or verdict(m, probe_fn(name), leases, who, now, now_dt)   # paused: never probed
+        why = routing.owner_unfit(m) or verdict(m, probe_fn(name), leases, who, now, now_dt, leased(name))   # paused: never probed
         if not why:
             return name, notes
         notes.append(f'{name}: {why}')
@@ -131,10 +144,13 @@ def check(cfg, names, who='', lease_minutes=0, probe_fn=None, clock=time.time):
     probe_fn = probe_fn or (lambda n: live_probe(cfg, n))
     now = clock()
     now_dt = datetime.fromtimestamp(now, timezone.utc)
+
+    def leased(n):
+        return holds_lease(cfg, n, who, now)
     if not lease_minutes:
-        return pick(cfg['machines'], names, probe_fn, read(cfg), who, now, now_dt)[0], ''
+        return pick(cfg['machines'], names, probe_fn, read(cfg), who, now, now_dt, leased)[0], ''
     with locked(cfg) as leases:
-        name, _ = pick(cfg['machines'], names, probe_fn, leases, who, now, now_dt)
+        name, _ = pick(cfg['machines'], names, probe_fn, leases, who, now, now_dt, leased)
         return name, claim(leases, name, who, lease_minutes, now)
 
 

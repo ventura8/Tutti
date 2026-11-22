@@ -162,6 +162,7 @@ tests/test_limit_heat_e2e.py
 tests/test_limits.py
 tests/test_local_share.py
 tests/test_machine_card.py
+tests/test_mayrun.py
 tests/test_move.py
 tests/test_navmenu.py
 tests/test_needs.py
@@ -336,6 +337,7 @@ tutti/layout_cards.py
 tutti/local.py
 tutti/mainmachine.py
 tutti/manage.py
+tutti/mayrun.py
 tutti/mcpserver.py
 tutti/move.py
 tutti/movetools.py

@@ -625,6 +625,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `machines.*.roles_off` | list |  | Roles removed: Taken from the detected roles (`tutti roles unset`). | admin |
 | `devices.*.hours` | yaml |  | Blocked hours: Daily local hours when the device is not used at all, e.g. {window: "22-07", days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none. | admin |
 | `home_assistant.url` | text |  | Home Assistant: Its address, e.g. http://homeassistant.local:8123 (no user or password in it). Shown on the Machines tab (docs/MACHINES.md, Home Assistant). | admin |
+| `home_assistant.plugs` | yaml |  | Machine plugs: Which power sensor is each machine's plug, e.g. {w5090: sensor.pc_plug_power}; a sensor with the machine's name in its id is found by itself. | admin |
 | `home_assistant.token_env` | text |  | Its token name: The name its long-lived access token has in ~/.config/tutti/home-assistant.env (default TUTTI_HA_TOKEN); the token itself is never in the config. | admin |
 | `lan_devices.*.roles` | list |  | Roles (override): A media device on the network (by its address): the whole list. | admin |
 | `lan_devices.*.roles_add` | list |  | Roles added: Added to what mDNS and SSDP found, e.g. bluetooth-audio. | admin |

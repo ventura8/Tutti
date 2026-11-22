@@ -161,6 +161,7 @@ include tests/test_limit_heat_e2e.py
 include tests/test_limits.py
 include tests/test_local_share.py
 include tests/test_machine_card.py
+include tests/test_mayrun.py
 include tests/test_move.py
 include tests/test_navmenu.py
 include tests/test_needs.py
@@ -333,6 +334,7 @@ include tutti/layout_cards.py
 include tutti/local.py
 include tutti/mainmachine.py
 include tutti/manage.py
+include tutti/mayrun.py
 include tutti/mcpserver.py
 include tutti/move.py
 include tutti/movetools.py

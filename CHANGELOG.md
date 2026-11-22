@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Scouts: a scout's diff whose hunk headers miscount their lines (a model's common slip) still applies (`git apply
+  --recount`); the first real Grok patch, t259, had one.
+
 ## 0.31.11 (2026-11-22)
 
 ### Added

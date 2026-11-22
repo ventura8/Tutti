@@ -1423,19 +1423,39 @@ def engine_of(collector):
         return eng
 
 
-def store_has_streaming(path):
-    """Read one regular Chat store without following links or blocking on a FIFO."""
+def _read_store_json(path):
+    """One regular JSON file, opened without following links or blocking on a FIFO."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, encoding='utf8') as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise ValueError('not a regular file')
+        return json.load(f)
+
+
+def _messages_of(index_path, conversation):
+    """A conversation's messages: inline (the old one-file store), or in <user>/<id>.json beside the index (the
+    per-conversation store); a conversation whose history file is not written yet has none."""
+    if 'messages' in conversation:
+        return conversation['messages']
+    cid = str(conversation['id'])
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', cid):
+        raise ValueError('a conversation id is not a plain name')
+    history = os.path.join(index_path[:-len('.json')], cid + '.json')
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, encoding='utf8') as f:
-            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                raise ValueError('not a regular file')
-            data = json.load(f)
+        return _read_store_json(history)['messages']
+    except FileNotFoundError:
+        return []
+
+
+def store_has_streaming(path):
+    """True when any conversation of one user's Chat store has an answer still streaming (both store layouts)."""
+    try:
+        data = _read_store_json(path)
         conversations = data['conversations']
         if not isinstance(conversations, list):
             raise ValueError('conversations is not a list')
         for conversation in conversations:
-            messages = conversation['messages']
+            messages = _messages_of(path, conversation)
             if not isinstance(messages, list):
                 raise ValueError('messages is not a list')
             if any(message.get('status') == 'streaming' for message in messages):

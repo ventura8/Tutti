@@ -171,3 +171,24 @@ def describe(task, tasks):
     if rdeps:
         lines.append('Needed by: ' + ', '.join(state(i) for i in rdeps))
     return lines
+
+
+def board(tasks):
+    """The dashboard's Board (t243): queued tasks in three lanes, each with its links, so the graph reads as lists.
+    A grouped task shows in Grouped and in Blocked or Ready."""
+    h = holds(tasks)
+    queued = [t for t in tasks if t.get('status') == 'queued']
+    rdeps = {}
+    for t in tasks:
+        for i in ids(t, 'depends_on'):
+            rdeps.setdefault(i, []).append(t['id'])
+
+    def card(t):
+        return {'id': t['id'], 'title': str(t.get('title') or '')[:120], 'why': h.get(t['id'], ''),
+                'depends_on': ids(t, 'depends_on'), 'needed_by': rdeps.get(t['id'], []),
+                'group': [i for i in group_of(t, tasks) if i != t['id']]}
+    lanes_ = lanes(tasks)
+    by = {t['id']: t for t in queued}
+    return {'lanes': [{'name': name, 'items': [card(by[i]) for i in lanes_[key]]}
+                      for key, name in (('blocked', 'Blocked'), ('ready', 'Ready'), ('grouped', 'Grouped'))],
+            'linked': sum(1 for t in queued if ids(t, 'depends_on') or len(group_of(t, tasks)) > 1 or t['id'] in rdeps)}

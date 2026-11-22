@@ -49,6 +49,8 @@ class Detail(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertEqual(json.loads(body)['id'], 't7')
             self.assertEqual(json.loads(body)['links'], ['Ready: nothing it depends on is open'])
+            code, body, *_ = dashboard.get(c, '/api/board', 'tok', {})
+            self.assertEqual([lane['name'] for lane in json.loads(body)['lanes']], ['Blocked', 'Ready', 'Grouped'])
             code, body, *_ = dashboard.get(c, '/api/task/t99', 'tok', {})
         self.assertEqual(code, 404)
         self.assertIn('no task "t99"', json.loads(body)['error'])

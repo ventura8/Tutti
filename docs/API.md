@@ -88,6 +88,7 @@ dashboard refuses to start otherwise.
 | `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.5"}`; `started` changes on a restart. |
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
+| `/api/board` | GET | signed in | The Queued card's Board (t243): queued tasks in Blocked, Ready and Grouped lanes, each with why it waits, what it depends on, what needs it and its group. |
 | `/api/task/` + task id | GET | signed in | A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 says why. |
 | `/api/vpn/status` | GET | viewer | The private network card: `{"state": ..., ...}`, 200 also when no VPN is set up. |
 | `/api/needs` | GET | viewer (self) | The viewer's own open questions (an admin: everyone's) and notify settings. |

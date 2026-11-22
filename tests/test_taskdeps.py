@@ -55,6 +55,12 @@ class Deps(unittest.TestCase):
         tasks[2]['status'] = 'done'
         self.assertEqual(taskdeps.holds(tasks), {})   # the blocker landed: the whole group is ready together
 
+    def test_a_finished_task_does_not_tie_two_open_tasks_together(self):
+        tasks = [task('t1', together_with=['t2'], depends_on=['t4']), task('t2', status='done'), task('t3', together_with=['t2']),
+                 task('t4')]
+        self.assertNotIn('t3', taskdeps.holds(tasks))
+        self.assertIn('t1', taskdeps.holds(tasks))
+
     def test_link_refuses_unknown_ids_itself_and_loops_and_clears_with_empty(self):
         tasks = [task('t1'), task('t2', depends_on=['t1'])]
         with self.assertRaisesRegex(taskdeps.DepError, 'not in the backlog'):

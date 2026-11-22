@@ -98,6 +98,70 @@ def accounts_of(cfg, name):
     return own + [x for n in own for x in _names((accs[n] or {}).get('limits')) if x in accs and x not in own]   # its weekly bounds
 
 
+def track_records(tasks):
+    """{step: {runs, passed, kinds: {class: n}, why: [top failure reasons], sizes: {size: [runs, passed]}}} from every
+    attempt in the backlog: what each agent has actually done (t252's learned strengths and limits)."""
+    out = {}
+    for t in tasks:
+        size = t.get('size') or '?'
+        for a in t.get('attempts') or []:
+            if not isinstance(a, dict) or not a.get('step'):
+                continue
+            r = out.setdefault(a['step'], {'runs': 0, 'passed': 0, 'kinds': {}, 'why': {}, 'sizes': {}})
+            ok = bool(a.get('ok'))
+            r['runs'] += 1
+            r['passed'] += ok
+            s = r['sizes'].setdefault(size, [0, 0])
+            s[0] += 1
+            s[1] += ok
+            if not ok:
+                kind = a.get('class') or 'unknown'
+                r['kinds'][kind] = r['kinds'].get(kind, 0) + 1
+                why = ' '.join(str(a.get('why') or 'no reason given').split())[:70]
+                r['why'][why] = r['why'].get(why, 0) + 1
+    for r in out.values():
+        r['why'] = [w for w, _n in sorted(r['why'].items(), key=lambda x: -x[1])[:3]]
+    return out
+
+
+def record_line(records, names):
+    """The card's one line for an agent's own steps (its name and its accounts), or '' when it never ran."""
+    rs = [records[n] for n in names if n in records]
+    runs, passed = sum(r['runs'] for r in rs), sum(r['passed'] for r in rs)
+    if not runs:
+        return ''
+    kinds = {}
+    for r in rs:
+        for k, n in r['kinds'].items():
+            kinds[k] = kinds.get(k, 0) + n
+    top = max(kinds, key=kinds.get) if kinds else ''
+    line = f'{runs} runs, {passed} passed ({100 * passed / runs:.0f} %)'
+    if top:
+        line += f'; most failures: {top} ({kinds[top]})'
+    return line
+
+
+_RECORDS = {}   # backlog file -> ((mtime_ns, size), records): read once per change of the backlog
+
+
+def records_of(cfg):
+    import os
+
+    from . import backlog, config
+    path = os.path.join(config.state_dir(cfg), 'backlog.json')
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {}
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _RECORDS.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    recs = track_records(backlog.load(cfg)['tasks'])
+    _RECORDS[path] = (key, recs)
+    return recs
+
+
 def cards(cfg, snap):
     """The Agents tab: workers first (in the config's order) with every account they spend, then accounts no worker or scout
     spends, then scouts."""
@@ -115,7 +179,8 @@ def cards(cfg, snap):
                     'limits': [f'{n}: {x}' if len(accs) > 1 else x for n in accs for x in _limits(accounts.get(n))],
                     'state': 'checking' if state is None else 'ready' if state.get('ready') else 'not ready',
                     'note': (state or {}).get('note') or '',
-                    'running': _running(snap, name, *accs)})
+                    'running': _running(snap, name, *accs), 'record': record_line(snap.get('_records') or {}, [name, *accs]),
+                    'failures': [w for n in (name, *accs) for w in ((snap.get('_records') or {}).get(n) or {}).get('why', [])][:3]})
     for name in cfg.get('accounts') or {}:
         if name in spent:
             continue

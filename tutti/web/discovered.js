@@ -183,9 +183,18 @@ function selftestNodes(t) {
         : [el('li', { class: 'row__note', text: 'Every route the pages read answers.' })])];
 }
 
-function renderSelftest(s) {
-    const list = document.getElementById('selftest');
-    if (list) list.replaceChildren(...selftestNodes(s.selftest));
+// t246: the last backup's health, under the self-test
+function backupNode(b) {
+    if (!b) return el('li', { class: 'row__note', text: 'Backup: none yet (daily by default; `tutti backup` makes one now).' });
+    const when = new Date(b.at * 1000).toLocaleString();
+    return b.ok ? el('li', { class: 'row__note', 'data-backup': 'ok', text: `Backup: ${when}, ${(b.size / 1048576).toFixed(1)} MB, verified` })
+        : el('li', { class: 'row', 'data-backup': 'failed' }, el('p', { class: 'row__name', text: `Backup failed ${when}` }),
+            el('p', { class: 'row__note', text: b.problems.join('; ') }));
 }
 
-if (typeof module !== 'undefined') Object.assign(module.exports, { selftestNodes });
+function renderSelftest(s) {
+    const list = document.getElementById('selftest');
+    if (list) list.replaceChildren(...selftestNodes(s.selftest), backupNode(s.backup));
+}
+
+if (typeof module !== 'undefined') Object.assign(module.exports, { selftestNodes, backupNode });

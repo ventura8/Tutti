@@ -139,6 +139,9 @@ DEFAULTS = {
     # browser task uses: machine ('' is this one), mode (existing: the owner's own Chrome profile; dedicated: Tutti's own
     # profile; isolated: a sandboxed Chrome as the tutti-browser user), path, profile, user_profile, headless, idle_minutes,
     # port (127.0.0.1), max_tabs, sites (the admin's sites to sign in to), socket, scopes ({task type: [hosts]}), allow_local
+    # backup: the config and the state folder, daily, verified, the newest `keep` kept (docs/BACKUP.md); dest: any folder (a
+    # mounted NAS too); empty: ~/.local/share/tutti/backups
+    'backup': {'enabled': True, 'dest': '', 'keep': 14, 'every_hours': 24},
     'browser': {'machine': '', 'mode': 'dedicated', 'path': '', 'profile': '', 'user_profile': '', 'headless': True,
                 'idle_minutes': 5, 'port': 9333, 'max_tabs': 4, 'sites': [], 'socket': '', 'scopes': {}, 'allow_local': [],
                 'file_tasks': [], 'max_file_mb': 50},

@@ -1269,6 +1269,10 @@ def _serve_dashboard(cfg, a, collector, httpd):
     install.start_daily(cfg, collector.stop, remote.ROOT, lambda: _dashboard_daily_restart(collector))
     install.start_code_watch(collector.stop, config.ROOT, lambda: _dashboard_daily_restart(collector))   # new code: restart
     install.start_selftest(collector.stop, lambda: dashboard.self_test(collector))   # t241: the live self-test
+    if (cfg.get('backup') or {}).get('enabled', True):   # t246: the daily backup, verified (docs/BACKUP.md)
+        from . import backup
+        install.start_selftest(collector.stop, lambda: backup.run(collector.cfg, version=dashboard.__version__), first=600,
+                               every=3600 * float((cfg.get('backup') or {}).get('every_hours') or 24))
     where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
     signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
     say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')
@@ -1986,6 +1990,8 @@ def parser():
     s.add_argument('--refresh', action='store_true', help='--roles: probe again now instead of the daily answer')
     from . import rolescmd
     rolescmd.add_parser(add)
+    from . import backupcmd
+    backupcmd.add_parser(add)
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
     s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install', 'hours', 'lease', 'night'],

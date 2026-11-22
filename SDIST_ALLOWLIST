@@ -22,6 +22,7 @@ docs/API.md
 docs/ARCHITECTURE.md
 docs/AUTH.md
 docs/AUTOPILOT.md
+docs/BACKUP.md
 docs/BROWSER.md
 docs/CHAT.md
 docs/COMPETITORS.md
@@ -106,6 +107,7 @@ tests/test_artifact.py
 tests/test_audit_lows.py
 tests/test_auth.py
 tests/test_autopilot.py
+tests/test_backup.py
 tests/test_brain.py
 tests/test_brain_more.py
 tests/test_browser.py
@@ -247,6 +249,8 @@ tutti/authweb.py
 tutti/autocompact.py
 tutti/autopilot.py
 tutti/backlog.py
+tutti/backup.py
+tutti/backupcmd.py
 tutti/brain.py
 tutti/bridge.py
 tutti/browser.py

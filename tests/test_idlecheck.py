@@ -28,7 +28,10 @@ class Log(unittest.TestCase):
         self.assertEqual(idlecheck.keep(first, idlecheck.entry(found, 'Mon 10:01')), first)   # same case: not again
         other = idlecheck.find(snap([FREE], [BEHIND], tasks=['a model is busy']))
         self.assertEqual(len(idlecheck.keep(first, idlecheck.entry(other, 'Mon 10:02'))), 2)
-        self.assertEqual(idlecheck.keep(first, None), first)   # nothing idle: nothing logged
+        ended = idlecheck.keep(first, None)   # nothing idle: the case ends, nothing new is logged
+        self.assertEqual((len(ended), ended[-1]['ended']), (1, True))
+        self.assertEqual(len(idlecheck.keep(ended, idlecheck.entry(found, 'Mon 11:00'))), 2)   # the same case again later is logged
+        self.assertEqual(idlecheck.keep(['junk', 3, *first], None)[0]['sig'], first[0]['sig'])   # non-entries are dropped
         self.assertEqual(len(idlecheck.keep([{'sig': str(i)} for i in range(600)], None)), idlecheck.LOG_KEEP)
 
     def test_the_dashboard_keeps_the_log_and_survives_a_broken_file(self):

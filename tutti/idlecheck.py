@@ -60,7 +60,13 @@ def entry(found, at):
 
 
 def keep(lines, new):
-    """The log after `new` (an entry or None): appended only when it is a new case, bounded to the last LOG_KEEP."""
-    if new and (not lines or lines[-1].get('sig') != new['sig']):
+    """The log after `new` (an entry, or None when nothing is idle): a case is appended when it starts (a different case, or
+    the same one again after it had ended); `None` marks the last case ended. Bounded to the last LOG_KEEP."""
+    lines = [e for e in lines if isinstance(e, dict)]
+    last = lines[-1] if lines else None
+    if new is None:
+        if last and not last.get('ended'):
+            lines = [*lines[:-1], {**last, 'ended': True}]
+    elif not last or last.get('ended') or last.get('sig') != new['sig']:
         lines = [*lines, new]
     return lines[-LOG_KEEP:]

@@ -112,7 +112,7 @@ def idle_log(cfg, found):
     try:
         with open(path, encoding='utf8') as f:
             lines = json.load(f)
-        lines = lines if isinstance(lines, list) else []
+        lines = [e for e in lines if isinstance(e, dict)] if isinstance(lines, list) else []   # junk lines are dropped
     except (OSError, ValueError):
         lines = []
     new = idlecheck.entry(found, tz.show(datetime.now(timezone.utc))) if found else None
@@ -126,7 +126,7 @@ def idle_log(cfg, found):
             os.replace(tmp, path)
         except OSError:
             pass   # a read-only state folder: the note still shows; the log just is not kept
-    return [{k: v for k, v in e.items() if k != 'sig'} for e in reversed(kept[-idlecheck.LOG_SHOWN:])]
+    return [{k: v for k, v in e.items() if k not in ('sig', 'ended')} for e in reversed(kept[-idlecheck.LOG_SHOWN:])]
 
 
 class Collector:

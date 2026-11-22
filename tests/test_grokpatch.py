@@ -23,12 +23,13 @@ def answer(diff=DIFF, extra=''):
 class Pure(unittest.TestCase):
     def test_one_diff_is_taken_from_the_answer(self):
         self.assertEqual(grokpatch.extract(answer()), DIFF)
+        two, big = answer() + answer(), answer('+' * 21000 + '\n')
         with self.assertRaisesRegex(grokpatch.PatchError, 'no ```diff block'):
             grokpatch.extract('I could not read the file.')
         with self.assertRaisesRegex(grokpatch.PatchError, '2 diff blocks'):
-            grokpatch.extract(answer() + answer())
+            grokpatch.extract(two)
         with self.assertRaisesRegex(grokpatch.PatchError, 'over 20 KB'):
-            grokpatch.extract(answer('+' * 21000 + '\n'))
+            grokpatch.extract(big)
 
     def test_a_diff_outside_the_scope_is_refused(self):
         self.assertEqual(grokpatch.check_scope(DIFF, ['app.py']), ['app.py'])
@@ -45,8 +46,9 @@ class Pure(unittest.TestCase):
         self.assertEqual(grokpatch.safe_path('src/app-1.py'), 'src/app-1.py')
         with self.assertRaisesRegex(grokpatch.PatchError, 'full commit id'):
             grokpatch.safe_sha('--upload-pack=x')
+        oops = DIFF.replace('app.py', '-oops')
         with self.assertRaisesRegex(grokpatch.PatchError, 'not a plain path'):
-            grokpatch.check_scope(DIFF.replace('app.py', '-oops'), ['-oops'])
+            grokpatch.check_scope(oops, ['-oops'])
 
     def test_the_brief_carries_the_contract_base_files_and_a_failure(self):
         task = {'id': 't9', 'title': 'Make x two', 'scope': ['app.py'], 'check': 'python3 -c 1', 'criteria': ['x is 2'],

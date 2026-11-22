@@ -113,8 +113,8 @@ def check_scope(diff, scope):
 
 # ---- I/O
 
-def _git(path, *args):
-    r = subprocess.run([worktree.git_bin(), '-C', path, *args], capture_output=True, text=True)
+def _git(path, *args, stdin=None):
+    r = subprocess.run([worktree.git_bin(), '-C', path, *args], capture_output=True, text=True, input=stdin)
     if r.returncode != 0:
         raise PatchError(f'patch: git {" ".join(args)} failed in {path}: {(r.stderr or r.stdout).strip()[:300]}')
     return r.stdout.strip()
@@ -236,11 +236,14 @@ def apply(cfg, tid, run=subprocess.run):
     if not re.fullmatch(r't\d+', str(tid)):
         raise PatchError(f'patch: "{tid}" is not a task id like t123')
     _git(path, 'worktree', 'add', '-B', f'grok/{tid}', '--', wt, safe_sha(p['base']))
-    _git(wt, 'apply', '--check', p['diff'])
-    _git(wt, 'apply', p['diff'])
+    with open(p['diff'], encoding='utf-8') as f:
+        diff = f.read()
+    check_scope(diff, task.get('scope') or [])   # checked again here: the saved file is read, never passed to git as an argument
+    _git(wt, 'apply', '--check', stdin=diff)
+    _git(wt, 'apply', stdin=diff)
     _git(wt, 'add', '-A')
-    _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-m',
-         f'{task["title"][:60]} ({tid})\n\nDrafted by scout {p["scout"]} ({p["request"]}), applied and checked by Tutti.')
+    _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-F', '-',
+         stdin=f'{task["title"][:60]} ({tid})\n\nDrafted by scout {p["scout"]} ({p["request"]}), applied and checked by Tutti.')
     check = task.get('check') or ((cfg.get('autopilot') or {}).get('repos', {}).get(task['repo']) or {}).get('check') or 'true'
     r = run(['bash', '-lc', check], cwd=wt, capture_output=True, text=True, timeout=3600)
     out = (r.stdout or '') + (r.stderr or '')

@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 from tutti import dashboard, idlecheck
@@ -16,6 +17,30 @@ def snap(machines=(), accounts=(), tasks=(), autopilot=True):
 
 FREE = {'name': 'nuc', 'status': 'free', 'free': 2}
 BEHIND = {'name': 'cursor', 'verdict': 'behind', 'used': 12.0}
+
+
+class Log(unittest.TestCase):
+    def test_a_new_case_is_logged_once_and_a_repeat_is_not(self):
+        found = idlecheck.find(snap([FREE], tasks=['a model is busy']))
+        first = idlecheck.keep([], idlecheck.entry(found, 'Mon 10:00'))
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]['idle'], ['nuc (machine)'])
+        self.assertEqual(idlecheck.keep(first, idlecheck.entry(found, 'Mon 10:01')), first)   # same case: not again
+        other = idlecheck.find(snap([FREE], [BEHIND], tasks=['a model is busy']))
+        self.assertEqual(len(idlecheck.keep(first, idlecheck.entry(other, 'Mon 10:02'))), 2)
+        self.assertEqual(idlecheck.keep(first, None), first)   # nothing idle: nothing logged
+        self.assertEqual(len(idlecheck.keep([{'sig': str(i)} for i in range(600)], None)), idlecheck.LOG_KEEP)
+
+    def test_the_dashboard_keeps_the_log_and_survives_a_broken_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {'project': {'state': d}}
+            with open(os.path.join(d, dashboard.IDLE_LOG), 'w') as f:
+                f.write('not json')
+            self.assertEqual(dashboard.idle_log(cfg, None), [])
+            found = idlecheck.find(snap([FREE], tasks=['busy']))
+            shown = dashboard.idle_log(cfg, found)
+            self.assertEqual((len(shown), shown[0]['waiting'], 'sig' in shown[0]), (1, 1, False))
+            self.assertEqual(len(dashboard.idle_log(cfg, found)), 1)
 
 
 class Find(unittest.TestCase):

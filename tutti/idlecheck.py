@@ -40,3 +40,27 @@ def find(snap):
     names = ', '.join(r['name'] for r in idle[:4]) + (f' and {len(idle) - 4} more' if len(idle) > 4 else '')
     return {'idle': idle, 'waiting': len(tasks), 'reasons': [[w, n] for w, n in why],
             'headline': f'Idle with work: {names} could take some of the {len(tasks)} queued task{"s" if len(tasks) != 1 else ""}'}
+
+
+LOG_KEEP, LOG_SHOWN = 500, 5
+
+
+def signature(found):
+    """What makes two findings the same case: the idle names and the top reason. A new case is logged; a repeat is not."""
+    if not found:
+        return ''
+    names = sorted(f'{r["kind"]}:{r["name"]}' for r in found['idle'])
+    return '|'.join(names) + '#' + (found['reasons'][0][0] if found['reasons'] else '')
+
+
+def entry(found, at):
+    """One line of the idle-with-work log: when, who had room, how many waited and the top reason."""
+    return {'at': at, 'idle': [f'{r["name"]} ({r["kind"]})' for r in found['idle']], 'waiting': found['waiting'],
+            'why': found['reasons'][0][0] if found['reasons'] else '', 'sig': signature(found)}
+
+
+def keep(lines, new):
+    """The log after `new` (an entry or None): appended only when it is a new case, bounded to the last LOG_KEEP."""
+    if new and (not lines or lines[-1].get('sig') != new['sig']):
+        lines = [*lines, new]
+    return lines[-LOG_KEEP:]

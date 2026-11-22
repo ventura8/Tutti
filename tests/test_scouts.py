@@ -350,7 +350,8 @@ class TickTest(Base):
 
     def test_no_round_without_the_variables_or_with_auto_off(self):
         cfg = self.cfg(watches={'deps': {'every': '7d', 'task': 't'}})
-        self.assertEqual(scouts.tick(cfg, {}, env={}, gh_fn=self.gh), [])
+        with self.assertRaisesRegex(scouts.ScoutError, 'cannot run: TUTTI_GROK_URL'):   # said, never skipped in silence
+            scouts.tick(cfg, {}, env={}, gh_fn=self.gh)
         off = self.cfg(auto=False, watches={'d': {'every': '1d', 'task': 't'}})
         self.assertEqual(scouts.tick(off, {}, env=self.env, gh_fn=self.gh), [])
         self.assertEqual(self.hook.calls, [])

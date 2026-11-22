@@ -555,10 +555,15 @@ def plan(sc, requests, acc, now):
 def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
     """One round for every scout with auto on and its variables set: collect answers, then send what the plan allows.
     Returns event lines (never a secret)."""
-    now, events = now or time.time(), []
+    now, events, problems = now or time.time(), [], []
     for name in cfg.get('scouts') or {}:
         sc = settings(cfg, name)
-        if not sc['auto'] or missing_env(sc, env):
+        if not sc['auto']:
+            continue
+        gone = missing_env(sc, env)
+        if gone:   # never silent: a scout that cannot run says why (the Scouts card, the log); the others still run
+            problems.append(f'scout {name} cannot run: {", ".join(gone)} not in ~/.config/tutti/grok.env; follow '
+                            f'`tutti scout setup {name}`')
             continue
         url, key = secrets(sc, env)
         acc = accounts.get(sc.get('account'))
@@ -580,6 +585,8 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
         events += aiassist.feed(cfg, ai_answers, now)
         events += grokpatch.feed(cfg, patches)
         events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
+    if problems:
+        raise ScoutError('; '.join(problems))
     return events
 
 

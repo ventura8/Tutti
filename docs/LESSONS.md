@@ -681,3 +681,13 @@ guarded restart (Settings' Restart, the daily update, the new-code restart) fail
 dashboard kept stale code. Lesson: when a store's layout changes, search for every reader of it (here
 `store_has_streaming`), not only the writer, and test the readers against the new layout.
 
+## The scout stopped after every dashboard restart (2026-11-22)
+
+The owner found the Grok scout stopped again: answers were not collected and watches not sent for two days, while
+`tutti scout list` said "ready". The dashboard scrubs its own secrets at start and passed `os.environ` to the scout round;
+`secretenv.get` read the secret file only when that environment had XDG_CONFIG_HOME, which a systemd user service lacks.
+So the variables looked unset and `scouts.tick` skipped the scout without a word. The CLI passes no environment and read
+the file, so every check by hand looked fine. Fixes: the process's own environment always reads the file; a scout that
+cannot run raises and the dashboard logs it once. Lessons: test what the service sees, not what a shell sees; a skip that
+stops a feature must never be silent.
+

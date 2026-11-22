@@ -674,3 +674,10 @@ The new pages asked for `/api/tasks` and the others, which the old server did no
 installs, never a checkout. Fix: the dashboard watches its own code and restarts when it changes (docs/DASHBOARD.md,
 *New code*). Lesson: anything that serves files live and code from memory must restart, or refuse, when the two differ.
 
+## A format change left a guard reading the old layout (2026-11-22)
+
+Chat moved to an index plus one file per conversation, but the restart guard still read `messages` inline, so every
+guarded restart (Settings' Restart, the daily update, the new-code restart) failed with KeyError and the household
+dashboard kept stale code. Lesson: when a store's layout changes, search for every reader of it (here
+`store_has_streaming`), not only the writer, and test the readers against the new layout.
+

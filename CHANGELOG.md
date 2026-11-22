@@ -6,19 +6,21 @@
 
 - Machines (t234): the **role matrix**: for every machine, each role it has, could have (turned off) or cannot have, why,
   and the command or setting that fixes it, on the Machines tab and in `tutti roles matrix` (docs/MACHINES.md, *Role matrix*).
-
-## 0.31.9 (2026-11-22)
+- Devices (owner, 2026-11-22): a Wear OS **watch** kind (`tutti devices pair --watch`: the pairing-code flow; it runs only
+  on its charger, 60 % or more and under 38 °C). The Devices tab lists every device Tutti knows with its state, the media
+  devices on the network, and how to pair one that is missing (docs/MACHINES.md, *Android devices*).
 
 ### Fixed
 
 - Dashboard: it restarts itself within a minute when its code changes on disk (a merge or pull in the checkout it runs
   from), so new tabs never call routes the running server lacks; Discovered no longer lists Docker or VM addresses.
+- Dashboard: a restart (Settings, the daily update, new code) no longer fails with "Chat state cannot be checked
+  (KeyError)": the guard reads the per-conversation Chat store, not only the old one-file layout.
+
+## 0.31.9 (2026-11-22)
 
 ### Added
 
-- Devices (owner, 2026-11-22): a Wear OS **watch** kind (`tutti devices pair --watch`: the pairing-code flow; it runs only
-  on its charger, 60 % or more and under 38 °C). The Devices tab lists every device Tutti knows with its state, the media
-  devices on the network, and how to pair one that is missing (docs/MACHINES.md, *Android devices*).
 - Machines (t225): `tutti machines add --host <address>` sets up a found computer: a key if needed, `ssh-copy-id` only when
   key login fails (you type its password once, into ssh; Tutti never sees it), a check, then the config entry. Each
   Discovered row has **Set up** with its one command and a copy button (docs/MACHINES.md, *Set up a found computer*).

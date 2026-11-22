@@ -110,6 +110,7 @@ tests/test_brain.py
 tests/test_brain_more.py
 tests/test_browser.py
 tests/test_chat.py
+tests/test_chat_restart_guard.py
 tests/test_check_browser_install.py
 tests/test_cli_argv.py
 tests/test_codewatch.py

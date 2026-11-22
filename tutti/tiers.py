@@ -96,6 +96,32 @@ def _capped_by(model, capped):
     return next((n for n, rx in capped.items() if model and _matches(rx, model)), None)
 
 
+EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
+
+
+def cap_effort(args, max_effort):
+    """(args, effort, capped) with the effort lowered to the plan's `max_effort`: an --effort value, else the model's
+    agy-style suffix (gemini-4-neon-xhigh -> gemini-4-neon-high). Unchanged when there is no cap or the effort is within it."""
+    if max_effort not in EFFORTS:
+        return list(args), model_effort(args)[1], False
+    model, effort = model_effort(args)
+    if effort not in EFFORTS or EFFORTS.index(effort) <= EFFORTS.index(max_effort):
+        return list(args), effort, False
+    out = list(args)
+    for i in range(len(out) - 1):
+        if out[i] == '--effort':
+            out[i + 1] = max_effort
+        elif out[i] in ('--model', '-m') and model and model.endswith('-' + effort):
+            out[i + 1] = model[: -len(effort)] + max_effort
+    return out, max_effort, True
+
+
+def plan_of(a):
+    """{name, max_effort}: the account's plan label (`accounts.<n>.subscription`, e.g. pro) and the highest effort that plan
+    should run at (`accounts.<n>.max_effort`: low, medium, high, xhigh or max; none: no cap)."""
+    return {'name': str(a.get('subscription') or ''), 'max_effort': a.get('max_effort')}
+
+
 def choose(cfg, name, s, states=None):
     """{tier, args, model, effort, sizes, reason, label} for a run on account `name` with pacing state `s` (or None);
     `states` (all accounts' pacing states) lets a spent per-model cap move the run to a model with room."""
@@ -112,8 +138,14 @@ def choose(cfg, name, s, states=None):
     cap = _capped_by(model, capped)
     if cap:
         tier, spec, args, model, effort, reason = _with_room(a, tier, cap, capped, reason)
+    plan = plan_of(a)
+    if plan.get('max_effort'):
+        args, effort, capped_effort = cap_effort(args, plan['max_effort'])
+        model = model_effort(args)[0]
+        if capped_effort:
+            reason += f'; effort capped at {plan["max_effort"]} by the {plan["name"] or "account"} plan'
     short = '/'.join(x for x in (model, effort) if x) or 'its default model'
-    return {'tier': tier if spec else 'default', 'args': args, 'model': model, 'effort': effort,
+    return {'tier': tier if spec else 'default', 'args': args, 'model': model, 'effort': effort, 'plan': plan.get('name') or '',
             'sizes': list(spec.get('sizes') or []), 'reason': reason, 'label': f'{short}: {reason}'}
 
 
@@ -145,6 +177,11 @@ def errors(cfg):
             errs.append(f'{key} is {t!r}: a mapping with strong and/or cheap, each {{args: [--model, <name>], sizes: [L, M]}}')
             continue
         errs += [e for k, spec in t.items() for e in tier_errors(f'{key}.{k}', spec)]
+    for name, a in (cfg.get('accounts') or {}).items():
+        cap = (a or {}).get('max_effort')
+        if cap is not None and cap not in EFFORTS:
+            errs.append(f'accounts.{name}.max_effort is {cap!r}: one of {", ".join(EFFORTS)}: the highest effort its plan '
+                        'should use')
     return errs
 
 

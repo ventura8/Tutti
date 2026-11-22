@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -196,6 +197,18 @@ class Service:
         self.join_fails = {}
         self.answering = threading.local()   # the verified member's token, to sign this thread's answer with
 
+    def addresses(self):
+        """['host:port'] of every LAN and VPN address this coordinator listens on (never a public one); [] when unknown."""
+        try:
+            port = int((users.read_household().get('coordinator') or '').rsplit(':', 1)[1])
+        except (IndexError, ValueError):
+            port = int(self.cfg['household']['port'])
+        try:
+            found = netpolicy.private_addresses(netpolicy.interfaces())
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [f'[{a}]:{port}' if ':' in a else f'{a}:{port}' for a in found][:8]
+
     def minutes(self):
         return float(self.cfg['household']['lease_minutes'])
 
@@ -371,7 +384,8 @@ class Service:
         household.machine_round(data, now, float(self.cfg['household'].get('starve_minutes', 20)), self.weight_at(now))
         from . import failover
         answer = {'projects': projects, 'status': household.status(data, uid, now), 'machines': household.machines_view(data, uid),
-                  'failover': failover.discovery(self.cfg)}   # where members look when this coordinator does not answer
+                  'failover': failover.discovery(self.cfg),   # where members look when this coordinator does not answer
+                  'addresses': self.addresses()}   # every address it answers at: a member falls back to them (two-sided repair)
         if (ask.get('beat') or {}).get('spare'):
             answer['offers'] = household.offers(data, set(projects), now)
         return answer
@@ -543,8 +557,10 @@ def start_in_background(cfg):
 
 
 class Client:
-    """Signed calls to the coordinator. No proxy (the coordinator is on the LAN), a short timeout, never a retry inside a
-    round: the next round tries again."""
+    """Signed calls to the coordinator. No proxy (the coordinator is on the LAN), a short timeout. When its address does not
+    answer, the other addresses the coordinator gave (membership `alternates`, from each sync answer) are tried in turn and
+    the one that answers becomes the address (two-sided repair: the coordinator heals its links, the member finds its way
+    back). An answer must still be signed with the member's token, so another computer on that address is refused."""
 
     def __init__(self, membership, timeout=3.0, clock=time.time, opener=None):
         self.m, self.timeout, self.clock = membership, timeout, clock
@@ -554,6 +570,21 @@ class Client:
         return urllib.parse.urlunsplit((SCHEME, self.m['coordinator'], path, '', ''))
 
     def post(self, path, body, key, user=''):
+        try:
+            return self._post(path, body, key, user)
+        except Unreachable as first:
+            for alt in [a for a in self.m.get('alternates') or [] if a != self.m.get('coordinator')]:
+                was, self.m['coordinator'] = self.m['coordinator'], alt
+                try:
+                    answer = self._post(path, body, key, user)
+                except Unreachable:
+                    self.m['coordinator'] = was
+                    continue
+                self.switched = alt   # the caller keeps it (users.write_household) so the next round starts there
+                return answer
+            raise first
+
+    def _post(self, path, body, key, user=''):
         raw = json.dumps(body).encode()
         ts, nonce = str(int(self.clock())), secrets.token_hex(12)
         headers = {'Content-Type': JSON_TYPE, 'X-Tutti-Time': ts, 'X-Tutti-Nonce': nonce,

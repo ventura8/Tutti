@@ -49,6 +49,7 @@ from . import (
     idlecheck,
     joblog,
     keepon,
+    linkheal,
     local,
     move,
     needs,
@@ -301,9 +302,22 @@ class Collector:
             self.probes = {**self.probes, 'scout_error': error}
         return events
 
+    def link_round(self):
+        """Two-sided link repair, this side (tutti/linkheal.py): every unreachable host diagnosed and repaired, with backoff."""
+        try:
+            records, events = linkheal.round_(self.cfg, (self.snapshot().get('machines') or {}).get('items') or [])
+        except (OSError, ValueError) as e:
+            sys.stderr.write(f'tutti: link repair round failed ({type(e).__name__}: {e})\n')
+            return
+        for e in events:
+            sys.stderr.write(f'tutti: links: {e}\n')
+        with self.lock:
+            self.probes = {**self.probes, 'links': records}
+
     def acting_rounds(self):
         """Every round that starts work, takes a lease or sends something: only where Tutti is active."""
         self.update_round()
+        self.link_round()
         self.autopilot_tick()
         self.dispatch_tick()
         self.scouts_tick()
@@ -380,6 +394,8 @@ class Collector:
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())
         sharing.busy_for(out['machines']['items'], out['household'])
+        for m in out['machines']['items']:   # two-sided link repair: each unreachable host's card says how reconnecting goes
+            m['link'] = linkheal.note((probes.get('links') or {}).get(m.get('name')))
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)

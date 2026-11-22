@@ -9,6 +9,8 @@
 
 ### Added
 
+- Pacing: `accounts.<name>.max_effort` caps the effort an account's plan should use; whatever the pace asks, a run's model
+  suffix or `--effort` is lowered to it and its reason says so (docs/USAGE-PACING.md, *Model and effort*).
 - Tasks (t245): an opened task says **Who runs it**: the autopilot's own order for it now (first choice, then the ranked
   backups), the steps it will not use again and why (docs/DASHBOARD.md).
 

@@ -47,9 +47,34 @@ def waiting_on(task, tasks):
     return [i for i in ids(task, 'depends_on') if i in known and not landed(i, known)]
 
 
+def groups(tasks):
+    """{task id: [its group's ids, itself included, sorted]} for every task in `tasks`, in one pass (linear, not per task)."""
+    known = by_id(tasks)
+    links = {}
+    for t in tasks:
+        for o in ids(t, 'together_with'):
+            if o in known:
+                links.setdefault(t['id'], set()).add(o)
+                links.setdefault(o, set()).add(t['id'])
+    out = {}
+    for start in known:
+        if start in out:
+            continue
+        seen, todo = set(), [start]
+        while todo:
+            i = todo.pop()
+            if i not in seen:
+                seen.add(i)
+                todo += links.get(i, ())
+        group = sorted(seen, key=lambda x: (len(x), x))
+        for i in seen:
+            out[i] = group
+    return out
+
+
 def holds(tasks):
     """{task id: why} for queued tasks that must not start now: blocked by dependencies, or merged into another."""
-    out = {}
+    out, known = {}, by_id(tasks)
     for t in tasks:
         if t.get('status') != 'queued':
             continue
@@ -57,14 +82,15 @@ def holds(tasks):
         if into:
             out[t['id']] = f'merged into {into[0]}: it lands with that task (tutti backlog link {t["id"]} --merged-into "" undoes it)'
             continue
-        wait = waiting_on(t, tasks)
+        wait = [i for i in ids(t, 'depends_on') if i in known and not landed(i, known)]
         if wait:
             out[t['id']] = f'blocked until {", ".join(wait)} land{"s" if len(wait) == 1 else ""} (depends_on)'
     open_tasks = [t for t in tasks if t.get('status') not in CLOSED]   # a finished task no longer ties others together
+    grouped = groups(open_tasks)
     for t in open_tasks:   # a group starts together: while one member waits, the others wait with it
         if t.get('status') != 'queued' or t['id'] in out:
             continue
-        held = [i for i in group_of(t, open_tasks) if i in out and i != t['id']]
+        held = [i for i in grouped.get(t['id'], [t['id']]) if i in out and i != t['id']]
         if held:
             out[t['id']] = f'waits for its group: {", ".join(held)} cannot start yet (together_with)'
     return out
@@ -88,10 +114,10 @@ def group_of(task, tasks):
 
 def lanes(tasks):
     """{blocked, ready, grouped}: the board of queued tasks (a grouped task is also ready or blocked)."""
-    h = holds(tasks)
+    h, grouped = holds(tasks), groups(tasks)
     queued = [t for t in tasks if t.get('status') == 'queued']
     return {'blocked': [t['id'] for t in queued if t['id'] in h], 'ready': [t['id'] for t in queued if t['id'] not in h],
-            'grouped': [t['id'] for t in queued if len(group_of(t, tasks)) > 1]}
+            'grouped': [t['id'] for t in queued if len(grouped.get(t['id'], ())) > 1]}
 
 
 def cycle(tasks, start):
@@ -176,7 +202,7 @@ def describe(task, tasks):
 def board(tasks):
     """The dashboard's Board (t243): queued tasks in three lanes, each with its links, so the graph reads as lists.
     A grouped task shows in Grouped and in Blocked or Ready."""
-    h = holds(tasks)
+    h, grouped = holds(tasks), groups(tasks)
     queued = [t for t in tasks if t.get('status') == 'queued']
     rdeps = {}
     for t in tasks:
@@ -186,9 +212,9 @@ def board(tasks):
     def card(t):
         return {'id': t['id'], 'title': str(t.get('title') or '')[:120], 'why': h.get(t['id'], ''),
                 'depends_on': ids(t, 'depends_on'), 'needed_by': rdeps.get(t['id'], []),
-                'group': [i for i in group_of(t, tasks) if i != t['id']]}
+                'group': [i for i in grouped.get(t['id'], [t['id']]) if i != t['id']]}
     lanes_ = lanes(tasks)
     by = {t['id']: t for t in queued}
     return {'lanes': [{'name': name, 'items': [card(by[i]) for i in lanes_[key]]}
                       for key, name in (('blocked', 'Blocked'), ('ready', 'Ready'), ('grouped', 'Grouped'))],
-            'linked': sum(1 for t in queued if ids(t, 'depends_on') or len(group_of(t, tasks)) > 1 or t['id'] in rdeps)}
+            'linked': sum(1 for t in queued if ids(t, 'depends_on') or len(grouped.get(t['id'], ())) > 1 or t['id'] in rdeps)}

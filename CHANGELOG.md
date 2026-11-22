@@ -10,6 +10,9 @@
 
 ### Fixed
 
+- Dashboard: the state the page polls is built about twice as fast (the live self-test found it took 7.8 s): task groups
+  are found in one pass instead of once per queued task, and the autopilot's state is parsed once per change for its
+  read-only callers instead of once per task.
 - Machines tab: Home Assistant at a `.local` name no longer flips to offline when an mDNS lookup fails now and then:
   the lookup is retried, then the last address the name had is used; a name that never resolved says to put the address
   in home_assistant.url.

@@ -70,6 +70,26 @@ def read_state(cfg):
     return data if isinstance(data, dict) else {}
 
 
+_PEEK = {}   # path -> ((mtime_ns, size), parsed): one parse per change, for read-only callers
+
+
+def peek_state(cfg):
+    """read_state for callers that only read it (never change the dict): parsed once per change of the file. The state
+    snapshot asked for it once per queued task, 800 parses of the same file (the 7.8 s /api/state the self-test found)."""
+    path = state_path(cfg)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {}
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _PEEK.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    data = read_state(cfg)
+    _PEEK[path] = (key, data)
+    return data
+
+
 def write_state(cfg, data):
     durable.dump_json(state_path(cfg), data, indent=1)
 
@@ -111,7 +131,7 @@ def ladder(cfg):
 def trigger_accounts(cfg, now=None):
     """autopilot.accounts plus the ones the owner allowed for a while from the dashboard's one-click fix (tutti/resolver.py)."""
     now = time.time() if now is None else now
-    allowed = [n for n, until in (read_state(cfg).get('allow') or {}).items() if until > now and n in cfg['accounts']]
+    allowed = [n for n, until in (peek_state(cfg).get('allow') or {}).items() if until > now and n in cfg['accounts']]
     return list(dict.fromkeys([*settings(cfg)['accounts'], *allowed]))
 
 

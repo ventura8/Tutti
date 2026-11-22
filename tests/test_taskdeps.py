@@ -72,6 +72,16 @@ class Deps(unittest.TestCase):
         self.assertEqual(b['linked'], 3)
         self.assertEqual(taskdeps.board([]), {'lanes': [{'name': n, 'items': []} for n in ('Blocked', 'Ready', 'Grouped')], 'linked': 0})
 
+    def test_groups_are_found_in_one_pass_and_fast_on_a_big_backlog(self):
+        import time
+        tasks = [task(f't{i}') for i in range(3000)] + [task('a1', together_with=['a2']), task('a2'), task('a3', together_with=['a2'])]
+        g = taskdeps.groups(tasks)
+        self.assertEqual((g['a1'], g['t5']), (['a1', 'a2', 'a3'], ['t5']))
+        start = time.monotonic()
+        taskdeps.holds(tasks)
+        taskdeps.lanes(tasks)
+        self.assertLess(time.monotonic() - start, 1.0)   # was quadratic: the state snapshot took 7.8 s live (t241's self-test)
+
     def test_link_refuses_unknown_ids_itself_and_loops_and_clears_with_empty(self):
         tasks = [task('t1'), task('t2', depends_on=['t1'])]
         with self.assertRaisesRegex(taskdeps.DepError, 'not in the backlog'):

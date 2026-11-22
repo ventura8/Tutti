@@ -225,9 +225,23 @@ def checks_note(chosen, source):
     return f'none configured ({source})'
 
 
+def outcome(r):
+    """The report's first line: PASSED, or FAILED and why, so a run that changed nothing never reads as a success."""
+    if r['worker_rc'] != 0:
+        return f'FAILED: the worker exited {r["worker_rc"]}'
+    if r['denied']:
+        return 'FAILED: the worker\'s CLI refused tool calls (below)'
+    if not r['changed']:
+        return 'FAILED: the worker changed nothing (exit 0 is not a fix); run it again or give it to another worker'
+    bad = [c for c in r['checks'] or [] if c['rc'] != 0]
+    if bad:
+        return f'FAILED: {len(bad)} check(s) failed'
+    return 'PASSED' if r['checks'] else 'CHANGED, NOT TESTED: no check ran; review the diff before using it'
+
+
 def summary(r):
     """The reviewable report, plain text."""
-    lines = [f'run {r["id"]}: {r["worker"]} exit {r["worker_rc"]}; {len(r["changed"])} file(s) changed',
+    lines = [f'result    {outcome(r)}', f'run {r["id"]}: {r["worker"]} exit {r["worker_rc"]}; {len(r["changed"])} file(s) changed',
              f'task      {r["task"][:200]}', f'worktree  {r["worktree"]}',
              f'diff      {r["diff"]}' + (' (empty)' if not r['changed'] else '')]
     if r['stat']:

@@ -904,7 +904,7 @@ def cmd_runs(cfg, a):
     if a.action == 'show':
         with open(delegate.paths(cfg, a.id)['report'], encoding='utf8') as f:
             print(f.read().rstrip())
-        return 0
+        return 1 if r.get('rc') else 0   # a failed run (the report's result line) is an error for scripts and MCP job_status
     wt = delegate.own_worktree(cfg, r.get('worktree'))
     if not wt:
         say(f'run {a.id}: its report names a worktree outside {cfg["project"]["worktrees"]}: nothing removed')

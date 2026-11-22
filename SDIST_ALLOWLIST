@@ -173,6 +173,7 @@ tests/test_ownerwin.py
 tests/test_pacefix.py
 tests/test_pacing.py
 tests/test_packaging_guard.py
+tests/test_peek_state.py
 tests/test_perf.py
 tests/test_planner_pace.py
 tests/test_power.py

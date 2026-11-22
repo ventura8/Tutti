@@ -127,6 +127,7 @@ include tests/test_dashboard.py
 include tests/test_dashui.py
 include tests/test_decisional.py
 include tests/test_decisions.py
+include tests/test_delegate_fresh.py
 include tests/test_depbots.py
 include tests/test_deps.py
 include tests/test_devclass.py

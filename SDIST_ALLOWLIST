@@ -126,6 +126,7 @@ tests/test_dashboard.py
 tests/test_dashui.py
 tests/test_decisional.py
 tests/test_decisions.py
+tests/test_delegate_fresh.py
 tests/test_depbots.py
 tests/test_deps.py
 tests/test_devclass.py

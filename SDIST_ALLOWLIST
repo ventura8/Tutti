@@ -198,6 +198,7 @@ tests/test_security_audit.py
 tests/test_self_update.py
 tests/test_selfheal.py
 tests/test_selfimprove.py
+tests/test_selftest.py
 tests/test_settings.py
 tests/test_setup.py
 tests/test_shards.py
@@ -368,6 +369,7 @@ tutti/scrub.py
 tutti/secretenv.py
 tutti/selfheal.py
 tutti/selfimprove.py
+tutti/selftest.py
 tutti/sentry.py
 tutti/settings.py
 tutti/settings_schema.py

@@ -63,6 +63,7 @@ from . import (
     report,
     rolematrix,
     scouts,
+    selftest,
     settings,
     setupcmd,
     sleepwatch,
@@ -399,7 +400,8 @@ class Collector:
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
         out['idle_with_work'] = idlecheck.find(out)   # t254: room somewhere while queued work waits, with the queue's reasons
-        out['idle_log'] = idle_log(self.cfg, out['idle_with_work'])   # t254: each new case, kept, the last few shown
+        out['idle_log'] = idle_log(self.cfg, out['idle_with_work'])
+        out['selftest'] = selftest.load(self.cfg)   # t241: the last live self-test   # t254: each new case, kept, the last few shown
         last = update.load(self.cfg)
         from . import diskroom
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)
@@ -1146,6 +1148,12 @@ def get(collector, path, token, headers):
     if answered:
         return answered
     return (*route(collector, path, token), None)
+
+
+def self_test(collector):
+    """The live self-test (t241): every route the pages on disk GET, asked of this running dashboard with its real data."""
+    checks = selftest.run(collector, WEB, lambda c, p: get(c, p, '', {})[0])
+    return selftest.record(collector.cfg, checks, __version__)
 
 
 def viewer_json(collector, path):

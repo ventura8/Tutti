@@ -199,6 +199,7 @@ include tests/test_security_audit.py
 include tests/test_self_update.py
 include tests/test_selfheal.py
 include tests/test_selfimprove.py
+include tests/test_selftest.py
 include tests/test_settings.py
 include tests/test_setup.py
 include tests/test_shards.py
@@ -369,6 +370,7 @@ include tutti/scrub.py
 include tutti/secretenv.py
 include tutti/selfheal.py
 include tutti/selfimprove.py
+include tutti/selftest.py
 include tutti/sentry.py
 include tutti/settings.py
 include tutti/settings_schema.py

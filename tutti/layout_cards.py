@@ -13,7 +13,7 @@ FILE = 'dashboard-layout.json'
 DEFAULT_ORDER = (
     'usage', 'machines', 'attention', 'household', 'jobs-stack', 'side-stack',
     'autopilot', 'work-browser', 'projects', 'security', 'scouts', 'connect',
-    'outside', 'where', 'setup', 'controls', 'selfimprove', 'aiassist', 'insights',
+    'outside', 'where', 'setup', 'controls', 'selfimprove', 'aiassist', 'insights', 'selftest',
     'my-schedule', 'my-questions', 'my-github', 'jobs', 'vpn', 'users',
 )
 
@@ -38,6 +38,7 @@ DEFAULT_SIZES = {
     'selfimprove': {'cols': 12, 'height': 0},
     'aiassist': {'cols': 12, 'height': 0},
     'insights': {'cols': 12, 'height': 0},
+    'selftest': {'cols': 12, 'height': 0},
     'my-schedule': {'cols': 12, 'height': 0},
     'my-questions': {'cols': 12, 'height': 0},
     'my-github': {'cols': 12, 'height': 0},

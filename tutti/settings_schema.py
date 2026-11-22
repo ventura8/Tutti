@@ -299,6 +299,8 @@ FIELDS = {
                              'untested files.', 'switch'),
     'autopilot.auto_review': field('Review and land results', 'A passing result is reviewed by review.fallback, then landed.', 'switch'),
     'autopilot.repos.*.path': field('Folder', 'The repository on this computer.', 'text'),
+    'autopilot.repos.*.fix': field('Fix first', 'Formatters and generators run on a run\'s change before its check '
+                                   '({changed:ts,js} works as in the check): style-only failures fix themselves.', 'text'),
     'autopilot.repos.*.check': field('Check', 'The repo\'s gates; a result passes only when they pass.', 'text'),
     'autopilot.repos.*.where': field('Checks run', 'local, or route (on a machine).', 'select', choices=['local', 'route']),
     'autopilot.repos.*.pr': field('Open a pull request', 'Deprecated by land: pr.', 'switch'),

@@ -1398,9 +1398,11 @@ function taskDetails(id) {
     const body = el('div', { class: 'qdetail' });
     if (open) void loadTaskDetail(id, body, false);
     return el('details', { class: 'qitem', 'data-task-detail': id, open, ontoggle: (e) => {
-        if (e.currentTarget.open) { ui.open.add(key); void loadTaskDetail(id, body); } else ui.open.delete(key);
+        const shown = e.currentTarget.open;
+        if (shown === ui.open.has(key)) return;   // a redraw restoring the open state, not the reader: nothing to fetch
+        if (shown) { ui.open.add(key); void loadTaskDetail(id, body); } else ui.open.delete(key);
         if (typeof saveUi === 'function') saveUi();
-    } }, el('summary', { text: 'All details', 'aria-label': `${id}: show everything it has` }), body);
+    } }, el('summary', { text: 'All details', 'aria-label': `All details of ${id}` }), body);
 }
 
 function openJob(id) {

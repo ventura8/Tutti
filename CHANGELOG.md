@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- Self-heal: a busy PC's WSL is no longer restarted as "hung" (it was, three times in half an hour, killing the work in
+  it): a hang must show 3 rounds in a row and survive a last 120 s look, and WSL is restarted at most once an hour.
 - WSL: after each `tutti test` on a WSL machine, orphaned `wsl.exe` of Tutti's runs (left by a dropped ssh; they kept WSL
   running) are stopped; only those naming Tutti's helper, never the owner's own.
 - A WSL machine its owner paused is no longer probed (each probe's ssh restarted its Linux VM, e.g. during a disk

@@ -160,14 +160,36 @@ def trace_gb(ctx, m):
     return hygiene._num((r.stdout or '0').strip().splitlines()[-1] if (r.stdout or '').strip() else '0') / 1e9
 
 
+HUNG_ROUNDS = 3        # rounds in a row WSL must not answer before it counts as hung: a busy PC answers late
+CONFIRM_S = 120        # the last look before a restart waits this long (the round's own look waits 30 s)
+RESTART_GAP = 3600     # at most one restart an hour: `wsl --shutdown` stops everything running in WSL
+
+
 def wsl_round(ctx, m, entry, held):
-    state = hygiene.wsl_state(lambda c, t: _win(ctx, m, c, t))
+    """A hung WSL restarted, but only a truly hung one (2026-11-22: a PC at load 14 was restarted three times in half an
+    hour, killing the work in it): it must miss HUNG_ROUNDS rounds in a row, then a last CONFIRM_S look, and at most one
+    restart an hour."""
+    def win(c, t):
+        return _win(ctx, m, c, t)
+    state = hygiene.wsl_state(win)
     if state != 'hung':
         if state == 'ok':
-            entry['wsl'] = None
+            entry['wsl'], entry['wsl_slow'] = None, 0
+        return []
+    slow = entry['wsl_slow'] = int(entry.get('wsl_slow') or 0) + 1
+    if slow < HUNG_ROUNDS:
+        entry['wsl'] = f'WSL slow to answer ({slow} of {HUNG_ROUNDS} rounds): not restarted (a busy PC answers late)'
         return []
     if held:
         entry['wsl'] = f'WSL hung: not restarted while {held}'
+        return []
+    last = float(entry.get('wsl_restarted_at') or 0)
+    if ctx.now - last < RESTART_GAP:
+        entry['wsl'] = (f'WSL hung: restarted at {time.strftime("%H:%M", time.localtime(last))}; at most one restart an hour, '
+                        'so not again yet')
+        return []
+    if hygiene.wsl_state(win, CONFIRM_S) != 'hung':   # it answered after all: slow, not hung
+        entry['wsl'], entry['wsl_slow'] = None, 0
         return []
     try:
         _win(ctx, m, 'wsl --shutdown', 120)
@@ -176,6 +198,7 @@ def wsl_round(ctx, m, entry, held):
         entry['wsl'] = f'WSL hung: the restart did not finish ({type(e).__name__}); tried again next round'
         return []
     entry['wsl'] = f'WSL hung: restarted at {time.strftime("%H:%M", time.localtime(ctx.now))}'
+    entry['wsl_restarted_at'], entry['wsl_slow'] = ctx.now, 0
     return [f'{m["name"]}: WSL hung (Windows answered, WSL did not): shut down and started again']
 
 

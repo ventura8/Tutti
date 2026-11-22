@@ -697,3 +697,12 @@ stops a feature must never be silent.
 The NUC was paused after 105 C, yet scripts that went straight to `ssh nuc docker run …` started two Playwright containers
 and pushed it to 98 C. Routing's checks bound only `tutti test`. Fix: `tutti may-run` for every direct caller, and a heat
 watchdog that throttles Tutti's own containers whatever started them.
+
+## Self-heal restarted a busy PC's WSL as "hung" (2026-11-22)
+
+The owner found the PC unavailable again and again. Self-heal took one 30 s timeout of `wsl -e true` as a hang and ran
+`wsl --shutdown` at once: three times in half an hour while the PC sat at load 14 and 80 °C, each time killing the work
+in its WSL (another agent's included). `tutti machines` reached that WSL fine at the same time: it was slow, not hung.
+Fix: a hang must show 3 rounds in a row, survive a last 120 s look, and a restart happens at most once an hour.
+Lesson: a repair that destroys running work needs stronger evidence than one slow answer, and a rate limit.
+

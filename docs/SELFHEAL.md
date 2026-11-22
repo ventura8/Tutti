@@ -76,7 +76,9 @@ local, ssh and WSL machine once (its flag, load and disks):
 - **Yield flags** expire (default 4 h, `tutti yield renew`), and one whose owner's process is gone is lowered once the
   machine is idle. The card shows owner, reason and age.
 - **A hung WSL** (Windows answers ssh, `wsl -e true` times out) is shut down and started again, never while a yield
-  flag or a lease holds the machine; the card says *WSL hung: restarted* or why it was left.
+  flag or a lease holds the machine; only after it missed 3 rounds in a row (a busy PC answers late: the card says *WSL
+  slow to answer (1 of 3)*), then a last 120 s look, and at most once an hour, since `wsl --shutdown` stops everything
+  running in WSL; the card says *WSL hung: restarted* or why it was left.
 - **Disks**: warn under 15 GB free (biggest reclaimable items on the card), no new work under 8 GB, one question in
   Needs you.
 - **Clean-up**, daily or when a work disk is under 20 % free, never while a flag or lease holds the machine: Docker

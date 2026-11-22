@@ -226,6 +226,7 @@ include tests/test_temps.py
 include tests/test_tz.py
 include tests/test_unblocker.py
 include tests/test_units.py
+include tests/test_unreported_hold.py
 include tests/test_update.py
 include tests/test_users.py
 include tests/test_users_tab.py

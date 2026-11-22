@@ -2199,8 +2199,9 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'scan'])
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
-                                'review <pr> (advisory), trial (the review trial), list, setup')
-    s.add_argument('action', choices=['list', 'setup', 'ask', 'answer', 'watch', 'tick', 'review', 'trial'])
+                                'review <pr> (advisory), trial (the review trial), list, setup, patch <task> (the scout drafts '
+                                'a diff), apply <task> (Tutti applies it and runs the check)')
+    s.add_argument('action', choices=['list', 'setup', 'ask', 'answer', 'watch', 'tick', 'review', 'trial', 'patch', 'apply'])
     s.add_argument('scout', nargs='?', help='ask, setup, watch: the scout (setup grok: the guided setup in a terminal); '
                                             'answer: the request id; '
                                             'review: the pull request number; '

@@ -76,8 +76,28 @@ and the dashboard name only the variables. The URL must be `https://` (plain `ht
 | `tutti scout tick` | One round: collects answers, then sends what the plan allows. The dashboard runs it after every probe. |
 | `tutti scout review <pr>` | The scout reviews a pull request: it posts one comment there whose first line is `grok-scout`, one bullet per finding. Advisory: never blocking, never applied by Tutti. Allowed when `review` is among its skills, during its review trial, or after a trial it passed. |
 | `tutti scout trial [status\|collect\|show\|mark\|done]` | The review trial (below). |
+| `tutti scout patch <task> [--via <scout>]` | The scout drafts a queued backlog task as one diff (*Patches* below). |
+| `tutti scout apply <task>` | Applies that diff at its base in a worktree of its own and runs the check. |
 | `tutti scout list`, `tutti scout setup` | The scouts and their state; the owner's setup steps. |
 | `tutti scout setup grok` | The guided setup in a real terminal: steps, URL and hidden key, saved to `~/.config/tutti/grok.env`, a test question. |
+
+## Patches
+
+A scout can draft code without being a worker (t206, `tutti/grokpatch.py`). Grok's routine may not push, open a pull request,
+build or test (each shell cell has about 10 s of CPU), so it writes the change as text and Tutti does the rest. The contract
+Grok agreed to ([ventura8/Tutti#2139](https://github.com/ventura8/Tutti/issues/2139)):
+
+1. `tutti scout patch <task>` sends the task: the repository, its base commit, the title, the scope (file paths, not folders),
+   the check, what *done* means, the last notes, and the scoped files' contents at the base (up to 60 KB). The task is held:
+   no worker takes it while the scout drafts.
+2. The scout answers with exactly one ```` ```diff ```` block against that base. The scout round keeps it on the task
+   (`<state>/patches/<task>-<request>.diff`) only when it is one diff, at most 20 KB, touching only scoped files; otherwise
+   the task says why and is free again.
+3. `tutti scout apply <task>` applies it at the base in a worktree of its own (branch `grok/<task>`), commits, and runs the
+   check there. A pass leaves the task in **review** with that branch; the owner's checkout is never touched.
+4. A failed check keeps the diff and the output; `tutti scout patch <task>` sends them back once for a corrected diff.
+
+Until Tutti's check passes, a scout's diff is unverified. A few patch tasks a day suit Grok; it promises no turnaround.
 
 ## Pacing: use the allowance, never on-demand
 

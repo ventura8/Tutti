@@ -1656,17 +1656,17 @@ usage: tutti security [-h] [{status,scan}]
 
 ### `tutti scout`
 
-scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), review <pr> (advisory), trial (the review trial), list, setup
+scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), review <pr> (advisory), trial (the review trial), list, setup, patch <task> (the scout drafts a diff), apply <task> (Tutti applies it and runs the check)
 
 ```text
 usage: tutti scout [-h] [--via VIA] [--repo REPO] [--skill SKILL] [--no-wait] [--queue] [--timeout TIMEOUT]
                    [--key-stdin]
-                   {list,setup,ask,answer,watch,tick,review,trial} [scout] [task] [rest ...]
+                   {list,setup,ask,answer,watch,tick,review,trial,patch,apply} [scout] [task] [rest ...]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {list,setup,ask,answer,watch,tick,review,trial}` |  |  |
+| `action {list,setup,ask,answer,watch,tick,review,trial,patch,apply}` |  |  |
 | `scout` | ask, setup, watch: the scout (setup grok: the guided setup in a terminal); answer: the request id; review: the pull request number; trial: status, collect, show, mark or done |  |
 | `task` | ask: the question or task; watch: the watch to run now; trial: owner/name#number |  |
 | `rest` | trial mark: the finding id and real or noise |  |

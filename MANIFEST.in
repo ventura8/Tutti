@@ -138,6 +138,7 @@ include tests/test_files.py
 include tests/test_fill.py
 include tests/test_fleet.py
 include tests/test_github.py
+include tests/test_grokpatch.py
 include tests/test_groksetup.py
 include tests/test_helper_parse.py
 include tests/test_hhjobs.py
@@ -287,6 +288,7 @@ include tutti/fill.py
 include tutti/fleet.py
 include tutti/github.py
 include tutti/githubcmd.py
+include tutti/grokpatch.py
 include tutti/groksetup.py
 include tutti/grokweek.py
 include tutti/guided.py

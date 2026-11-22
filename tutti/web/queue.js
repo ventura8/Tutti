@@ -35,6 +35,14 @@ function detailList(rows) {
 function taskDetailNodes(d) {
     const out = [detailList(d.facts || [])];
     if (d.pr) out.push(el('p', {}, el('a', { class: 'link', href: d.pr, target: '_blank', rel: 'noopener noreferrer', text: 'Pull request' })));
+    if (d.runners) {   // t245: who runs it, the ranked backups and why
+        const r = d.runners;
+        out.push(el('h4', { class: 'qdetail__head', text: 'Who runs it' }),
+            el('p', { class: 'row__note', text: r.order.length ? `${r.order[0]} first${r.order.length > 1 ? `, then ${r.order.slice(1).join(', ')}` : ''}`
+                : 'No step may take it now.' }),
+            el('p', { class: 'row__note', text: r.why }),
+            r.skipped.length ? el('p', { class: 'row__note', text: `Not again: ${r.skipped.join(', ')} (failed the same way twice)` }) : '');
+    }
     if ((d.links || []).length) out.push(el('h4', { class: 'qdetail__head', text: 'Dependencies' }), el('ul', {}, ...d.links.map((l) => el('li', { text: l }))));
     if ((d.criteria || []).length) out.push(el('h4', { class: 'qdetail__head', text: 'Done when' }), el('ul', {}, ...d.criteria.map((c) => el('li', { text: c }))));
     if ((d.attempts || []).length) {

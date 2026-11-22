@@ -204,7 +204,7 @@ household's coordinator and show on the shared machine's own dashboard once clai
 A queued task opens (click, or Enter or Space on its title; it stays open across refreshes and reloads) to everything it has
 (t237): id, repository, project, priority, size, source, status, when it was added, scope, check, who claimed it, the last
 worker, step, model and run, its branch and pull request, what *done* means, its last 10 attempts newest first (when,
-where, why it failed), its last 8 notes and its **Dependencies** (what it depends on, its group, merges, who needs it; t243). They are read from `GET /api/task/<id>` when the row opens, not sent in every
+where, why it failed), its last 8 notes, **Who runs it** (t245: the autopilot's own order for it now, first choice then the ranked backups it falls to on a failure, the steps it will not use again because they failed the same way twice, and why) and its **Dependencies** (what it depends on, its group, merges, who needs it; t243). They are read from `GET /api/task/<id>` when the row opens, not sent in every
 state poll, with credentials replaced. A task under **Needs you** (needing a person, or to review) has **All details**,
 which opens the same view. **Board** (t243, above the list) opens to the queued tasks in **Blocked**, **Ready**
 and **Grouped** lanes, each with why it waits, what it depends on, what needs it and its group (`GET /api/board`). Running jobs open the same way to their log (above).

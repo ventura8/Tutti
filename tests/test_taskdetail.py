@@ -42,6 +42,22 @@ class Detail(unittest.TestCase):
         self.assertIsNone(d['pr'])
         self.assertEqual(d['attempts'], [])
 
+    def test_who_runs_it_the_backups_and_why(self):
+        from tutti import autopilot
+        fresh = {'id': 't1', 'repo': 'app', 'attempts': []}
+        with mock.patch.object(autopilot, 'candidates', return_value=['codex', 'agy']), \
+                mock.patch.object(autopilot, 'worn_out', return_value={'cursor'}):
+            r = taskdetail.runners({}, fresh)
+            self.assertEqual((r['order'], r['skipped']), (['codex', 'agy'], ['cursor']))
+            self.assertIn('a fresh task', r['why'])
+            failed = {**fresh, 'attempts': [{'step': 'cursor', 'ok': False, 'why': 'stuck:\nno output'}], 'prefer': 'codex'}
+            r = taskdetail.runners({}, failed)
+            self.assertIn('its last attempt on cursor failed (stuck: no output): one step up the ladder; codex first', r['why'])
+        with mock.patch.object(autopilot, 'candidates', side_effect=KeyError('repo')):
+            r = taskdetail.runners({}, fresh)
+        self.assertEqual(r['order'], [])
+        self.assertIn('cannot be worked out', r['why'])
+
     def test_the_route_answers_a_known_task_and_says_why_for_an_unknown_one(self):
         c = mock.Mock(cfg={})
         with mock.patch('tutti.backlog.load', return_value={'tasks': [TASK]}):
@@ -62,11 +78,13 @@ class Detail(unittest.TestCase):
         stub = ('function el(tag, attrs, ...kids) { return { tag, attrs: attrs || {}, kids: kids.flat() }; }\n'
                 "function text(n) { return typeof n === 'string' ? n : n ? "
                 "[(n.attrs || {}).text || '', ...(n.kids || []).map(text)].join(' ') : ''; }\n")
-        d = {**taskdetail.detail(TASK), 'links': ['Depends on: t2 (queued)']}
+        d = {**taskdetail.detail(TASK), 'links': ['Depends on: t2 (queued)'],
+             'runners': {'order': ['codex', 'agy'], 'skipped': ['cursor'], 'why': 'a fresh task'}}
         js = f'{stub}\n{src}\nconsole.log(JSON.stringify(taskDetailNodes({json.dumps(d)}).map(text).join(" ")));'
         out = json.loads(subprocess.run(['node', '-e', js], capture_output=True, text=True, check=True).stdout)
         for part in ('Id t7', 'Pull request', 'Done when', 'The legend fits a phone.', 'Attempts (15, newest first)', 'try 14',
-                     'Notes (8 of 13, newest last)', 'Dependencies', 'Depends on: t2'):
+                     'Notes (8 of 13, newest last)', 'Dependencies', 'Depends on: t2',
+                     'Who runs it', 'codex first, then agy', 'Not again: cursor'):
             self.assertIn(part, out)
 
 

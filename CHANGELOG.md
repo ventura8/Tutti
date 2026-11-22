@@ -12,6 +12,8 @@
 
 ### Added
 
+- Tasks (t245): an opened task says **Who runs it**: the autopilot's own order for it now (first choice, then the ranked
+  backups), the steps it will not use again and why (docs/DASHBOARD.md).
 - Network (P0): **two-sided link repair**. The main computer diagnoses every host that stops answering (name, ssh port,
   key, no answer), repairs what it can (stale shared connection, the LAN or VPN address, Wake-on-LAN with `mac:`), retries
   with backoff and shows "reconnecting: try n, next at ..." on the host's card; a member falls back to the coordinator's

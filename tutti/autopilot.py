@@ -1642,28 +1642,38 @@ def explicitly_local_run(task):
 UNREPORTED_MAX = 6 * 3600   # a run with no report this long after it started will not send one: its slot is given back
 
 
-def hold_or_resume_unreported(cfg, task, events, now=None):
-    """After a reboot, fully-local work can resume; bridged, routed or unknown work waits for a report. Never signals a PID.
-    The wait is bounded (2026-11-22: 20 such runs held all 20 slots for 33 h and the autopilot started nothing): after
-    UNREPORTED_MAX the attempt is counted as ended without a report and the task queued again with a new run id, so a late
-    report of the old run is never taken for the new one."""
-    now = now or time.time()
+def hold_or_resume_unreported(cfg, task, events, now=None, is_alive=None, kill=None):
+    """After a reboot, fully-local work can resume; bridged, routed or unknown work waits for a report. Never signals a PID
+    of another computer. The wait is bounded (2026-11-22: 20 such runs held all 20 slots for 33 h and the autopilot started
+    nothing): after UNREPORTED_MAX the run is stopped where this computer can (its own process), the attempt counted as
+    ended without a report, the old run id dropped (a late report of it is not taken for the next run), and the task
+    queued again. A run on another computer that still lives after 6 h is the remaining risk (docs/LESSONS.md)."""
+    now = time.time() if now is None else now
     if durable.died_with_host(task.get('boot')) and explicitly_local_run(task):
         events.append(interrupt(cfg, task))
     elif task.get('started') and now - float(task['started']) > UNREPORTED_MAX:
-        hours, run, step = (now - float(task['started'])) / 3600, task.get('run'), task.get('step')
-        events.append(interrupt(cfg, task))
-        a = {'at': now, 'step': step, 'run': run, 'ok': False, 'class': 'environment', 'signature': f'unreported:{step}',
-             'why': f'the run ended without a report (held {hours:.0f} h: its process could not be confirmed, so its slot '
-                    'is given back)'}
-        task['attempts'].append(a)
-        task['interrupted'] = max(0, int(task.get('interrupted') or 1) - 1)   # counted as an attempt, not an interruption
-        task['resume_note'] = f'the previous run ({run}) never reported in {hours:.0f} h: queued again, counted as an attempt'
-        record_attempt(cfg, task, a, now)
-        events[-1] = f'{task["id"]}: its run {run} never reported in {hours:.0f} h: slot given back, queued again (counted)'
+        events.append(give_back(cfg, task, now, is_alive, kill))
     else:
         task['recovery_note'] = ('run ended without a report: process ownership is unverified; '
                                  'waiting for its report before retrying')
+
+
+def give_back(cfg, task, now, is_alive=None, kill=None):
+    """The slot of a run that never reported given back: no quota hold, no reboot telemetry (it was no reboot)."""
+    from . import state as state_mod
+    hours, run, step = (now - float(task['started'])) / 3600, task.get('run'), task.get('step')
+    stop_run(cfg, task, is_alive or state_mod.alive, kill)   # this computer's own process only; never another's
+    done = reconcile(tree_of(cfg, task), wip_ref(task), wip_remote(cfg, task))
+    a = {'at': now, 'step': step, 'run': run, 'ok': False, 'class': 'environment', 'signature': f'unreported:{step}',
+         'why': f'the run ended without a report (held {hours:.0f} h: its process could not be confirmed, so its slot '
+                'is given back)'}
+    task['attempts'].append(a)
+    for k in ('recovery_note', 'run', 'quota_hold'):
+        task.pop(k, None)
+    task.update(status='queued', last_run=run,
+                resume_note=f'the previous run ({run}) never reported in {hours:.0f} h: queued again, counted as an attempt; {done}')
+    record_attempt(cfg, task, a, now)
+    return f'{task["id"]}: its run {run} never reported in {hours:.0f} h: slot given back, queued again (counted)'
 
 
 def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
@@ -1680,7 +1690,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         if not ended and not stuck_why:
             continue
         if report is None:
-            hold_or_resume_unreported(cfg, t, events, now)
+            hold_or_resume_unreported(cfg, t, events, now, is_alive, kill)
             continue
         t.pop('recovery_note', None)
         a = attempt_of(cfg, t, report, now)

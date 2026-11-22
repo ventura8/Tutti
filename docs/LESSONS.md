@@ -711,7 +711,10 @@ Lesson: a repair that destroys running work needs stronger evidence than one slo
 The autopilot made 2 attempts in a day. All 20 slots were "running" tasks whose runs had ended without a report on
 21 Nov; since their processes could not be confirmed (routed or bridged work), each was held "waiting for its report
 before retrying", with no limit. The hold protects against running a task twice, but a report that has not come in hours
-will not come. Fix: the hold is bounded (6 h), then the attempt is counted and the task queued again under a new run id.
+will not come. Fix: the hold is bounded (6 h); then the run is stopped where this computer can, the old run id dropped (a late report
+of it is not taken for the next run), the attempt counted and the task queued again. The remaining risk: a run on another
+computer still alive after 6 h could overlap its retry (Grok's review caught that the first version also set a quota
+hold and logged a reboot).
 Found by reading the new per-agent track record (Agents tab), whose numbers looked impossible. Lesson: every wait for an
 outside event needs a bound and a visible count of what it holds.
 

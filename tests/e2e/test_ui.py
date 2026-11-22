@@ -607,6 +607,8 @@ class DiscoveredTab(unittest.TestCase):
             text = page.text_content('#discovered-list')
             for part in ('192.0.2.10', 'Computer (ssh answers)', 'Living room TV', 'Pixel_9'):
                 self.assertIn(part, text, width)
+            page.locator('[data-setup="192.0.2.10"] > summary').click()   # t225: the one command, with its copy button
+            self.assertIn('tutti machines add --host 192.0.2.10', page.text_content('[data-setup="192.0.2.10"]'))
             found = page.evaluate('tuttiChecks.layout()') + axe(page)
             if found:
                 problems[width] = found

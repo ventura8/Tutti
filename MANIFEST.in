@@ -144,6 +144,7 @@ include tests/test_groksetup.py
 include tests/test_helper_parse.py
 include tests/test_hhjobs.py
 include tests/test_homeassistant.py
+include tests/test_hostsetup.py
 include tests/test_hours.py
 include tests/test_household.py
 include tests/test_hygiene.py
@@ -300,6 +301,7 @@ include tutti/handover.py
 include tutti/helper.py
 include tutti/hhjobs.py
 include tutti/homeassistant.py
+include tutti/hostsetup.py
 include tutti/hours.py
 include tutti/household.py
 include tutti/householdcmd.py

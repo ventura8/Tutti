@@ -143,6 +143,7 @@ tests/test_groksetup.py
 tests/test_helper_parse.py
 tests/test_hhjobs.py
 tests/test_homeassistant.py
+tests/test_hostsetup.py
 tests/test_hours.py
 tests/test_household.py
 tests/test_hygiene.py
@@ -299,6 +300,7 @@ tutti/handover.py
 tutti/helper.py
 tutti/hhjobs.py
 tutti/homeassistant.py
+tutti/hostsetup.py
 tutti/hours.py
 tutti/household.py
 tutti/householdcmd.py

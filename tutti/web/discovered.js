@@ -10,7 +10,23 @@ function discoveredRow(d) {
         el('div', { class: 'row__name', text: d.name === d.address ? d.address : `${d.name} · ${d.address}` }),
         el('p', { class: 'row__note', text: `${KIND_LABEL[d.kind] || d.kind} · found by ${d.found_by.join(', ')}` }),
         el('p', { class: 'row__note', text: d.roles.length ? `Roles now: ${d.roles.join(', ')}` : 'No role yet' }),
-        ...d.can.map((c) => el('p', { class: 'row__note', text: `Could be: ${c}` })));
+        ...d.can.map((c) => el('p', { class: 'row__note', text: `Could be: ${c}` })),
+        d.setup ? setupBox(d) : null);
+}
+
+// t225: the one command that sets it up, to run in a terminal on this computer; the password (a computer's) is typed there
+function setupBox(d) {
+    const copy = el('button', { class: 'btn btn--text', type: 'button', text: 'Copy', 'aria-label': `Copy the set-up command for ${d.address}`,
+        onclick: async (e) => {
+            const btn = e.currentTarget;
+            try { await navigator.clipboard.writeText(d.setup); btn.textContent = 'Copied'; } catch { btn.textContent = 'Select and copy it'; }
+        } });
+    const how = d.kind === 'android' ? 'It prints the steps (allow debugging on the device, then the config lines to add): the device is set up once you follow them.'
+        : 'It makes a key if needed, then ssh asks for that computer\'s password once: type it there. Tutti never sees it.';
+    return el('details', { class: 'qitem', 'data-setup': d.address }, el('summary', { text: 'Set up' }),
+        el('p', { class: 'row__note', text: 'Run this in a terminal on this computer:' }),
+        el('p', {}, el('code', { text: d.setup }), ' ', copy),
+        el('p', { class: 'row__note', text: how }));
 }
 
 function drawDiscovered(d) {

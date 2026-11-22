@@ -980,20 +980,20 @@ usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--stage-only] 
 
 ### `tutti machines`
 
-probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)
+probe every machine: free slots, load, yield flag (add: set up a computer found on the network; add-android: set up a Termux machine)
 
 ```text
 usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [--roles] [--refresh]
-                      [{add-android}]
+                      [{add,add-android}]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add-android}` | print the one-time Termux setup and the config lines |  |
-| `--name` | add-android: the machine name |  |
-| `--host` | add-android: the device IP address |  |
-| `--user` | add-android: the Termux user (whoami) |  |
-| `--port` | add-android: Termux sshd port (8022) | `8022` |
+| `action {add,add-android}` | add: key, ssh-copy-id (you type its password once, into ssh), check, save; add-android: the Termux steps |  |
+| `--name` | add, add-android: the machine name (add: from the address when not given) |  |
+| `--host` | add: its address or host name; add-android: the device IP address |  |
+| `--user` | add: the account to log in to (default: yours); add-android: the Termux user (whoami) |  |
+| `--port` | add: ssh port (22); add-android: Termux sshd port (8022) |  |
 | `--roles` | each machine's and device's roles and why (tutti/roles.py) |  |
 | `--refresh` | --roles: probe again now instead of the daily answer |  |
 

@@ -462,6 +462,30 @@ def parse_win_temp(text):
 _win_watts = {}
 
 
+def wsl_reap_script(marks):
+    """PowerShell that stops orphaned wsl.exe processes (their parent is gone, e.g. the sshd session of a dropped
+    `ssh <pc> wsl -e ...`) whose command line names one of `marks` (Tutti's WSL helpers): such orphans keep WSL running.
+    Prints how many it stopped. Every other wsl.exe (the owner's own shells, services) is left alone."""
+    like = ' -or '.join("$_.CommandLine -like '*" + m.replace("'", "''") + "*'" for m in marks)
+    return ("$n = 0; Get-CimInstance Win32_Process -Filter \"Name='wsl.exe'\" | "
+            f"Where-Object {{ ({like}) -and -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) }} | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $n++ }; $n")
+
+
+def reap_wsl_orphans(machine, timeout=30):
+    """Stops the orphaned wsl.exe of Tutti's runs on a WSL machine's Windows side; returns how many, or None when not reached."""
+    if machine.get('transport') != 'wsl' or not machine.get('wsl_helper'):
+        return None
+    packed = base64.b64encode(wsl_reap_script([os.path.basename(machine['wsl_helper'])]).encode('utf-16le')).decode()
+    try:
+        r = subprocess.run([*SSH, *QUICK, machine['host'], f'powershell -NoProfile -NonInteractive -EncodedCommand {packed}'],
+                           capture_output=True, text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = r.stdout.split()
+    return int(lines[-1]) if r.returncode == 0 and lines and lines[-1].isdigit() else None
+
+
 def windows_cpu_w(machine):
     """The CPU package power in W of a WSL machine's Windows side from LibreHardwareMonitor (read with the temperature,
     at most every WIN_TEMP_SECONDS), or None."""

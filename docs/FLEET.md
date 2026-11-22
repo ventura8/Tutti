@@ -280,3 +280,6 @@ start with one of the machine's `containers` prefixes (default `tutti-`) are tou
 
 A WSL machine its owner paused is never probed (an ssh into WSL starts its Linux VM again); it shows as not reachable until
 it is resumed. A heat pause is still probed, so it clears when the machine cools.
+
+After each `tutti test` on a WSL machine, orphaned `wsl.exe` whose command line names Tutti's helper and whose parent is
+gone (a dropped ssh) are stopped on the Windows side: they keep WSL running. Other `wsl.exe` are never touched.

@@ -157,6 +157,26 @@ class Watchdog(unittest.TestCase):
         self.assertIn('throttled', notes[0])
 
 
+class WslOrphans(unittest.TestCase):
+    def test_the_script_only_matches_tuttis_helper_and_dead_parents(self):
+        from tutti import remote
+        ps = remote.wsl_reap_script(["run64.sh", "o'k"])
+        self.assertIn("$_.CommandLine -like '*run64.sh*'", ps)
+        self.assertIn("'*o''k*'", ps)
+        self.assertIn('-not (Get-Process -Id $_.ParentProcessId', ps)
+
+    def test_reap_counts_and_skips_other_machines(self):
+        from unittest import mock
+
+        from tutti import remote
+        m = {'name': 'pc', 'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/home/u/run64.sh'}
+        self.assertIsNone(remote.reap_wsl_orphans({'transport': 'ssh'}))
+        with mock.patch('subprocess.run', return_value=mock.Mock(returncode=0, stdout='2\n')):
+            self.assertEqual(remote.reap_wsl_orphans(m), 2)
+        with mock.patch('subprocess.run', side_effect=OSError('down')):
+            self.assertIsNone(remote.reap_wsl_orphans(m))
+
+
 class ConfigAndMcp(unittest.TestCase):
     def test_bad_watchdog_keys_are_errors(self):
         errs = config._heat_errors('nuc', {'stop_c': 95, 'on_stop': 'kill', 'throttle_cpus': 0})

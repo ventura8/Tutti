@@ -532,6 +532,7 @@ def cmd_test(cfg, a):
         return rc
     finally:
         job.end(rc)
+        remote.reap_wsl_orphans(machine)   # WSL only: a dropped ssh leaves its wsl.exe behind on Windows, keeping WSL running
         telemetry.record('feature', 'device.run' if device else 'test.run', machine_kind=telemetry.machine_kind(machine), rc=rc,
                          outcome='passed' if rc == 0 else 'failed', minutes=round((time.monotonic() - started) / 60, 2),
                          inputs=len(a.input or []), fetch=len(a.fetch or []))

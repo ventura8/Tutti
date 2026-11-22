@@ -266,3 +266,13 @@ If `tutti scout ask` fails creating the GitHub issue while `gh auth status` show
 without those variables; `tutti doctor` names them when they are refused.
 
 Grok Bot's **Test** button runs the routine for real and spends usage.
+
+## Reviews become work
+
+A scout's review of a pull request (`tutti scout review <pr>`, or the spare-room reviews) is read back by the scout round.
+When its comment has findings (lines like "- `file:line` - what"), Tutti files one task per pull request, *Address the
+grok review of #N (k findings)*, with the findings in its notes, as a suggestion: the pull request's author fixes them on
+its own branch, so the autopilot does not start a competing fix. A clean review files nothing; a review answered more
+than two days before this ran is marked without a task. The merge step holds a pull request while its review task is
+open (`scoutreview.open_for`), so a finding is never merged over.
+

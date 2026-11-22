@@ -214,6 +214,7 @@ include tests/test_routing.py
 include tests/test_run_result.py
 include tests/test_runner_suite.py
 include tests/test_scout_service_env.py
+include tests/test_scoutreview.py
 include tests/test_scouts.py
 include tests/test_secretenv.py
 include tests/test_security_audit.py
@@ -397,6 +398,7 @@ include tutti/roles.py
 include tutti/rolescmd.py
 include tutti/routing.py
 include tutti/scoutcmd.py
+include tutti/scoutreview.py
 include tutti/scouts.py
 include tutti/scrub.py
 include tutti/secretenv.py

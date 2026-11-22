@@ -61,6 +61,17 @@ class Deps(unittest.TestCase):
         self.assertNotIn('t3', taskdeps.holds(tasks))
         self.assertIn('t1', taskdeps.holds(tasks))
 
+    def test_the_board_lists_each_lane_with_links(self):
+        tasks = [task('t1', depends_on=['t2']), task('t2', together_with=['t3']), task('t3'), task('t4', status='done')]
+        b = taskdeps.board(tasks)
+        lanes = {lane['name']: [c['id'] for c in lane['items']] for lane in b['lanes']}
+        self.assertEqual(lanes, {'Blocked': ['t1'], 'Ready': ['t2', 't3'], 'Grouped': ['t2', 't3']})
+        t2 = b['lanes'][1]['items'][0]
+        self.assertEqual((t2['needed_by'], t2['group']), (['t1'], ['t3']))
+        self.assertIn('blocked until t2', b['lanes'][0]['items'][0]['why'])
+        self.assertEqual(b['linked'], 3)
+        self.assertEqual(taskdeps.board([]), {'lanes': [{'name': n, 'items': []} for n in ('Blocked', 'Ready', 'Grouped')], 'linked': 0})
+
     def test_link_refuses_unknown_ids_itself_and_loops_and_clears_with_empty(self):
         tasks = [task('t1'), task('t2', depends_on=['t1'])]
         with self.assertRaisesRegex(taskdeps.DepError, 'not in the backlog'):

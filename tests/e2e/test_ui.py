@@ -469,6 +469,23 @@ class QueuedTaskDetail(unittest.TestCase):
         page.wait_for_selector('#queued .qitem[open] .qdetail__facts')
         ctx.close()
 
+    def test_the_board_opens_with_three_lanes_and_stays_clean(self):
+        problems = {}
+        for width in ('phone', 'laptop'):
+            ctx = new_context(ADMIN, width)
+            page = open_view(ctx, '#dashboard')
+            page.locator('#task-board > summary').click()
+            page.wait_for_selector('#task-board-body .board__lane')
+            text = page.text_content('#task-board-body')
+            for part in ('Blocked (', 'Ready (', 'Grouped ('):
+                self.assertIn(part, text, width)
+            found = page.evaluate('tuttiChecks.layout()') + axe(page)
+            if found:
+                problems[width] = found
+            self.assertEqual(page.errors, [])
+            ctx.close()
+        self.assertEqual(problems, {})
+
 
 class UsageGraph(unittest.TestCase):
     def test_readings_work_with_mouse_touch_and_keyboard(self):

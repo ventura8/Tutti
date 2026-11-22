@@ -1101,6 +1101,9 @@ def get(collector, path, token, headers):
     if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
         code, answer = layout_get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    if path == taskdetail.BOARD_API:   # the Queued card's Board (t243): every signed-in viewer, like the Queued list
+        code, answer = taskdetail.get_board(collector.cfg)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path.startswith(taskdetail.API):   # a queued task's expanded row (t237): every signed-in viewer, like the Queued list
         code, answer = taskdetail.get(collector.cfg, path)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None

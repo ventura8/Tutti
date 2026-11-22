@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.9 (2026-11-22)
+
+### Added
+
+- Dashboard (t243): **Board** on the Queued card opens to Blocked, Ready and Grouped lanes, each task with why it waits,
+  what it depends on, what needs it and its group (`GET /api/board`, docs/DASHBOARD.md).
+
 ## 0.31.8 (2026-11-22)
 
 ### Changed

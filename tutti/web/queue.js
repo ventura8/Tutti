@@ -127,3 +127,31 @@ function renderQueue(s) {
         node?.focus({ preventScroll: true });
     }
 }
+
+// the Queued card's Board (t243): Blocked, Ready and Grouped lanes, each task with what it waits for and who needs it
+function boardNodes(b) {
+    const lanes = (b.lanes || []).map((lane) => el('section', { class: 'board__lane', 'aria-label': `${lane.name} (${lane.items.length})` },
+        el('h3', { class: 'qdetail__head', text: `${lane.name} (${lane.items.length})` }),
+        lane.items.length ? el('ul', {}, ...lane.items.map((t) => el('li', { 'data-board': t.id },
+            el('span', { class: 'row__name', text: `${t.id} · ${t.title}` }),
+            ...[t.why && `Waiting: ${t.why}`, t.depends_on.length && `Depends on ${t.depends_on.join(', ')}`,
+                t.needed_by.length && `Needed by ${t.needed_by.join(', ')}`, t.group.length && `Goes with ${t.group.join(', ')}`]
+                .filter(Boolean).map((line) => el('p', { class: 'row__note', text: line }))))) : el('p', { class: 'row__note', text: 'None.' })));
+    return [el('p', { class: 'row__note', text: `${b.linked || 0} queued tasks have links.` }), ...lanes];
+}
+
+async function loadBoard(box) {
+    box.replaceChildren(el('p', { class: 'row__note', text: 'Loading…' }));
+    try {
+        const res = await fetch('/api/board', { cache: 'no-store' });
+        const b = await res.json();
+        if (!res.ok) throw new Error(b.error || `the dashboard answered ${res.status}`);
+        box.replaceChildren(...boardNodes(b));
+    } catch (err) {
+        box.replaceChildren(el('p', { class: 'row__note', role: 'alert', text: `Cannot show the board: ${err.message}` }));
+    }
+}
+
+if (typeof document === 'object' && document.getElementById?.('task-board')) {
+    document.getElementById('task-board').addEventListener('toggle', (e) => { if (e.target.open) void loadBoard(document.getElementById('task-board-body')); });
+}

@@ -72,3 +72,12 @@ def get(cfg, path):
         return 404, {'error': f'task-detail: no task "{tid}" in the backlog: it was removed; refresh the dashboard'}
     from . import taskdeps
     return 200, {'id': tid, **detail(task), 'links': taskdeps.describe(task, tasks)}
+
+
+BOARD_API = '/api/board'
+
+
+def get_board(cfg):
+    """(status, answer) for GET /api/board: the queued tasks' Blocked, Ready and Grouped lanes with their links (t243)."""
+    from . import backlog, taskdeps
+    return 200, taskdeps.board(backlog.load(cfg)['tasks'])

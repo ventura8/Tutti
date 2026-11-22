@@ -38,6 +38,16 @@ class Pure(unittest.TestCase):
         with self.assertRaisesRegex(grokpatch.PatchError, 'names no file'):
             grokpatch.check_scope('nothing here', ['app.py'])
 
+    def test_paths_and_commits_that_could_be_git_options_are_refused(self):
+        for bad in ('--output=/tmp/x', '../etc/passwd', '/etc/passwd', 'a/../../b', 'a b'):
+            with self.assertRaises(grokpatch.PatchError, msg=bad):
+                grokpatch.safe_path(bad)
+        self.assertEqual(grokpatch.safe_path('src/app-1.py'), 'src/app-1.py')
+        with self.assertRaisesRegex(grokpatch.PatchError, 'full commit id'):
+            grokpatch.safe_sha('--upload-pack=x')
+        with self.assertRaisesRegex(grokpatch.PatchError, 'not a plain path'):
+            grokpatch.check_scope(DIFF.replace('app.py', '-oops'), ['-oops'])
+
     def test_the_brief_carries_the_contract_base_files_and_a_failure(self):
         task = {'id': 't9', 'title': 'Make x two', 'scope': ['app.py'], 'check': 'python3 -c 1', 'criteria': ['x is 2'],
                 'notes': ['keep it small']}

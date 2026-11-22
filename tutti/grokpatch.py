@@ -77,6 +77,23 @@ def paths(diff):
     return sorted({p for p in PATH_RX.findall(diff) if p != '/dev/null'})
 
 
+SHA_RX = re.compile(r'[0-9a-f]{40}')
+SAFE_PATH = re.compile(r'(?!-)(?!.*(?:^|/)\.\.(?:/|$))[\w./+@-]+')
+
+
+def safe_path(p):
+    """A repo-relative path git can take as a path, never as an option (no leading -, no .., no absolute path)."""
+    if not isinstance(p, str) or not SAFE_PATH.fullmatch(p) or p.startswith('/'):
+        raise PatchError(f'patch: "{p}" is not a plain path inside the repository; fix the task\'s scope')
+    return p
+
+
+def safe_sha(s):
+    if not isinstance(s, str) or not SHA_RX.fullmatch(s):
+        raise PatchError(f'patch: "{s}" is not a full commit id; send the task again with `tutti scout patch <task>`')
+    return s
+
+
 def in_scope(path, scope):
     return any(path == s or (s.endswith('/') and path.startswith(s)) for s in scope)
 
@@ -86,6 +103,8 @@ def check_scope(diff, scope):
     touched = paths(diff)
     if not touched:
         raise PatchError('patch: the diff names no file; ask again')
+    for p in touched:
+        safe_path(p)
     outside = [p for p in touched if not in_scope(p, scope)]
     if outside:
         raise PatchError(f'patch: the diff changes {", ".join(outside)}, outside the scope ({", ".join(scope)}); it was not applied')
@@ -114,8 +133,10 @@ def gather(cfg, task):
     if not scope or any(s.endswith('/') for s in scope):
         raise PatchError(f'patch: {task["id"]} needs its scope as file paths (not folders) so the scout gets the files: '
                          f'tutti backlog rm {task["id"]}, then add it with --scope <file> for each file')
+    for p in scope:
+        safe_path(p)
     path = repo_path(cfg, task)
-    base = _git(path, 'rev-parse', 'HEAD')
+    base = safe_sha(_git(path, 'rev-parse', 'HEAD'))
     url = _git(path, 'remote', 'get-url', 'origin')
     url = re.sub(r'^git@github\.com:', 'https://github.com/', url).removesuffix('.git')
     url = re.sub(r'//[^/@]+@', '//', url)   # never a credential in a URL sent out
@@ -212,7 +233,9 @@ def apply(cfg, tid, run=subprocess.run):
     wt = os.path.join(config.state_dir(cfg), 'patches', f'wt-{tid}')
     if os.path.exists(wt):
         _git(path, 'worktree', 'remove', '--force', wt)
-    _git(path, 'worktree', 'add', '-B', f'grok/{tid}', wt, p['base'])
+    if not re.fullmatch(r't\d+', str(tid)):
+        raise PatchError(f'patch: "{tid}" is not a task id like t123')
+    _git(path, 'worktree', 'add', '-B', f'grok/{tid}', '--', wt, safe_sha(p['base']))
     _git(wt, 'apply', '--check', p['diff'])
     _git(wt, 'apply', p['diff'])
     _git(wt, 'add', '-A')

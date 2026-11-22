@@ -400,8 +400,10 @@ class Collector:
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
         out['idle_with_work'] = idlecheck.find(out)   # t254: room somewhere while queued work waits, with the queue's reasons
-        out['idle_log'] = idle_log(self.cfg, out['idle_with_work'])
-        out['selftest'] = selftest.load(self.cfg)   # t241: the last live self-test   # t254: each new case, kept, the last few shown
+        out['idle_log'] = idle_log(self.cfg, out['idle_with_work'])   # t254: each new case, kept, the last few shown
+        out['selftest'] = selftest.load(self.cfg)   # t241: the last live self-test
+        from . import backup
+        out['backup'] = backup.load(self.cfg)   # t246: the last backup, on the Self-test card
         last = update.load(self.cfg)
         from . import diskroom
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)

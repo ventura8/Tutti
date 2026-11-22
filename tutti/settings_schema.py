@@ -45,8 +45,8 @@ SECTIONS = [
     ('projects', 'Projects and repos', 'Your projects, their checks, shipping, delegation, tests and translation.',
      ['projects', 'ship', 'delegate', 'test', 'translate']),
     ('optins', 'Opt-ins', 'Everything that is off until you turn it on: what costs money per use, and Android runs.', []),
-    ('update', 'Updates', 'Tutti itself (`tutti self-update`) and the worker CLIs on every machine (`tutti update`).',
-     ['self_update', 'update']),
+    ('update', 'Updates and backups', 'Tutti itself (`tutti self-update`), the worker CLIs on every machine (`tutti update`) and '
+     'the daily backup of the config and the state folder (`tutti backup`).', ['self_update', 'update', 'backup']),
     ('browser', 'Work browser', 'The household\'s one Chrome for every browser task; sites signed in there are shared by '
      'everyone who uses it (docs/BROWSER.md).', ['browser']),
     ('dashboard', 'Dashboard', 'This page: its port, how often it refreshes, and which processes it shows as jobs.',
@@ -365,6 +365,13 @@ FIELDS = {
     'energy.machines': field('Machines', 'Per machine: base_w (board, RAM, disks), gpu, gpu_tdp_w, cpu_tdp_w, ollama (host:port).',
                              **YAML),
     # updates
+    'backup.enabled': field('Daily backup', 'The config and the state folder, verified, every backup.every_hours (docs/BACKUP.md).',
+                            'switch'),
+    'backup.dest': field('Backup folder', 'Where the archives go: any folder you may write, a mounted NAS too. Empty: '
+                         '~/.local/share/tutti/backups.', 'text'),
+    'backup.keep': field('Backups kept', 'The newest ones kept; older ones are deleted after a verified backup.', 'number',
+                         min=1, max=365),
+    'backup.every_hours': field('Back up every', 'Hours between backups (24: daily).', 'number', min=1, max=720),
     'self_update.enabled': field('Tutti updates itself', 'At login and daily: the newest checksummed release.', 'switch'),
     'update.auto': field('Update by itself', 'Daily from the dashboard.', 'switch'),
     'update.every_hours': field('Every', 'How often worker CLIs are updated.', **HRS),

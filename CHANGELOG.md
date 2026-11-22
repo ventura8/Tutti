@@ -11,6 +11,9 @@
   (`heat.on_stop: stop`) only Tutti's containers (the machine's `containers` prefixes).
 - Machines tab (t233): the Home Assistant card shows who is home, the power in use now with the biggest users, and each
   Tutti machine's own plug (found by name, or `home_assistant.plugs`) (docs/MACHINES.md, *Home Assistant*).
+- Backups (t246): `tutti backup` puts the config and the state folder in a dated archive, verified against its checksums
+  as it is made, the newest 14 kept; the dashboard backs up daily by default into any folder (a mounted NAS too); restore
+  checks first and keeps the old state aside; the Self-test card shows the last backup (docs/BACKUP.md).
 
 ### Fixed
 

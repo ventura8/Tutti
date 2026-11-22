@@ -718,6 +718,10 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `energy.keep_alive_minutes` | number (minutes) | `5` | Model kept loaded: How long after a run the idle draw counts as Tutti's. | admin |
 | `energy.compare_with` | select claude-sonnet, claude-haiku, gemini-flash, gpt-mini | `claude-sonnet` | Compare with: The cloud API priced for the same tokens. | admin |
 | `energy.machines` | yaml |  | Machines: Per machine: base_w (board, RAM, disks), gpu, gpu_tdp_w, cpu_tdp_w, ollama (host:port). | admin |
+| `backup.enabled` | switch | `True` | Daily backup: The config and the state folder, verified, every backup.every_hours (docs/BACKUP.md). | admin |
+| `backup.dest` | text |  | Backup folder: Where the archives go: any folder you may write, a mounted NAS too. Empty: ~/.local/share/tutti/backups. | admin |
+| `backup.keep` | number | `14` | Backups kept: The newest ones kept; older ones are deleted after a verified backup. | admin |
+| `backup.every_hours` | number | `24` | Back up every: Hours between backups (24: daily). | admin |
 | `self_update.enabled` | switch | `True` | Tutti updates itself: At login and daily: the newest checksummed release. | admin |
 | `update.auto` | switch | `True` | Update by itself: Daily from the dashboard. | admin |
 | `update.every_hours` | number (hours) | `24` | Every: How often worker CLIs are updated. | admin |
@@ -1023,6 +1027,20 @@ usage: tutti roles [-h] [--all] {list,matrix,set,unset} [name] [role]
 | `name` | a machine, a device, or a network device's address |  |
 | `role` | e.g. windows-test-runner, ui-desktop, gpu-ai, airplay-receiver |  |
 | `--all` | list: also every role Tutti knows and what it means |  |
+
+### `tutti backup`
+
+back up the config and the state folder (create, the default), list them, verify one, or restore one (docs/BACKUP.md)
+
+```text
+usage: tutti backup [-h] [--yes] [{create,list,verify,restore}] [file]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {create,list,verify,restore}` |  |  |
+| `file` | verify, restore: a backup name from `tutti backup list` or a path (default: newest) |  |
+| `--yes` | restore: really replace the state folder and the config |  |
 
 ### `tutti devices`
 

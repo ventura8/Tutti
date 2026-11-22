@@ -23,6 +23,7 @@ include docs/API.md
 include docs/ARCHITECTURE.md
 include docs/AUTH.md
 include docs/AUTOPILOT.md
+include docs/BACKUP.md
 include docs/BROWSER.md
 include docs/CHAT.md
 include docs/COMPETITORS.md
@@ -107,6 +108,7 @@ include tests/test_artifact.py
 include tests/test_audit_lows.py
 include tests/test_auth.py
 include tests/test_autopilot.py
+include tests/test_backup.py
 include tests/test_brain.py
 include tests/test_brain_more.py
 include tests/test_browser.py
@@ -249,6 +251,8 @@ include tutti/authweb.py
 include tutti/autocompact.py
 include tutti/autopilot.py
 include tutti/backlog.py
+include tutti/backup.py
+include tutti/backupcmd.py
 include tutti/brain.py
 include tutti/bridge.py
 include tutti/browser.py

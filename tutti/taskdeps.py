@@ -47,6 +47,28 @@ def waiting_on(task, tasks):
     return [i for i in ids(task, 'depends_on') if i in known and not landed(i, known)]
 
 
+SIZE_HOURS = {'S': 1, 'M': 3, 'L': 8}   # a rough run length per size, for the chain estimate only
+
+
+def chain(task, tasks):
+    """The open tasks that must land before `task` can start, nearest first, followed through every depends_on level
+    (a merged task stands for its target; loops stop), and a rough estimate in hours from their sizes (unknown size: M)."""
+    known, out, seen = by_id(tasks), [], {task.get('id')}
+    todo = waiting_on(task, tasks)
+    while todo:
+        tid = todo.pop(0)
+        while tid in known and ids(known[tid], 'merged_into') and tid not in seen:
+            seen.add(tid)
+            tid = ids(known[tid], 'merged_into')[0]
+        if tid in seen or tid not in known or landed(tid, known):
+            continue
+        seen.add(tid)
+        out.append(tid)
+        todo.extend(waiting_on(known[tid], tasks))
+    hours = sum(SIZE_HOURS.get(str(known[i].get('size') or 'M'), 3) for i in out)
+    return out, hours
+
+
 def groups(tasks):
     """{task id: [its group's ids, itself included, sorted]} for every task in `tasks`, in one pass (linear, not per task)."""
     known = by_id(tasks)
@@ -186,6 +208,9 @@ def describe(task, tasks):
         held = holds(tasks).get(task['id'])
         ready = 'Ready: nothing it depends on is open'
         lines.append(f'Blocked until {", ".join(wait)} land' if wait else f'Not yet: it {held}' if held else ready)
+        if wait:
+            first, hours = chain(task, tasks)
+            lines.append(f'Chain before it starts: {", ".join(first)} (about {hours} h of runs by size)')
     group = [i for i in group_of(task, tasks) if i != task['id']]
     if group:
         lines.append('Goes together with: ' + ', '.join(state(i) for i in group))
@@ -211,7 +236,8 @@ def board(tasks):
 
     def card(t):
         return {'id': t['id'], 'title': str(t.get('title') or '')[:120], 'why': h.get(t['id'], ''),
-                'depends_on': ids(t, 'depends_on'), 'needed_by': rdeps.get(t['id'], []),
+                'depends_on': ids(t, 'depends_on'), 'chain': chain(t, tasks)[0], 'chain_hours': chain(t, tasks)[1],
+                'needed_by': rdeps.get(t['id'], []),
                 'group': [i for i in grouped.get(t['id'], [t['id']]) if i != t['id']]}
     lanes_ = lanes(tasks)
     by = {t['id']: t for t in queued}

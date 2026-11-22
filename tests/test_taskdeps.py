@@ -98,7 +98,7 @@ class Deps(unittest.TestCase):
         tasks = [task('t1', depends_on=['t2'], together_with=['t3']), task('t2'), task('t3'), task('t4', depends_on=['t1']),
                  task('t5', merged_into='t1')]
         lines = taskdeps.describe(tasks[0], tasks)
-        self.assertEqual(lines, ['Depends on: t2 (queued)', 'Blocked until t2 land', 'Goes together with: t3 (queued)',
+        self.assertEqual(lines, ['Depends on: t2 (queued)', 'Blocked until t2 land', 'Chain before it starts: t2 (about 3 h of runs by size)', 'Goes together with: t3 (queued)',
                                  'Folded into it: t5', 'Needed by: t4 (queued)'])
 
 
@@ -152,3 +152,15 @@ class Cli(unittest.TestCase):
 if __name__ == '__main__':
     os.environ.setdefault('TUTTI_TELEMETRY', 'off')
     unittest.main()
+
+    def test_the_chain_follows_every_level_and_estimates_by_size(self):
+        tasks = [{'id': 't1', 'status': 'queued', 'depends_on': ['t2']}, {'id': 't2', 'status': 'queued', 'depends_on': ['t3', 't4'], 'size': 'L'},
+                 {'id': 't3', 'status': 'queued', 'size': 'S', 'depends_on': ['t1']}, {'id': 't4', 'status': 'done'}]
+        self.assertEqual(taskdeps.chain(tasks[0], tasks), (['t2', 't3'], 9))   # the loop back to t1 stops; done t4 is skipped
+        self.assertIn('Chain before it starts: t2, t3 (about 9 h of runs by size)', taskdeps.describe(tasks[0], tasks))
+        self.assertEqual(taskdeps.board(tasks)['lanes'][0]['items'][0]['chain'], ['t2', 't3'])
+
+    def test_a_task_with_nothing_open_before_it_has_no_chain(self):
+        tasks = [{'id': 't1', 'status': 'queued', 'depends_on': ['t2']}, {'id': 't2', 'status': 'dropped'}]
+        self.assertEqual(taskdeps.chain(tasks[0], tasks), ([], 0))
+        self.assertFalse(any(x.startswith('Chain') for x in taskdeps.describe(tasks[0], tasks)))

@@ -333,6 +333,10 @@ tutti backlog board                          # the Blocked / Ready / Grouped lan
 
 `link` refuses an id not in the backlog, the task itself, and a loop (`t1 -> t2 -> t1`), and says which.
 
+A blocked task also shows its whole chain: every open task that must land before it starts, followed through each
+`depends_on` level, with a rough estimate from their sizes (S 1 h, M 3 h, L 8 h of runs). `tutti backlog deps` prints it
+and the dashboard's Board shows it when the chain is longer than the direct dependencies.
+
 
 
 ## Launch recovery

@@ -1083,6 +1083,22 @@ usage: tutti backup [-h] [--yes] [{create,list,verify,restore}] [file]
 | `file` | verify, restore: a backup name from `tutti backup list` or a path (default: newest) |  |
 | `--yes` | restore: really replace the state folder and the config |  |
 
+### `tutti tui`
+
+the terminal UI: Overview, Tasks, Needs you, Hosts, Agents; footer keys, ? for help (--plain: one view as plain text for screen readers; docs/TUI.md)
+
+```text
+usage: tutti tui [-h] [--view {overview,tasks,needs,hosts,agents}]
+                 [--status {running,queued,needs-person,review,done}] [--plain] [--width WIDTH]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `--view` | the view to open (default overview) |  |
+| `--status` | --view tasks --plain: which status (default queued) |  |
+| `--plain` | print the view as plain text (no curses, no icons, no lines) |  |
+| `--width` | --plain: line width (default 100) |  |
+
 ### `tutti devices`
 
 Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one over Wi-Fi (QR code, or the code a TV shows); move devices to another machine

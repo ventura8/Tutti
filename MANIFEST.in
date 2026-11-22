@@ -57,6 +57,7 @@ include docs/SELFHEAL.md
 include docs/TELEMETRY.md
 include docs/TERMS.md
 include docs/TESTING.md
+include docs/TUI.md
 include docs/USAGE-PACING.md
 include docs/VERDICT.md
 include docs/WELCOME.md
@@ -231,6 +232,7 @@ include tests/test_tasketa.py
 include tests/test_tasklist.py
 include tests/test_telemetry.py
 include tests/test_temps.py
+include tests/test_tui.py
 include tests/test_tz.py
 include tests/test_unblocker.py
 include tests/test_units.py
@@ -421,6 +423,8 @@ include tutti/transfer.py
 include tutti/translate.py
 include tutti/triage.py
 include tutti/trial.py
+include tutti/tui.py
+include tutti/tuicmd.py
 include tutti/tz.py
 include tutti/unblocker.py
 include tutti/update.py

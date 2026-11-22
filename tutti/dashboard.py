@@ -303,6 +303,21 @@ class Collector:
             self.probes = {**self.probes, 'scout_error': error}
         return events
 
+    SNAPSHOT_FILE = 'dashboard-state.json'
+
+    def save_snapshot(self):
+        """The round's state in <state>/dashboard-state.json, mode 600, for `tutti tui` to show at once (t201). Viewer-level
+        data only (it is what /api/state sends every signed-in viewer); a write that fails changes nothing else."""
+        path = os.path.join(config.state_dir(self.cfg), self.SNAPSHOT_FILE)
+        try:
+            data = safe_json(self.snapshot())
+            fd = os.open(path + '.tmp', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'wb') as f:
+                f.write(data)
+            os.replace(path + '.tmp', path)
+        except OSError:
+            pass
+
     def link_round(self):
         """Two-sided link repair, this side (tutti/linkheal.py): every unreachable host diagnosed and repaired, with backoff."""
         try:
@@ -346,6 +361,7 @@ class Collector:
                 from . import failover  # only the active main machine acts; a fenced one only shows (docs/FAILOVER.md)
                 if failover.may_write(self.cfg):
                     self.acting_rounds()
+                self.save_snapshot()
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
                 telemetry.capture_exception(type(e), e, e.__traceback__, where='dashboard-loop')
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'

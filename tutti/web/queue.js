@@ -99,12 +99,23 @@ function idleNote(w) {
             ...w.reasons.map(([why, n]) => el('li', { class: 'idlework__why', text: `${n} waiting: ${why}` }))));
 }
 
+// t254: the last idle-with-work cases, newest first, so a pattern shows even after the note is gone
+function idleLog(log) {
+    if (!(log || []).length) return null;
+    return el('details', { class: 'qitem', 'data-idle-log': '' }, el('summary', { text: `Idle with work: last ${log.length} cases` }),
+        el('ul', { class: 'idlework__list' }, ...log.map((e) => el('li', { text: `${e.at}: ${e.idle.join(', ')} idle, ${e.waiting} waiting${e.why ? ' (' + e.why + ')' : ''}` }))));
+}
+
 function renderQueue(s) {
     const q = s.queue;
     if (!q || !$('queued')) return;
     $('queued-meta').textContent = q.header;
     const idle = $('idle-with-work');
-    if (idle) idle.replaceChildren(...[idleNote(s.idle_with_work)].filter(Boolean));
+    if (idle) {
+        const wasOpen = idle.querySelector?.('[data-idle-log]')?.open;   // the poll keeps the history open if the reader opened it
+        idle.replaceChildren(...[idleNote(s.idle_with_work), idleLog(s.idle_log)].filter(Boolean));
+        if (wasOpen) { const log = idle.querySelector('[data-idle-log]'); if (log) log.open = true; }
+    }
     const ladder = s.autopilot?.ladder || [];
     // as many rows as fit beside the main-agent and workers column (app.js measureFit), then "Show more" for the rest
     const rows = q.groups.flatMap((g) => [

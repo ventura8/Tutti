@@ -101,6 +101,34 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
        "manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
+
+IDLE_LOG = 'idle-with-work.json'
+
+
+def idle_log(cfg, found):
+    """Appends a new idle-with-work case to <state>/idle-with-work.json (bounded) and returns the last few, newest first."""
+    from . import tz
+    path = os.path.join(config.state_dir(cfg), IDLE_LOG)
+    try:
+        with open(path, encoding='utf8') as f:
+            lines = json.load(f)
+        lines = [e for e in lines if isinstance(e, dict)] if isinstance(lines, list) else []   # junk lines are dropped
+    except (OSError, ValueError):
+        lines = []
+    new = idlecheck.entry(found, tz.show(datetime.now(timezone.utc))) if found else None
+    kept = idlecheck.keep(lines, new)
+    if kept is not lines and kept != lines:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf8') as f:
+                json.dump(kept, f)
+            os.replace(tmp, path)
+        except OSError:
+            pass   # a read-only state folder: the note still shows; the log just is not kept
+    return [{k: v for k, v in e.items() if k not in ('sig', 'ended')} for e in reversed(kept[-idlecheck.LOG_SHOWN:])]
+
+
 class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
@@ -365,6 +393,7 @@ class Collector:
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
         out['idle_with_work'] = idlecheck.find(out)   # t254: room somewhere while queued work waits, with the queue's reasons
+        out['idle_log'] = idle_log(self.cfg, out['idle_with_work'])   # t254: each new case, kept, the last few shown
         last = update.load(self.cfg)
         from . import diskroom
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)

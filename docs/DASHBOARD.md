@@ -161,7 +161,8 @@ worker, step, model and run, its branch and pull request, what *done* means, its
 where, why it failed), its last 8 notes and its **Dependencies** (what it depends on, its group, merges, who needs it; t243). They are read from `GET /api/task/<id>` when the row opens, not sent in every
 state poll, with credentials replaced. **Board** (t243, above the list) opens to the queued tasks in **Blocked**, **Ready**
 and **Grouped** lanes, each with why it waits, what it depends on, what needs it and its group (`GET /api/board`). Running jobs open the same way to their log (above).
-**Idle with work** (t254, `tutti/idlecheck.py`): above the list, a note whenever a machine has a free slot (its share,
+**Idle with work** (t254, `tutti/idlecheck.py`): each new case (who had room, how many waited, the top reason) is kept in
+`<state>/idle-with-work.json` (last 500) and the last 5 show under the note, newest first. Above the list, a note whenever a machine has a free slot (its share,
 presence, quiet hours and heat already counted) or an account is behind its pace (not in panic, not paused) while tasks wait. It names each one with
 its room and the queue's own top reasons (`2 waiting: agy-claude weekly binding until 12:55`; *the autopilot is off* first
 when it is). A reason there is a rule doing its job, or a bug to fix: nothing idles silently. Not yet: a log of these

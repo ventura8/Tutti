@@ -23,7 +23,11 @@ class Detail(unittest.TestCase):
         self.assertEqual(facts['Id'], 't7')
         self.assertEqual(facts['Priority'], '0')
         self.assertEqual(facts['Scope'], 'web/, docs/')
-        self.assertEqual(facts['Added'], '2026-11-16 19:07 UTC')
+        from datetime import datetime, timezone
+
+        from tutti import tz
+        self.assertEqual(facts['Added'], tz.show(datetime.fromtimestamp(1794856046, timezone.utc)))   # local, with its offset
+        self.assertIn('(UTC', facts['Added'])
         self.assertEqual(d['pr'], 'https://github.example/o/app/pull/4')
         self.assertEqual(d['criteria'], ['The legend fits a phone.'])
         self.assertEqual((len(d['notes']), d['notes_total']), (taskdetail.NOTES, 13))

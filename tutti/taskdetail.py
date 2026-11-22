@@ -11,7 +11,8 @@ NOTES, ATTEMPTS, CUT = 8, 10, 400
 
 def _when(ts):
     try:
-        return datetime.fromtimestamp(float(ts), timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+        from . import tz
+        return tz.show(datetime.fromtimestamp(float(ts), timezone.utc))   # local, with its offset (never bare UTC)
     except (TypeError, ValueError, OverflowError, OSError):
         return ''
 

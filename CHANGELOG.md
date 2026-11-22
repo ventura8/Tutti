@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Dashboard (t241): a live **Self-test**: a minute after it starts and daily, the dashboard asks itself, with the real data,
+  for every route its pages read; a route not served (old code behind new pages), a crash or a slow answer is shown on the
+  Self-test card and filed once as a backlog task asking for a mock test (docs/DASHBOARD.md, *Self-test*).
+
 ### Fixed
 
 - Scouts: the scout no longer stops after a dashboard restart. Under systemd the dashboard's environment has no
@@ -13,9 +19,6 @@
 
 ### Added
 
-- Dashboard (t241): a live **Self-test**: a minute after it starts and daily, the dashboard asks itself, with the real data,
-  for every route its pages read; a route not served (old code behind new pages), a crash or a slow answer is shown on the
-  Self-test card and filed once as a backlog task asking for a mock test (docs/DASHBOARD.md, *Self-test*).
 - Machines (t234): the **role matrix**: for every machine, each role it has, could have (turned off) or cannot have, why,
   and the command or setting that fixes it, on the Machines tab and in `tutti roles matrix` (docs/MACHINES.md, *Role matrix*).
 - Devices (owner, 2026-11-22): a Wear OS **watch** kind (`tutti devices pair --watch`: the pairing-code flow; it runs only

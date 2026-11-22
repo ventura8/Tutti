@@ -168,6 +168,7 @@ include tests/test_netpolicy.py
 include tests/test_openai_api.py
 include tests/test_openai_chat.py
 include tests/test_orchestrator.py
+include tests/test_outside_js.py
 include tests/test_owner.py
 include tests/test_ownerday.py
 include tests/test_ownerwin.py

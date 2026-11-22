@@ -53,6 +53,10 @@ class Detail(unittest.TestCase):
             failed = {**fresh, 'attempts': [{'step': 'cursor', 'ok': False, 'why': 'stuck:\nno output'}], 'prefer': 'codex'}
             r = taskdetail.runners({}, failed)
             self.assertIn('its last attempt on cursor failed (stuck: no output): one step up the ladder; codex first', r['why'])
+            r = taskdetail.runners({}, {**fresh, 'pin': 'worker:codex'})
+            self.assertEqual((r['why'], r['skipped']), ('pinned to codex: only its accounts', []))
+            r = taskdetail.runners({}, {**fresh, 'pin': None, 'attempts': [{'step': 'agy', 'ok': True}]})
+            self.assertIn('its last attempt on agy passed', r['why'])
         with mock.patch.object(autopilot, 'candidates', side_effect=KeyError('repo')):
             r = taskdetail.runners({}, fresh)
         self.assertEqual(r['order'], [])

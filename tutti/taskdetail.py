@@ -82,11 +82,12 @@ def runners(cfg, task):
     try:
         order = autopilot.candidates(cfg, t)
         worn = sorted(autopilot.worn_out(t['attempts']))
-    except (KeyError, ValueError, TypeError) as e:   # a task the ladder cannot read: say so, do not break the row
-        return {'order': [], 'skipped': [], 'why': f'its order cannot be worked out ({type(e).__name__}: {e})'}
+    except (KeyError, ValueError, TypeError, AttributeError) as e:   # a task the ladder cannot read: say so, not a 500
+        return {'order': [], 'skipped': [], 'why': f'its order cannot be worked out ({type(e).__name__}: {_text(e, 120)})'}
     last = t['attempts'][-1] if t['attempts'] else None
-    if t.get('pin', '').startswith('worker:'):
-        why = f'pinned to {t["pin"][7:]}: only its accounts'
+    pin = str(t.get('pin') or '')
+    if pin.startswith('worker:'):
+        why, worn = f'pinned to {pin[7:]}: only its accounts', []   # the ladder does not apply: nothing skipped to show
     elif not last:
         why = 'a fresh task: the accounts behind their pace first, then the local models that fit it (file scope)'
     elif last.get('ok'):

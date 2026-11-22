@@ -26,10 +26,25 @@ def by_id(tasks):
     return {t['id']: t for t in tasks if t.get('id')}
 
 
+def landed(tid, known):
+    """True when `tid` is done or dropped, or was merged into a task that landed (a merge chain is followed, loops stop)."""
+    seen = set()
+    while tid in known and tid not in seen:
+        seen.add(tid)
+        t = known[tid]
+        if t.get('status') in CLOSED:
+            return True
+        into = ids(t, 'merged_into')
+        if not into:
+            return False
+        tid = into[0]
+    return False
+
+
 def waiting_on(task, tasks):
-    """The ids of `depends_on` tasks that have not landed (a dropped dependency no longer blocks)."""
+    """The ids of `depends_on` tasks that have not landed (a dropped one no longer blocks; a merged one waits for its target)."""
     known = by_id(tasks)
-    return [i for i in ids(task, 'depends_on') if i in known and known[i].get('status') not in CLOSED]
+    return [i for i in ids(task, 'depends_on') if i in known and not landed(i, known)]
 
 
 def holds(tasks):
@@ -73,19 +88,18 @@ def lanes(tasks):
 
 
 def cycle(tasks, start):
-    """A depends_on path from `start` back to itself, or []."""
+    """A path of depends_on and merged_into links from `start` back to itself, or [] (each task visited once)."""
     known = by_id(tasks)
-
-    def walk(i, path):
-        for n in ids(known.get(i, {}), 'depends_on'):
+    seen, stack = {start}, [(start, [start])]
+    while stack:
+        i, path = stack.pop()
+        for n in ids(known.get(i, {}), 'depends_on') + ids(known.get(i, {}), 'merged_into'):
             if n == start:
                 return [*path, n]
-            if n not in path and n in known:
-                found = walk(n, [*path, n])
-                if found:
-                    return found
-        return []
-    return walk(start, [start])
+            if n in known and n not in seen:
+                seen.add(n)
+                stack.append((n, [*path, n]))
+    return []
 
 
 def _unique(values):

@@ -48,9 +48,11 @@ function taskDetailNodes(d) {
     return out;
 }
 
-async function loadTaskDetail(id, box) {
-    if (TASK_DETAIL.has(id)) { box.replaceChildren(...taskDetailNodes(TASK_DETAIL.get(id))); return; }
-    box.replaceChildren(el('p', { class: 'row__note', text: 'Loading…' }));
+async function loadTaskDetail(id, box, fresh = true) {
+    if (TASK_DETAIL.has(id)) {
+        box.replaceChildren(...taskDetailNodes(TASK_DETAIL.get(id)));   // drawn at once; a reopen still asks for the latest
+        if (!fresh) return;
+    } else box.replaceChildren(el('p', { class: 'row__note', text: 'Loading…' }));
     try {
         const res = await fetch(`/api/task/${encodeURIComponent(id)}`, { cache: 'no-store' });
         const d = await res.json();
@@ -82,7 +84,7 @@ function queueItem(it, ladder) {
         }
         if (shown) void loadTaskDetail(it.id, body);
     } }, el('summary', { class: 'row__name', text: it.title, 'aria-label': `${it.id}: ${it.title}. Show everything it has` }), body);
-    if (open) void loadTaskDetail(it.id, body);
+    if (open) void loadTaskDetail(it.id, body, false);   // a redraw reuses what it has; opening it again fetches
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind }, box, note, why, tail);
 }
 
@@ -111,7 +113,16 @@ function renderQueue(s) {
     const limit = (typeof ui === 'object' && ui.fit?.queued) || 8;
     const shown = typeof more === 'function' ? more('queued', rows, limit, 'div') : rows;
     const box = $('queued');
-    const focused = box.contains?.(document.activeElement) ? document.activeElement.closest('[data-queued]')?.dataset.queued : null;
+    const active = box.contains?.(document.activeElement) ? document.activeElement : null;
+    const row = active?.closest('[data-queued]')?.dataset.queued;
+    // the control that had focus, by what it is: the summary, a queue action, or the Move to picker (with its picked value)
+    const which = !active ? null : active.tagName === 'SUMMARY' ? 'summary' : active.dataset?.queueAction ? `[data-queue-action="${active.dataset.queueAction}"]`
+        : active.tagName === 'SELECT' ? 'select' : null;
+    const picked = active?.tagName === 'SELECT' ? active.value : null;
     box.replaceChildren(...(rows.length ? shown : [el('p', { class: 'row__note', text: 'Nothing is waiting.' })]));
-    if (focused) box.querySelector(`[data-queued="${CSS.escape(focused)}"] summary`)?.focus({ preventScroll: true });   // the poll keeps the reader's place
+    if (row && which) {   // the poll keeps the reader's place and an unsent pick
+        const node = box.querySelector(`[data-queued="${CSS.escape(row)}"] ${which}`);
+        if (node && picked !== null) node.value = picked;
+        node?.focus({ preventScroll: true });
+    }
 }

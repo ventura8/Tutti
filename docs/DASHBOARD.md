@@ -161,7 +161,7 @@ worker, step, model and run, its branch and pull request, what *done* means, its
 where, why it failed) and its last 8 notes. They are read from `GET /api/task/<id>` when the row opens, not sent in every
 state poll, with credentials replaced. Running jobs open the same way to their log (above).
 **Idle with work** (t254, `tutti/idlecheck.py`): above the list, a note whenever a machine has a free slot (its share,
-presence, quiet hours and heat already counted) or an account is behind its pace while tasks wait. It names each one with
+presence, quiet hours and heat already counted) or an account is behind its pace (not in panic, not paused) while tasks wait. It names each one with
 its room and the queue's own top reasons (`2 waiting: agy-claude weekly binding until 12:55`; *the autopilot is off* first
 when it is). A reason there is a rule doing its job, or a bug to fix: nothing idles silently. Not yet: a log of these
 events and the improvement loop acting on them.

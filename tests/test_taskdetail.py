@@ -36,6 +36,7 @@ class Detail(unittest.TestCase):
         self.assertEqual((d['attempts'][0]['why'], d['attempts'][0]['ok']), ('try 14', True))
 
     def test_a_bare_task_shows_only_what_is_set_and_no_unsafe_link(self):
+        self.assertIsNone(taskdetail.detail({'id': 't1', 'pr': 'https://user:ghp_' + 'a' * 36 + '@github.example/o/a/pull/1'})['pr'])
         d = taskdetail.detail({'id': 't1', 'title': 'x', 'pr': 'javascript:alert(1)', 'attempts': ['junk']})
         self.assertEqual(d['facts'], [['Id', 't1']])
         self.assertIsNone(d['pr'])

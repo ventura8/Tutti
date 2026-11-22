@@ -17,7 +17,7 @@
   what it can do, its limits (every account it spends, weekly bounds included) and its live state (docs/DASHBOARD.md,
   *Agents*).
 - Dashboard (t254): **Idle with work**: the Queued list notes every machine with a free slot and every account behind its
-  pace while tasks wait, with the queue's top reasons (docs/DASHBOARD.md, *Queued*).
+  pace (not in panic or paused) while tasks wait, with the queue's top reasons (docs/DASHBOARD.md, *Queued*).
 - Chat (t298): **This chat's work** under the conversation title lists every task, run or job the chat started, newest
   first, with its live status (queued and why, running and where, finished); open while any is in flight (docs/CHAT.md).
 - Review modes (t445): `review.modes.<reviewer>` (copilot, coderabbit, greptile, a scout) is `never`, `on_pr_open`,

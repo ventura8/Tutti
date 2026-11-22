@@ -199,8 +199,8 @@ include tests/test_shared_status.py
 include tests/test_ship.py
 include tests/test_slot.py
 include tests/test_strangers.py
-include tests/test_taskdetail.py
 include tests/test_taskdeps.py
+include tests/test_taskdetail.py
 include tests/test_tasketa.py
 include tests/test_telemetry.py
 include tests/test_temps.py
@@ -369,8 +369,8 @@ include tutti/state.py
 include tutti/statebudget.py
 include tutti/stuck.py
 include tutti/target.py
-include tutti/taskdetail.py
 include tutti/taskdeps.py
+include tutti/taskdetail.py
 include tutti/tasketa.py
 include tutti/telemetry.py
 include tutti/telemetrycmd.py
@@ -412,10 +412,10 @@ include tutti/web/icons/icon-maskable.svg
 include tutti/web/icons/icon.svg
 include tutti/web/icons/maskable-512.png
 include tutti/web/index.html
+include tutti/web/layout.js
 include tutti/web/login.html
 include tutti/web/login.js
 include tutti/web/manifest.webmanifest
-include tutti/web/layout.js
 include tutti/web/navmenu.js
 include tutti/web/needs.js
 include tutti/web/outside.js

@@ -35,7 +35,7 @@ class Cards(unittest.TestCase):
 
     def test_live_state_limits_and_running_come_from_the_snapshot(self):
         snap = {'workers': {'items': [{'name': 'cursor', 'ready': False, 'note': 'cursor-agent is not installed'}]},
-                'usage': {'accounts': [{'name': 'cursor', 'used': 61.4, 'verdict': 'ahead', 'resets': '2026-12-01', 'panic': False}]},
+                'usage': {'accounts': [{'name': 'cursor', 'used': 61.4, 'verdict': 'ahead', 'reset': '2026-12-01', 'panic': False}]},
                 'jobs': {'items': [{'status': 'running', 'worker': 'cursor'}, {'status': 'done', 'worker': 'cursor'},
                                    {'status': 'running', 'worker': None, 'account': None}]},
                 'scouts': {'items': [{'name': 'grok', 'ready': False, 'missing': ['TUTTI_GROK_URL']}]}}
@@ -45,6 +45,16 @@ class Cards(unittest.TestCase):
         self.assertEqual(cards['cursor']['running'], 1)
         self.assertEqual((cards['grok']['state'], cards['grok']['note']), ('not ready', 'missing TUTTI_GROK_URL'))
         self.assertEqual(cards['codex']['state'], 'checking')
+
+    def test_a_run_counts_once_and_roles_come_from_every_account(self):
+        snap = {'jobs': {'items': [{'status': 'running', 'facts': {'worker': 'agy', 'account': 'agy-claude'}}]},
+                'usage': {'accounts': [{'name': 'agy-claude', 'used': 10, 'reset': 'Mon 12:00 (UTC+2)'}]}}
+        agy = next(c for c in agentsview.cards(example(), snap) if c['name'] == 'agy')
+        self.assertEqual(agy['running'], 1)
+        self.assertIn('agy-claude: resets Mon 12:00 (UTC+2)', agy['limits'])
+        cfg = {'workers': {'w': {'kind': 'cli'}}, 'accounts': {'a1': {'worker': 'w'}, 'a2': {'worker': 'w'}},
+               'autopilot': {'accounts': ['a2']}}
+        self.assertIn('worker', [r['role'] for r in agentsview.cards(cfg, {})[0]['roles']])
 
     def test_an_agent_the_config_gives_no_role_gets_none(self):
         cfg = {'workers': {'spare': {'kind': 'unknown'}}, 'accounts': {}}

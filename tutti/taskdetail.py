@@ -52,7 +52,8 @@ def detail(t):
     return {'facts': facts(t), 'criteria': [_text(c, 300) for c in (t.get('criteria') or [])][:12],
             'notes': [_text(n) for n in (t.get('notes') or [])[-NOTES:]], 'notes_total': len(t.get('notes') or []),
             'attempts': attempts(t), 'attempts_total': len(t.get('attempts') or []),
-            'pr': pr if isinstance(pr, str) and pr.startswith('https://') else None}
+            'pr': pr if isinstance(pr, str) and pr.startswith('https://') and scrub.secrets_only(pr) == pr and '@' not in pr.split('/')[2]
+            else None}
 
 
 API = '/api/task/'

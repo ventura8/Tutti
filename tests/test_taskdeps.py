@@ -20,6 +20,22 @@ class Deps(unittest.TestCase):
         tasks[1]['status'] = 'done'
         self.assertEqual(taskdeps.holds(tasks), {})
 
+    def test_a_dependency_merged_into_another_waits_for_that_target(self):
+        tasks = [task('t1', merged_into='t2'), task('t2'), task('t3', depends_on=['t1'])]
+        self.assertEqual(taskdeps.waiting_on(tasks[2], tasks), ['t1'])
+        tasks[1]['status'] = 'done'
+        self.assertEqual(taskdeps.waiting_on(tasks[2], tasks), [])   # t1 landed with t2
+
+    def test_loops_through_merges_are_refused_and_a_dense_graph_is_fast(self):
+        tasks = [task('t1', merged_into='t2'), task('t2')]
+        with self.assertRaisesRegex(taskdeps.DepError, 'loop'):
+            taskdeps.link(tasks, 't2', merged_into='t1')
+        tasks = [task('t1', depends_on=['t2']), task('t2')]
+        with self.assertRaisesRegex(taskdeps.DepError, 'loop'):
+            taskdeps.link(tasks, 't2', merged_into='t1')
+        layers = [task(f'a{i}', depends_on=[f'a{i + 2}', f'a{i + 3}'] if i < 60 else []) for i in range(64)]
+        self.assertEqual(taskdeps.cycle(layers, 'a0'), [])   # each task visited once: no exponential walk
+
     def test_a_merged_task_never_runs_on_its_own(self):
         holds = taskdeps.holds([task('t1', merged_into='t2'), task('t2')])
         self.assertIn('merged into t2', holds['t1'])

@@ -350,8 +350,23 @@ function renderSettings(data) {
 
 // ---- the tab
 
+// Tabs that hold one settings section (t208): #devices and #machines show its rows, editable as on #settings. Only the
+// view on screen holds the rows (ids stay unique): leaving it empties its box, Settings draws them again.
+const SECTION_TABS = ['devices', 'machines'];
+
+function drawSectionTab(view) {
+    const tab = document.getElementById(`${view}-settings`);
+    if (!tab) return;
+    const section = SET.data?.sections.find((s) => s.id === view);
+    tab.replaceChildren(!SET.data ? h('p', { class: 'setting__note', text: 'Loading the settings…' })
+        : (section && sectionBlock(section)) || h('p', { class: 'setting__note', text: `No ${view} in the config yet.` }));
+}
+
 function drawSettings() {
+    const view = typeof tuttiView === 'function' ? tuttiView(location.hash) : 'settings';
+    for (const name of SECTION_TABS) if (name !== view) document.getElementById(`${name}-settings`)?.replaceChildren();
     const box = document.getElementById('settings-body');
+    if (SECTION_TABS.includes(view)) { box?.replaceChildren(); drawSectionTab(view); return; }
     if (!box) return;
     const active = document.activeElement?.id;
     box.replaceChildren(...renderSettings(SET.data));
@@ -366,7 +381,8 @@ async function loadSettings(force) {
             if (!res.ok) throw new Error(`the dashboard answered ${res.status}`);
             SET.data = await res.json();
         } catch (err) {
-            const box = document.getElementById('settings-body');
+            const view = typeof tuttiView === 'function' ? tuttiView(location.hash) : 'settings';
+            const box = document.getElementById(SECTION_TABS.includes(view) ? `${view}-settings` : 'settings-body');
             if (box) box.replaceChildren(h('p', { class: 'setting__msg', 'data-tone': 'bad', role: 'alert',
                 text: `The settings did not load (${err.message}): is tutti dashboard running? Reload to try again.` }));
             return;
@@ -386,15 +402,22 @@ function goTo(target) {
 async function showView() {
     const hash = location.hash || '';
     // the views by hash: #settings, #users (users.js), #dashboard; anything else is the Chat (chat.js), the default
-    const view = hash.startsWith('#settings') ? 'settings' : hash.startsWith('#dashboard') ? 'dashboard' : hash.startsWith('#agents') ? 'agents' : hash.startsWith('#users') && document.body.dataset.role === 'admin' ? 'users' : 'chat';
+    const view = typeof tuttiView === 'function' ? tuttiView(hash) : 'chat';
     const settings = view === 'settings';
-    document.getElementById('dashboard-view').hidden = view !== 'dashboard';
-    document.getElementById('settings-view').hidden = !settings;
-    const agents = document.getElementById('agents-view');
-    if (agents) agents.hidden = view !== 'agents';
+    for (const name of TUTTI_VIEWS) {   // every view but the Chat and Users (chat.js, users.js show those)
+        if (name === 'chat' || name === 'users') continue;
+        const node = document.getElementById(`${name}-view`);
+        if (node) node.hidden = view !== name;
+    }
     for (const a of document.querySelectorAll('[data-view]')) {
         if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
+    }
+    if (SECTION_TABS.includes(view) && document.body.dataset.role !== 'viewer') {   // a viewer is told why not (index.html)
+        SET.wanted = '';
+        if (!SET.data) await loadSettings();
+        else drawSettings();
+        return;
     }
     if (!settings) return;
     SET.wanted = decodeURIComponent(hash.slice('#settings/'.length));

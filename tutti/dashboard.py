@@ -36,6 +36,7 @@ from . import (
     dashtelemetry,
     devicecard,
     devicesweb,
+    discovered,
     energy,
     fill,
     fleet,
@@ -66,6 +67,7 @@ from . import (
     state,
     stuck,
     taskdetail,
+    tasklist,
     telemetry,
     transfer,
     trial,
@@ -1130,19 +1132,33 @@ def get(collector, path, token, headers):
     if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
         code, answer = layout_get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    if path == tasklist.API:   # the Tasks tab (t307): every signed-in viewer, like the Queued list
+        code, answer = tasklist.get(collector.cfg)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == taskdetail.BOARD_API:   # the Queued card's Board (t243): every signed-in viewer, like the Queued list
         code, answer = taskdetail.get_board(collector.cfg)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path.startswith(taskdetail.API):   # a queued task's expanded row (t237): every signed-in viewer, like the Queued list
         code, answer = taskdetail.get(collector.cfg, path)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
-    refused = authorize(collector, headers) if path in ADMIN_PATHS or path.startswith(joblog.API) else None
+    refused = authorize(collector, headers) if path in ADMIN_PATHS or path.startswith(joblog.API) or path == discovered.API else None
     if refused:
         return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
-    if path.startswith(joblog.API):   # Chat's Terminal panel (t304): an admin's, one listed job's log tail
-        code, answer = joblog.tail(collector.snapshot(), joblog.job_id(path))
-        return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    answered = admin_json(collector, path)
+    if answered:
+        return answered
     return (*route(collector, path, token), None)
+
+
+def admin_json(collector, path):
+    """The admin-only JSON GETs past the sign-in check, or None for any other path."""
+    if path == discovered.API:   # the Discovered tab (t220): it maps the network
+        code, answer = discovered.get(collector.cfg, time.time())
+    elif path.startswith(joblog.API):   # Chat's Terminal panel (t304): one listed job's log tail
+        code, answer = joblog.tail(collector.snapshot(), joblog.job_id(path))
+    else:
+        return None
+    return code, safe_json(answer), JSON_TYPE, 'no-store', None
 
 
 def response_headers(code, body, ctype, cache, extra=None):

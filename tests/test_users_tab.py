@@ -202,7 +202,9 @@ class TabTest(unittest.TestCase):
     def test_one_users_tab_for_admins_only(self):
         page = self.page()
         links = re.findall(r'<a class="nav-menu__link"[^>]*>([^<]+)</a>', page)
-        self.assertEqual(links, ['Chat', 'Dashboard', 'Agents', 'Settings', 'Users'])   # the Chat first: the default view (docs/CHAT.md)
+        # Chat first: the default (docs/CHAT.md)
+        self.assertEqual(links, ['Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Machines', 'Discovered', 'Agents',
+                                 'Settings', 'Users'])
         self.assertIn('id="nav-menu-btn"', page)
         self.assertRegex(page, r'<a class="nav-menu__link" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>')
         self.assertEqual(page.count('id="users-view"'), 1)   # one place: the sign-in's Users tab, the household drawn into it

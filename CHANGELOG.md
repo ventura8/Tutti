@@ -6,8 +6,20 @@
 
 - Dashboard (t237): a task under **Needs you** (needing a person, or to review) has **All details**, which opens to
   everything it has, like a queued task; it stays open across refreshes (docs/DASHBOARD.md).
+- Dashboard (t307): a **Tasks** tab in the menu, with subtabs Active, Queued, Needs a person, To review, Suggested and
+  Done; P0 first, a blocked task says why, each task opens to everything it has (`GET /api/tasks`, docs/DASHBOARD.md).
+- Dashboard (t208): **Devices** and **Machines** tabs hold every device and machine setting, changed by an admin there as
+  on Settings (docs/DASHBOARD.md, *Devices and Machines*).
+- Dashboard (t220): a **Discovered** tab (admins) lists what is on the network and not set up yet, from the media scan,
+  the neighbour table, adb and an ssh check, with what each seems to be and the roles it could take (docs/DASHBOARD.md).
 - Agents tab (t252): each card says what the agent costs, from the config: pay per use (and whether it is kept off),
   pay per token, electricity only, or a paced subscription (docs/DASHBOARD.md, *Agents*).
+
+### Changed
+
+- Dashboard (t281): a **Schedule** tab holds the owner's panel (mode, away until, I'm back, working days, the learned week)
+  and each user's **My schedule**, which left the Dashboard (docs/DASHBOARD.md, *You and the main agent*).
+- Dashboard: the views are one list (`TUTTI_VIEWS`), so a new tab is one entry instead of edits in four scripts.
 
 ## 0.31.8 (2026-11-22)
 

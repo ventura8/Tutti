@@ -77,6 +77,33 @@ works while their own computer is off. Each action is a card with Undo and goes 
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
 before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
+## Tasks
+
+The **Tasks** tab (`#tasks`, t307, `tutti/tasklist.py`, `tutti/web/tasks.js`) lists every backlog task in one subtab per
+status: **Active** (running or claimed), **Queued**, **Needs a person**, **To review**, **Suggested** and **Done** (done
+and dropped, the newest 50). Each subtab keeps P0 first, then the task number; a blocked task says why. Arrow keys, Home
+and End move between subtabs. A task opens to everything it has, like a queued one on the Dashboard. Read from
+`GET /api/tasks` when the tab opens; every signed-in viewer sees it.
+
+The views are one list (`TUTTI_VIEWS` in `tutti/web/navmenu.js`): a new tab is one entry there, its menu link and its
+`<name>-view` section.
+
+## Devices and Machines
+
+The **Devices** and **Machines** tabs (`#devices`, `#machines`, t208) hold the Devices and Machines sections of Settings:
+every device's brightness, volume, roles, keep-awake, resume delay and enabled switch, and every machine's roles, quiet
+hours, presence, sensors, local models and resume delay. An admin changes them there exactly as on Settings (saved into
+the config, a backup first); a viewer is told only an admin sees them. Their live state stays on the Dashboard.
+
+## Discovered
+
+The **Discovered** tab (`#discovered`, t220, `tutti/discovered.py`, admins only: it maps the network) lists every device or
+computer Tutti finds and has not set up yet: from the media scan (mDNS, SSDP/DLNA, AirPlay, Cast), the neighbour table
+(`ip neigh`), `adb devices` and an ssh check of each neighbour. Each says what it seems to be (a computer whose ssh
+answers, an Android device, a media device, or something unknown), the roles it has now and the roles it could take, and
+how to set it up. A machine or device the config already has is left out. It looks again every minute while open, and on
+**Look again**; a source that is missing or fails is named and the others still answer (`GET /api/discovered`).
+
 ## Agents
 
 The **Agents** tab (`#agents`, t252, `tutti/agentsview.py`, `tutti/web/agents.js`) has one card per agent Tutti can use:
@@ -426,10 +453,11 @@ Besides `tutti quiet` runs, ship checks, waits and delegated runs, the Jobs card
 
 ## You and the main agent
 
-Under the account cards: the owner's mode (set, and in effect with its end), **I'm away until…** with a date, **Away
+On the **Schedule** tab (`#schedule`, t281; it was under the account cards): the owner's mode (set, and in effect with its end), **I'm away until…** with a date, **Away
 today**, **I'm back (auto)**, the working-day switches, and a 7 x 24 heatmap of the learned week (points per hour by weekday
 and local hour; the hours the planner keeps for the owner are outlined). Each account card adds **On track to finish at X %
-by its reset**. See docs/USAGE-PACING.md, *The owner's own prompting*.
+by its reset**. See docs/USAGE-PACING.md, *The owner's own prompting*. Below it, **My schedule**: each signed-in user's
+own working days, hours and away mode (the server changes only their own).
 
 ## Reminders and nudges
 

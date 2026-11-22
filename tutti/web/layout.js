@@ -5,7 +5,7 @@
 const LAYOUT_COLS_MIN = 4, LAYOUT_COLS_MAX = 12, LAYOUT_HEIGHT_MIN = 140, LAYOUT_HEIGHT_MAX = 1200;
 const LAYOUT_DEFAULT_ORDER = ['usage', 'machines', 'attention', 'household', 'jobs-stack', 'side-stack',
     'autopilot', 'work-browser', 'projects', 'security', 'scouts', 'connect', 'outside', 'where', 'setup',
-    'controls', 'selfimprove', 'aiassist', 'insights', 'my-schedule', 'my-questions', 'my-github', 'jobs', 'vpn', 'users'];
+    'controls', 'selfimprove', 'aiassist', 'insights', 'my-questions', 'my-github', 'jobs', 'vpn', 'users'];
 
 const LAYOUT = { user: 'local', order: [...LAYOUT_DEFAULT_ORDER], sizes: {}, drag: null, saveTimer: 0 };
 

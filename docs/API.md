@@ -88,6 +88,8 @@ dashboard refuses to start otherwise.
 | `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.5"}`; `started` changes on a restart. |
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
+| `/api/discovered` | GET | admin | The Discovered tab (t220): what is on the network and not set up yet (media scan, neighbour table, adb, ssh check), what each seems to be, its roles and the roles it could take; a failing source is named in `problems`. |
+| `/api/tasks` | GET | signed in | The Tasks tab (t307): every backlog task in Active, Queued, Needs a person, To review, Suggested and Done (newest 50), P0 first; a blocked task says why. |
 | `/api/board` | GET | signed in | The Queued card's Board (t243): queued tasks in Blocked, Ready and Grouped lanes, each with why it waits, what it depends on, what needs it and its group. |
 | `/api/task/` + task id | GET | signed in | A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 says why. |
 | `/api/vpn/status` | GET | viewer | The private network card: `{"state": ..., ...}`, 200 also when no VPN is set up. |

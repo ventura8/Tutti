@@ -524,13 +524,108 @@ class UsageGraph(unittest.TestCase):
             ctx.close()
 
 
+class TasksTab(unittest.TestCase):
+    """t307: every task by status in subtabs (arrow keys move between them), a row opens to everything it has."""
+
+    def test_subtabs_keyboard_and_an_open_task_at_every_width(self):
+        problems = {}
+        for width in ('phone', 'laptop'):
+            for theme in THEMES:
+                ctx = new_context(ADMIN, width, theme)
+                page = open_view(ctx, '#tasks')
+                page.wait_for_selector('#tasks-tabs [role="tab"]')
+                page.locator('#tasks-tab-active').focus()
+                page.keyboard.press('ArrowRight')
+                self.assertEqual(page.evaluate('document.activeElement.id'), 'tasks-tab-queued', f'{width} {theme}')
+                self.assertEqual(page.get_attribute('#tasks-tab-queued', 'aria-selected'), 'true')
+                page.locator('#tasks-panel .qitem > summary').first.click()
+                page.wait_for_selector('#tasks-panel .qitem[open] .qdetail__facts')
+                self.assertIn('npm test', page.text_content('#tasks-panel .qitem[open] .qdetail'))
+                page.locator('#tasks-tab-needs-person').click()
+                self.assertIn('two names fit', page.text_content('#tasks-panel'))
+                found = page.evaluate('tuttiChecks.layout()') + axe(page)
+                if found:
+                    problems[f'{width} {theme}'] = found
+                self.assertEqual(page.errors, [])
+                ctx.close()
+        self.assertEqual(problems, {})
+
+
+class ScheduleTab(unittest.TestCase):
+    """t281: the owner's schedule and each user's own schedule live in their own tab, clean at every width."""
+
+    def test_the_schedule_tab_holds_both_panels_and_stays_clean(self):
+        problems = {}
+        for width in ('phone', 'laptop'):
+            ctx = new_context(ADMIN, width)
+            page = open_view(ctx, '#schedule')
+            page.wait_for_selector('#schedule-view #owner > *', state='visible')
+            self.assertTrue(page.is_visible('#my-schedule'), width)
+            self.assertFalse(page.is_visible('#dashboard-view'), width)
+            found = page.evaluate('tuttiChecks.layout()') + axe(page)
+            if found:
+                problems[width] = found
+            self.assertEqual(page.errors, [])
+            ctx.close()
+        self.assertEqual(problems, {})
+
+
+class DeviceAndMachineTabs(unittest.TestCase):
+    """t208: Devices and Machines tabs hold their settings sections, editable by an admin; a viewer is told why not."""
+    maxDiff = None
+
+    def test_an_admin_sees_the_settings_and_a_viewer_a_note(self):
+        problems = {}
+        for name in ('devices', 'machines'):
+            for width in ('phone', 'laptop'):
+                ctx = new_context(ADMIN, width)
+                page = open_view(ctx, f'#{name}')
+                page.wait_for_selector(f'#{name}-settings .setting-card', state='visible')
+                self.assertEqual(page.locator('#settings-body > *').count(), 0)   # one copy of the rows: ids stay unique
+                found = page.evaluate('tuttiChecks.layout()') + axe(page)
+                if found:
+                    problems[f'{name} {width}'] = found
+                self.assertEqual(page.errors, [])
+                ctx.close()
+            ctx = new_context(VIEWER)
+            page = open_view(ctx, f'#{name}')
+            self.assertTrue(page.is_visible(f'#{name}-view [data-viewer-only]'))
+            self.assertFalse(page.is_visible(f'#{name}-settings'))
+            ctx.close()
+        self.assertEqual(problems, {})
+
+
+class DiscoveredTab(unittest.TestCase):
+    """t220: what is on the network and not set up yet; an admin's tab, clean at every width."""
+
+    def test_an_admin_sees_what_was_found_and_a_viewer_does_not(self):
+        problems = {}
+        for width in ('phone', 'laptop'):
+            ctx = new_context(ADMIN, width)
+            page = open_view(ctx, '#discovered')
+            page.wait_for_selector('#discovered-list [data-discovered]')
+            text = page.text_content('#discovered-list')
+            for part in ('192.0.2.10', 'Computer (ssh answers)', 'Living room TV', 'Pixel_9'):
+                self.assertIn(part, text, width)
+            found = page.evaluate('tuttiChecks.layout()') + axe(page)
+            if found:
+                problems[width] = found
+            self.assertEqual(page.errors, [])
+            ctx.close()
+        ctx = new_context(VIEWER)
+        page = open_view(ctx, '#discovered')
+        self.assertFalse(page.is_visible('#discovered-list'))
+        ctx.close()
+        self.assertEqual(problems, {})
+
+
 class Roles(unittest.TestCase):
     maxDiff = None
 
     def test_a_viewer_sees_no_admin_control(self):
         ctx = new_context(VIEWER)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Agents'])
+        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Machines', 'Agents'])
         shown = page.evaluate("""[...document.querySelectorAll('[data-admin], button, input, select, textarea, form, a.link')]
             .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, .nav-menu'))
             .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id) && !e.classList.contains('more'))
@@ -545,7 +640,8 @@ class Roles(unittest.TestCase):
     def test_an_admin_sees_every_admin_control(self):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Agents', 'Settings', 'Users'])
+        self.assertEqual([n for n, _ in tabs(page)],
+                         ['Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Machines', 'Discovered', 'Agents', 'Settings', 'Users'])
         hidden = [c for c in ADMIN_CONTROLS if not page.is_visible(c)]
         self.assertEqual(hidden, [])
         go(page, '#settings')

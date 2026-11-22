@@ -186,11 +186,12 @@ class Order(unittest.TestCase):
         heads = re.findall(r'<h2 id="([a-z]+)-h">', self.page())
         self.assertEqual(heads[:2], ['usage', 'machines'])
 
-    def test_usage_keeps_online_agents_then_local_models_then_you_and_the_main_agent(self):
+    def test_usage_keeps_online_agents_then_local_models_and_the_owner_is_on_schedule(self):
         page = self.page()
         usage = page[page.index('aria-labelledby="usage-h"'):page.index('aria-labelledby="machines-h"')]
         self.assertLess(usage.index('id="usage"'), usage.index('id="local-models"'))
-        self.assertLess(usage.index('id="local-models"'), usage.index('id="owner"'))
+        self.assertNotIn('id="owner"', usage)   # You and the main agent moved to the Schedule tab (t281)
+        self.assertIn('id="owner"', page[page.index('id="schedule-view"'):])
 
     def test_every_script_loads_after_the_formatter(self):
         scripts = re.findall(r'<script src="([a-z0-9-]+)\.js', self.page())

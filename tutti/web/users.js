@@ -142,10 +142,7 @@ function showUsersView() {
     const on = location.hash.startsWith('#users') && document.body.dataset.role === 'admin';
     $('users-view').hidden = !on;
     if (on) {
-        $('dashboard-view').hidden = true;
-        $('settings-view').hidden = true;
-        $('chat-view').hidden = true;
-        if ($('agents-view')) $('agents-view').hidden = true;
+        for (const name of TUTTI_VIEWS) if (name !== 'users' && $(`${name}-view`)) $(`${name}-view`).hidden = true;
     }
     for (const a of document.querySelectorAll('.nav-menu [data-view]')) {
         const current = on ? a.dataset.view === 'users' : a.dataset.view !== 'users' && a.getAttribute('aria-current') === 'page';

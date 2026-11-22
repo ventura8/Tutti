@@ -2,7 +2,17 @@
 // hashes. Open/close, Escape, outside click, focus return; the toggle shows the current view's name.
 'use strict';
 
-const NAV_LABELS = { chat: 'Chat', dashboard: 'Dashboard', settings: 'Settings', users: 'Users' };
+const NAV_LABELS = { chat: 'Chat', dashboard: 'Dashboard', tasks: 'Tasks', schedule: 'Schedule', devices: 'Devices', machines: 'Machines', discovered: 'Discovered', agents: 'Agents', settings: 'Settings', users: 'Users' };
+
+// Every view, by its hash (#tasks, #settings/…); one list so a new tab is one entry here, its menu link and its <x-view>.
+const TUTTI_VIEWS = Object.keys(NAV_LABELS);
+
+// The view a hash shows: its first word when it names a view (Users only for an admin), else the Chat (the default).
+function tuttiView(hash) {
+    const name = String(hash || '').replace(/^#/, '').split('/')[0];
+    const admin = typeof document !== 'undefined' && document.body?.dataset.role === 'admin';
+    return TUTTI_VIEWS.includes(name) && (name !== 'users' || admin) ? name : 'chat';
+}
 
 function navMenuEls() {
     return {
@@ -14,12 +24,7 @@ function navMenuEls() {
 }
 
 function navMenuView() {
-    const h = location.hash || '';
-    const admin = document.body?.dataset.role === 'admin';
-    if (h.startsWith('#settings')) return 'settings';
-    if (h.startsWith('#users') && admin) return 'users';
-    if (h.startsWith('#dashboard')) return 'dashboard';
-    return 'chat';
+    return tuttiView(location.hash);
 }
 
 function navMenuSync() {
@@ -83,5 +88,5 @@ if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('DOMContentLoaded', initNavMenu);
 }
 if (typeof module !== 'undefined') {
-    module.exports = { navMenuView, navMenuSync, navMenuOpen, navMenuClose, navMenuToggle, NAV_LABELS };
+    module.exports = { navMenuView, navMenuSync, navMenuOpen, navMenuClose, navMenuToggle, NAV_LABELS, TUTTI_VIEWS, tuttiView };
 }

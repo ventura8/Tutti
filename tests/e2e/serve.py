@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from test_auth import jwks_doc, rsa_key
 
-from tutti import auth, backlog, config, dashboard, energy, pacing, routing, state
+from tutti import auth, backlog, config, dashboard, discovered, energy, pacing, routing, state
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLIENT = '1234567890-abcdefgh12345678.apps.googleusercontent.com'
@@ -87,7 +87,7 @@ def seed_backlog(cfg):
     task['attempts'] = [{'at': 1794856100 + i, 'step': 'cursor', 'ok': False, 'why': 'the check failed: ' + 'x' * 120,
                          'signature': 'abc123', 'run': f'1794856100-{i}'} for i in range(3)]
     parked, _ = backlog.add(data, backlog.new_task('app', 'Rename the settings key: it needs the owner to pick a name', check='npm test'))
-    parked.update(status='needs-person', parked='two names fit: the owner picks one')   # Needs you opens it too (t237)
+    parked.update(status='needs-person', parked='two names fit: the owner picks one')   # Needs you and the Tasks tab open it too
     backlog.save(cfg, data)
 
 
@@ -119,7 +119,16 @@ def available(worker):
     return True, 'ok'
 
 
+def discovered_fake(cfg, now):
+    """The Discovered tab's sources, fixed: the browser tests never scan the real network."""
+    lan = [{'name': 'Living room TV', 'address': '192.0.2.20', 'roles': [{'role': 'chromecast-builtin', 'why': 'Cast'}]}]
+    neigh = [{'address': '192.0.2.10', 'mac': '02:00:00:00:00:10'}, {'address': '192.0.2.20', 'mac': '02:00:00:00:00:20'},
+             {'address': '192.0.2.30', 'mac': '02:00:00:00:00:30'}]
+    return discovered.view(cfg, lan, neigh, [{'serial': 'EMU0001', 'state': 'device', 'model': 'Pixel_9'}], ['192.0.2.10']), []
+
+
 def main(folder):
+    discovered.gather = discovered_fake
     path = write_config(os.path.abspath(folder))
     cfg = config.load(path)
     seed(cfg, datetime.now(timezone.utc))

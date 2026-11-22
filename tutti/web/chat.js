@@ -1030,10 +1030,7 @@ async function showActivity() {
 // ---- the views: Chat (the default), Dashboard, Settings, Users
 
 function chatView() {
-    const h = location.hash || '';
-    const admin = typeof document !== 'undefined' && document.body?.dataset.role === 'admin';
-    return h.startsWith('#settings') ? 'settings' : h.startsWith('#users') && admin ? 'users' : h.startsWith('#dashboard') ? 'dashboard'
-        : h.startsWith('#agents') ? 'agents' : 'chat';
+    return typeof tuttiView === 'function' ? tuttiView(location.hash || '') : 'chat';
 }
 
 function showChatView() {

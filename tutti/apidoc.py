@@ -5,6 +5,7 @@ and every CLI subcommand, HTTP route and MCP tool the code has must appear in it
 only checks, and exits 1 naming what is stale or missing. For the HTTP routes only their presence is checked (each must open a
 row of a table): their methods, roles and JSON shapes are written by hand. The hand-written parts stay as they are."""
 import argparse
+import json
 import os
 import re
 import sys
@@ -12,7 +13,8 @@ import sys
 from . import authweb, cli, config, dashboard, devices, mcpserver, settings_schema
 
 DOC = os.path.join(config.ROOT, 'docs', 'API.md')
-ROUTE_FILES = ('dashboard.py', 'authweb.py', 'coordinator.py', 'mcpserver.py')
+OPENAPI = os.path.join(config.ROOT, 'docs', 'openapi.json')   # the committed Swagger document, made from DOC
+ROUTE_FILES = ('dashboard.py', 'authweb.py', 'coordinator.py', 'mcpserver.py', 'hostapi.py')
 # only the servers' own modules are scanned: the paths of other services Tutti calls (a model server's API) live elsewhere
 ROUTE_RE = re.compile(r"'(/(?:api|hh)/[A-Za-z0-9/_-]+|/mcp)'")
 
@@ -213,7 +215,22 @@ def problems(path=DOC):
     out = missing(text)
     if render(text) != text:
         out.append('a generated part is stale: run `python3 -m tutti.apidoc --write`')
+    if path == DOC and openapi_text(text) != _read(OPENAPI):
+        out.append('docs/openapi.json is stale: run `python3 -m tutti.apidoc --write`')
     return out
+
+
+def openapi_text(text):
+    from . import openapi
+    return json.dumps(openapi.document(text), indent=1, sort_keys=True) + '\n'
+
+
+def _read(path):
+    try:
+        with open(path, encoding='utf8') as f:
+            return f.read()
+    except OSError:
+        return ''
 
 
 def main(argv=None, path=DOC):
@@ -226,6 +243,9 @@ def main(argv=None, path=DOC):
             text = render(f.read())
         with open(path, 'w', encoding='utf8') as f:
             f.write(text)
+        if path == DOC:
+            with open(OPENAPI, 'w', encoding='utf8') as f:
+                f.write(openapi_text(text))
     found = problems(path)
     for p in found:
         sys.stderr.write(f'docs/API.md: {p}\n')

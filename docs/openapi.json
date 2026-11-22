@@ -1,0 +1,1869 @@
+{
+ "info": {
+  "description": "Made from docs/API.md. Sign in at the dashboard first; a POST also sends the page's X-Tutti-Token (docs/API.md, Requests and answers).",
+  "title": "Tutti dashboard API",
+  "version": "see GET /api/health"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/api/ai-assist": {
+   "post": {
+    "description": "AI assist's switches and undo (tutti ai-assist).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "on": true,
+        "switch": "enabled"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "AI assist's switches and undo (tutti ai-assist).",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/auth/device/poll": {
+   "post": {
+    "description": "{\"pending\": true} until approved, then the session.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {},
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"pending\": true} until approved, then the session.",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/api/auth/device/start": {
+   "post": {
+    "description": "Google's code to enter at google.com/device and the flow's cookie.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "invite": "<optional>"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Google's code to enter at google.com/device and the flow's cookie.",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/api/auth/invites": {
+   "post": {
+    "description": "{\"url\": \"<invite link>\", \"join\": \"tutti household join <link>\", ...}.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "create",
+        "role": "viewer"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"url\": \"<invite link>\", \"join\": \"tutti household join <link>\", ...}.",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/auth/login": {
+   "post": {
+    "description": "Sets the session cookie. 400 when the sign-in page expired, 401 when the token does not verify.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "credential": "<Google ID token>"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Sets the session cookie. 400 when the sign-in page expired, 401 when the token does not verify.",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/api/auth/logout": {
+   "post": {
+    "description": "{\"ok\": true}; clears the cookie.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {},
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true}; clears the cookie.",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "viewer"
+   }
+  },
+  "/api/auth/me": {
+   "get": {
+    "description": "{\"enabled\": false, \"setup\": \"tutti auth setup\"} without sign-in; with it {\"enabled\": true, \"client_id\", \"device\", \"first\", \"signed_in\", ...user}.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"enabled\": false, \"setup\": \"tutti auth setup\"} without sign-in; with it {\"enabled\": true, \"client_id\", \"device\", \"first",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/api/auth/users": {
+   "get": {
+    "description": "{\"users\": [...], \"invites\": [...], \"audit\": [...]}.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"users\": [...], \"invites\": [...], \"audit\": [...]}.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "admin"
+   },
+   "post": {
+    "description": "The users view. The last admin is never demoted or removed (409).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The users view. The last admin is never demoted or removed (409).",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/autocompact": {
+   "post": {
+    "description": "The compaction threshold.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "threshold_pct": 60
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The compaction threshold.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/autopilot": {
+   "post": {
+    "description": "The autopilot's switches.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "enabled": true,
+        "fill_room": true
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The autopilot's switches.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/board": {
+   "get": {
+    "description": "The Queued card's Board (t243): queued tasks in Blocked, Ready and Grouped lanes, each with why it waits, what it depends on, what needs it and its group.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Queued card's Board (t243): queued tasks in Blocked, Ready and Grouped lanes, each with why it waits, what it depend",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/browser": {
+   "post": {
+    "description": "The household's work browser, for the sites the admin chose (docs/BROWSER.md). 403 out of scope, 503 browser down.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "sign-in",
+        "url": "https://example.com/usage"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The household's work browser, for the sites the admin chose (docs/BROWSER.md). 403 out of scope, 503 browser down.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "viewer"
+   }
+  },
+  "/api/chat": {
+   "post": {
+    "description": "JSON; send and follow stream application/x-ndjson, one event per line (docs/CHAT.md).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "JSON; send and follow stream application/x-ndjson, one event per line (docs/CHAT.md).",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "viewer, per-action checks"
+   }
+  },
+  "/api/connect": {
+   "post": {
+    "description": "{\"agents\": [...]}, or the change made. 409 when the agent's config cannot be changed.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "status"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"agents\": [...]}, or the change made. 409 when the agent's config cannot be changed.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/control": {
+   "post": {
+    "description": "Pause, resume or opt in (tutti pause, resume, optin); stop hands running jobs over first.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Pause, resume or opt in (tutti pause, resume, optin); stop hands running jobs over first.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/dashboard-layout": {
+   "post": {
+    "description": "Per-user Dashboard card order and sizes (t447).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Per-user Dashboard card order and sizes (t447).",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "signed-in (or local when sign-in is off)"
+   }
+  },
+  "/api/devices/move": {
+   "post": {
+    "description": "The plan (dry run, the default) or the move started (tutti devices move).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "devices": [
+         "pixel"
+        ],
+        "dry_run": true,
+        "to": "build1"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The plan (dry run, the default) or the move started (tutti devices move).",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/devices/pair": {
+   "post": {
+    "description": "Wireless pairing (tutti devices pair). 404 when no pairing runs.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "start",
+        "kind": "tv",
+        "machine": "build1"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Wireless pairing (tutti devices pair). 404 when no pairing runs.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/discovered": {
+   "get": {
+    "description": "The Discovered tab (t220): what is on the network and not set up yet (media scan, neighbour table, adb, ssh check), what each seems to be, its roles and the roles it could take; a failing source is named in problems.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Discovered tab (t220): what is on the network and not set up yet (media scan, neighbour table, adb, ssh check), what",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/dispatch": {
+   "post": {
+    "description": "Keep busy on or off; now answers {\"sent\": n, \"blocked\": [...]}.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "enabled": true
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Keep busy on or off; now answers {\"sent\": n, \"blocked\": [...]}.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/github": {
+   "post": {
+    "description": "The person's own GitHub connection (device flow, docs/GITHUB.md).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The person's own GitHub connection (device flow, docs/GITHUB.md).",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "self"
+   }
+  },
+  "/api/health": {
+   "get": {
+    "description": "{\"ok\": true, \"started\": <epoch>, \"host\": \"<hostname>\", \"version\": \"0.23.5\"}; started changes on a restart.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true, \"started\": <epoch>, \"host\": \"<hostname>\", \"version\": \"0.23.5\"}; started changes on a restart.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/api/home-assistant": {
+   "get": {
+    "description": "The Machines tab's Home Assistant card (t268): configured or not, its name, address, online, version, roles and what to do when it does not answer; never the token.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Machines tab's Home Assistant card (t268): configured or not, its name, address, online, version, roles and what to ",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/host-limit": {
+   "post": {
+    "description": "A host's limited-usage window, saved in the config (t406).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "host": "build1",
+        "pct": 60,
+        "window": "18-01"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "A host's limited-usage window, saved in the config (t406).",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/hosts": {
+   "get": {
+    "description": "Every host with its live state (t406: the new name of the machines list; machines in /api/state stays).",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Every host with its live state (t406: the new name of the machines list; machines in /api/state stays).",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/job-log/{id}": {
+   "get": {
+    "description": "Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there ",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/machine-limit": {
+   "post": {
+    "deprecated": true,
+    "description": "Deprecated (t406): use /api/host-limit. Answers as before, with Deprecation: true and a Link to it. Deprecated: use /api/host-limit.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "machine": "build1",
+        "pct": 60,
+        "window": "18-01"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Deprecated (t406): use /api/host-limit. Answers as before, with Deprecation: true and a Link to it.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/main": {
+   "post": {
+    "description": "Switches the main agent (`tutti main <agent",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "agent": "claude"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Switches the main agent (`tutti main <agent",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/me/schedule": {
+   "get": {
+    "description": "{\"sub\": \"<id>\", \"schedule\": {...}}: one's own pacing schedule.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"sub\": \"<id>\", \"schedule\": {...}}: one's own pacing schedule.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "viewer (self)"
+   },
+   "post": {
+    "description": "One's own schedule; another's only as an admin (403).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "One's own schedule; another's only as an admin (403).",
+    "tags": [
+     "Sign-in (docs/AUTH.md)"
+    ],
+    "x-who": "self, admin for others"
+   }
+  },
+  "/api/move": {
+   "post": {
+    "description": "Tutti itself to another machine (tutti move, docs/MOVE.md): the plan, or 202 when it started.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "plan",
+        "to": "build1"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Tutti itself to another machine (tutti move, docs/MOVE.md): the plan, or 202 when it started.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/needs": {
+   "get": {
+    "description": "The viewer's own open questions (an admin: everyone's) and notify settings.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The viewer's own open questions (an admin: everyone's) and notify settings.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "viewer (self)"
+   },
+   "post": {
+    "description": "Answer one's own question; notify settings.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "answer": "q3",
+        "choice": "retry"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Answer one's own question; notify settings.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "self"
+   }
+  },
+  "/api/openapi.json": {
+   "get": {
+    "description": "This API as an OpenAPI 3.1 document (Swagger), made from these tables; any Swagger UI loads it, and the dashboard shows it at /api-docs.html.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "This API as an OpenAPI 3.1 document (Swagger), made from these tables; any Swagger UI loads it, and the dashboard shows ",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/owner": {
+   "post": {
+    "description": "The owner's mode (state) and schedule (config pacing.schedule). null takes a value back to the config's. 400 names the bad field.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "mode": "away"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The owner's mode (state) and schedule (config pacing.schedule). null takes a value back to the config's. 400 names the b",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/queue": {
+   "post": {
+    "description": "The Queued list's actions. 404: no such queued item.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Queued list's actions. 404: no such queued item.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/reading": {
+   "post": {
+    "description": "Writes the usage log like tutti usage log. 400: unknown account, used outside 0-100, a reset more than a day ago or two months ahead; 403: a helper key from another install.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "account": "claude",
+        "note": "",
+        "resets": "2026-11-20T08:00Z",
+        "used": 42
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Writes the usage log like tutti usage log. 400: unknown account, used outside 0-100, a reset more than a day ago or two ",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/refresh": {
+   "post": {
+    "description": "{\"ok\": true, \"read\": [accounts], \"problems\": {account: why}}: reads usage now. 500 when the usage log cannot be read.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {},
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true, \"read\": [accounts], \"problems\": {account: why}}: reads usage now. 500 when the usage log cannot be read.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/report": {
+   "post": {
+    "description": "Report a problem on GitHub (docs/REPORT.md), a few per hour.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "expected": "...",
+        "send": false,
+        "what": "..."
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Report a problem on GitHub (docs/REPORT.md), a few per hour.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "viewer"
+   }
+  },
+  "/api/restart": {
+   "post": {
+    "description": "{\"ok\": true, \"restarting\": true}; poll /api/health until started changes.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {},
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true, \"restarting\": true}; poll /api/health until started changes.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/role-matrix": {
+   "get": {
+    "description": "The Machines tab's role matrix (t234): each machine, each role it has, could have or cannot have, why and the fix, from the last daily probe (never probing on the request).",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Machines tab's role matrix (t234): each machine, each role it has, could have or cannot have, why and the fix, from ",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/self-improve": {
+   "post": {
+    "description": "Self-improvement on or off.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "enabled": true
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Self-improvement on or off.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/settings": {
+   "get": {
+    "description": "The Settings tab: sections, fields with value, default and source, etag of the file, diverging copies.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Settings tab: sections, fields with value, default and source, etag of the file, diverging copies.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "admin"
+   },
+   "post": {
+    "description": "{\"ok\": true, \"backup\": \"<file>\", \"restart\": [keys], \"applies\": \"now\"|\"on restart\"}. 409 when the file changed since etag; 400 with errors when the result would not load. Body up to 64 KB.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "etag": "<from GET>",
+        "path": [
+         "dashboard",
+         "refresh_seconds"
+        ],
+        "value": 15
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true, \"backup\": \"<file>\", \"restart\": [keys], \"applies\": \"now\"|\"on restart\"}. 409 when the file changed since etag",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/setup": {
+   "post": {
+    "description": "202 {\"ok\": true, \"log\": \"<path>\"}: tutti setup --yes in the background.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "run"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "202 {\"ok\": true, \"log\": \"<path>\"}: tutti setup --yes in the background.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/state": {
+   "get": {
+    "description": "The whole dashboard as one object (keys below). Sent with an ETag; If-None-Match gets a 304 when nothing changed; gzip when asked.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The whole dashboard as one object (keys below). Sent with an ETag; If-None-Match gets a 304 when nothing changed; gzip w",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "viewer"
+   }
+  },
+  "/api/task/{id}": {
+   "get": {
+    "description": "A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 says why.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 s",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/tasks": {
+   "get": {
+    "description": "The Tasks tab (t307): every backlog task in Active, Queued, Needs a person, To review, Suggested and Done (newest 50), P0 first; a blocked task says why.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Tasks tab (t307): every backlog task in Active, Queued, Needs a person, To review, Suggested and Done (newest 50), P",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "signed in"
+   }
+  },
+  "/api/telemetry": {
+   "post": {
+    "description": "{\"ok\": true, ...}.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "consent": true
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true, ...}.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "viewer (errors and use counts only), admin (consent)"
+   }
+  },
+  "/api/update": {
+   "post": {
+    "description": "202 {\"ok\": true, \"started\": true}: a round of tutti update; 409 when one runs.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {},
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "202 {\"ok\": true, \"started\": true}: a round of tutti update; 409 when one runs.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/user/main-host": {
+   "post": {
+    "description": "One's own main host (docs/MOVE.md; t406).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "host": "build1"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "One's own main host (docs/MOVE.md; t406).",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "self"
+   }
+  },
+  "/api/user/main-machine": {
+   "post": {
+    "deprecated": true,
+    "description": "Deprecated (t406): use /api/user/main-host. Answers as before, with Deprecation: true and a Link to it. Deprecated: use /api/user/main-host.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "machine": "build1"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "Deprecated (t406): use /api/user/main-host. Answers as before, with Deprecation: true and a Link to it.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "self"
+   }
+  },
+  "/api/users/manage": {
+   "post": {
+    "description": "The Users tab: household members' actions.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Users tab: household members' actions.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "self, admin for others"
+   }
+  },
+  "/api/vpn": {
+   "post": {
+    "description": "The private network card (tutti vpn).",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "example": {
+        "action": "status"
+       },
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The private network card (tutti vpn).",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/api/vpn/status": {
+   "get": {
+    "description": "The private network card: {\"state\": ..., ...}, 200 also when no VPN is set up.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The private network card: {\"state\": ..., ...}, 200 also when no VPN is set up.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "viewer"
+   }
+  },
+  "/api/welcome": {
+   "get": {
+    "description": "The viewer's own \"welcome back\" summary.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The viewer's own \"welcome back\" summary.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "viewer (self)"
+   },
+   "post": {
+    "description": "One's own summary: mark read, \"What did I miss?\", switch on or off.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "One's own summary: mark read, \"What did I miss?\", switch on or off.",
+    "tags": [
+     "Changing (viewer and self)"
+    ],
+    "x-who": "self"
+   }
+  },
+  "/api/work/move": {
+   "post": {
+    "description": "{\"ok\": true, \"done\": [...]}; 409 when the job cannot move.",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "{\"ok\": true, \"done\": [...]}; 409 when the job cannot move.",
+    "tags": [
+     "Changing (admin)"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/helper": {
+   "get": {
+    "description": "The reading helper page (bookmarklets that post usage readings).",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The reading helper page (bookmarklets that post usage readings).",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "admin"
+   }
+  },
+  "/invite": {
+   "get": {
+    "description": "The page an invite link opens.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The page an invite link opens.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/login": {
+   "get": {
+    "description": "The sign-in page (Google).",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The sign-in page (Google).",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "anyone"
+   }
+  },
+  "/settings": {
+   "get": {
+    "description": "The Settings page.",
+    "responses": {
+     "200": {
+      "description": "OK (JSON)"
+     },
+     "401": {
+      "description": "not signed in"
+     },
+     "403": {
+      "description": "not allowed for this role"
+     }
+    },
+    "summary": "The Settings page.",
+    "tags": [
+     "Reading"
+    ],
+    "x-who": "admin"
+   }
+  }
+ },
+ "servers": [
+  {
+   "url": "/"
+  }
+ ]
+}

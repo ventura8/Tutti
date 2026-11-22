@@ -64,6 +64,7 @@ include docs/WORKERS.md
 include docs/_config.yml
 include docs/github-app.html
 include docs/index.md
+include docs/openapi.json
 include install/bootstrap.ps1
 include install/bootstrap.sh
 include install/install.ps1
@@ -148,6 +149,8 @@ include tests/test_groksetup.py
 include tests/test_helper_parse.py
 include tests/test_hhjobs.py
 include tests/test_homeassistant.py
+include tests/test_hostapi.py
+include tests/test_hosts_name.py
 include tests/test_hostsetup.py
 include tests/test_hours.py
 include tests/test_household.py
@@ -314,6 +317,7 @@ include tutti/handover.py
 include tutti/helper.py
 include tutti/hhjobs.py
 include tutti/homeassistant.py
+include tutti/hostapi.py
 include tutti/hostsetup.py
 include tutti/hours.py
 include tutti/household.py
@@ -347,6 +351,7 @@ include tutti/needs.py
 include tutti/netpolicy.py
 include tutti/official.py
 include tutti/openai_api.py
+include tutti/openapi.py
 include tutti/owner.py
 include tutti/ownerday.py
 include tutti/pacing.py
@@ -416,6 +421,8 @@ include tutti/waitlist.py
 include tutti/watchdog.py
 include tutti/web/a11y.js
 include tutti/web/agents.js
+include tutti/web/api-docs.html
+include tutti/web/api-docs.js
 include tutti/web/app.css
 include tutti/web/app.js
 include tutti/web/attention.js

@@ -24,7 +24,7 @@ class NavMenuMarkup(unittest.TestCase):
         panel = self.html.split('id="nav-menu-panel"', 1)[1].split('</div>', 1)[0]
         views = re.findall(r'href="#([a-z]+)" data-view="([a-z]+)"', panel)
         self.assertEqual(views, [('chat', 'chat'), ('dashboard', 'dashboard'), ('tasks', 'tasks'), ('schedule', 'schedule'),
-                                 ('devices', 'devices'), ('machines', 'machines'), ('discovered', 'discovered'),
+                                 ('devices', 'devices'), ('hosts', 'machines'), ('discovered', 'discovered'),
                                  ('agents', 'agents'), ('settings', 'settings'), ('users', 'users')])
         self.assertIn('navmenu.js?v=', self.html)
 

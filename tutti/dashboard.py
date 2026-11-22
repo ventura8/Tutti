@@ -44,6 +44,7 @@ from . import (
     handover,
     helper,
     homeassistant,
+    hostapi,
     householduse,
     httpguard,
     idlecheck,
@@ -483,6 +484,7 @@ API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
 API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Move to, Cancel, Priority up or down)
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 # these change the config or the queue: an admin's
+API_OPENAPI = '/api/openapi.json'
 API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
 API_LAYOUT = '/api/dashboard-layout'   # per-user card order and sizes on #dashboard (t447)
 ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
@@ -1160,7 +1162,12 @@ def self_test(collector):
 
 def viewer_json(collector, path):
     """The JSON GETs every signed-in viewer may read (no secret in any), or None for any other path."""
-    if path == homeassistant.API:   # the Machines tab's Home Assistant card (t268)
+    if path == hostapi.API_HOSTS:   # t406: every host with its live state (the new name for the machines list)
+        code, answer = 200, hostapi.hosts(collector.snapshot())
+    elif path == API_OPENAPI:   # this API as OpenAPI 3.1 (Swagger), made from docs/API.md
+        from . import openapi
+        code, answer = 200, openapi.from_doc(os.path.join(config.ROOT, 'docs', 'API.md'))
+    elif path == homeassistant.API:   # the Machines tab's Home Assistant card (t268)
         code, answer = 200, homeassistant.status(collector.cfg)
     elif path == rolematrix.API:   # the Machines tab's role matrix (t234)
         code, answer = rolematrix.get(collector.cfg)
@@ -1288,9 +1295,12 @@ def make_handler(collector, token):
                                 lambda tok: get(collector, path, tok, self.headers), token))
 
         def do_POST(self):
+            path, named_host = hostapi.route(self.path.split('?', 1)[0])   # t406: a /api/host... route reaches its old handler
+            read = (lambda n: hostapi.body(self.rfile.read(n))) if named_host else self.rfile.read
             code, answer, extra = reported('dashboard-post', any_post, getattr(self.server, 'auth', None), collector, self.headers,
-                                           self.path, self.server.server_address[1], token, self.rfile.read)
-            answer_post(self, code, answer, extra)
+                                           path, self.server.server_address[1], token, read)
+            gone = hostapi.deprecation(self.path.split('?', 1)[0])
+            answer_post(self, code, answer, {**(extra or {}), **gone} if gone else extra)
 
     return Handler
 

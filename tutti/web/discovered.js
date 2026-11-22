@@ -53,3 +53,35 @@ if (typeof document === 'object' && document.addEventListener) {
 }
 
 if (typeof module !== 'undefined') module.exports = { discoveredRow, drawDiscovered };
+
+// The Machines tab's Home Assistant card (t268): GET /api/home-assistant when the tab opens
+function haNodes(d) {
+    if (!d.configured) return [el('p', { class: 'row__note', text: 'Not connected. Add home_assistant: {url: http://homeassistant.local:8123} to the config, and a long-lived access token in ~/.config/tutti/home-assistant.env (docs/MACHINES.md).' })];
+    if (!d.item) return [el('p', { class: 'row__note', role: 'alert', text: d.problem })];
+    const h = d.item;
+    return [el('p', { class: 'row__name', text: `${h.name} · ${h.address}` }),
+        el('p', { class: 'row__note', text: [h.online ? 'online' : 'offline', h.version && `version ${h.version}`, h.time_zone].filter(Boolean).join(' · ') }),
+        el('p', { class: 'row__note', text: `Roles: ${h.roles.map((r) => r.role).join(', ')}` }),
+        h.problem ? el('p', { class: 'row__note', role: 'status', text: h.problem }) : null].filter(Boolean);
+}
+
+async function loadHa() {
+    const box = document.getElementById('ha-card');
+    if (!box) return;
+    try {
+        const res = await fetch('/api/home-assistant', { cache: 'no-store' });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || `the dashboard answered ${res.status}`);
+        box.replaceChildren(...haNodes(d));
+    } catch (err) {
+        box.replaceChildren(el('p', { class: 'row__note', role: 'alert', text: `Cannot ask Home Assistant: ${err.message}` }));
+    }
+}
+
+if (typeof document === 'object' && document.addEventListener) {
+    const haSync = () => { if (typeof tuttiView === 'function' && tuttiView(location.hash) === 'machines') void loadHa(); };
+    document.addEventListener('DOMContentLoaded', haSync);
+    window.addEventListener('hashchange', haSync);
+}
+
+if (typeof module !== 'undefined') module.exports.haNodes = haNodes;

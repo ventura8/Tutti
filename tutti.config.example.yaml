@@ -42,6 +42,10 @@ machines:
 
 # Android devices for e2e runs (`tutti test --device <name> -- <cmd>`), reached over adb from the machine they are plugged into
 # or paired with. `tutti devices add` prints the one-time setup. A run starts only while the policy allows it.
+# Home Assistant (docs/MACHINES.md, Home Assistant): shown on the Machines tab. Its token goes into
+# ~/.config/tutti/home-assistant.env as TUTTI_HA_TOKEN=..., never here.
+# home_assistant: {url: http://homeassistant.local:8123}
+
 devices:
   pixel:
     serial: R58M00TEST00              # `adb devices`, or ip:port for wireless debugging

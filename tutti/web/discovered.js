@@ -121,3 +121,43 @@ function renderDeviceList(s) {
 }
 
 if (typeof module !== 'undefined') Object.assign(module.exports, { deviceListNodes });
+
+// The Machines tab's role matrix (t234): per machine, every role it has, could have (turned off) or cannot, why, and the fix
+const MATRIX_STATE = { has: 'Has', off: 'Could have (turned off)', cannot: 'Cannot' };
+
+function matrixRow(r) {
+    return el('li', { class: 'row', 'data-state': r.state },
+        el('p', { class: 'row__name', text: `${r.role} · ${MATRIX_STATE[r.state]}` }),
+        el('p', { class: 'row__note', text: r.why }),
+        r.fix ? el('p', { class: 'row__note' }, 'Fix: ', el('code', { text: r.fix })) : null);
+}
+
+function matrixNodes(d) {
+    if (!d.machines.length) return [el('p', { class: 'row__note', text: 'No machine in the config yet: the Discovered tab finds them.' })];
+    return d.machines.map((m) => el('details', { class: 'qitem', 'data-matrix': m.name },
+        el('summary', { text: `${m.name}: ${m.has} roles, ${m.off} turned off, ${m.cannot} it cannot have` }),
+        el('ul', { class: 'list' }, ...m.rows.map(matrixRow))));
+}
+
+async function loadMatrix() {
+    const box = document.getElementById('role-matrix');
+    if (!box) return;
+    const open = new Set([...box.querySelectorAll('details[open]')].map((x) => x.dataset.matrix));
+    try {
+        const res = await fetch('/api/role-matrix', { cache: 'no-store' });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || `the dashboard answered ${res.status}`);
+        box.replaceChildren(...matrixNodes(d));
+        for (const n of box.querySelectorAll('details[data-matrix]')) n.open = open.has(n.dataset.matrix);
+    } catch (err) {
+        box.replaceChildren(el('p', { class: 'row__note', role: 'alert', text: `Cannot show the roles: ${err.message}` }));
+    }
+}
+
+if (typeof document === 'object' && document.addEventListener) {
+    const matrixSync = () => { if (typeof tuttiView === 'function' && tuttiView(location.hash) === 'machines') void loadMatrix(); };
+    document.addEventListener('DOMContentLoaded', matrixSync);
+    window.addEventListener('hashchange', matrixSync);
+}
+
+if (typeof module !== 'undefined') Object.assign(module.exports, { matrixNodes });

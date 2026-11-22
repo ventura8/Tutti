@@ -90,6 +90,7 @@ dashboard refuses to start otherwise.
 | `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
 | `/api/discovered` | GET | admin | The Discovered tab (t220): what is on the network and not set up yet (media scan, neighbour table, adb, ssh check), what each seems to be, its roles and the roles it could take; a failing source is named in `problems`. |
 | `/api/home-assistant` | GET | signed in | The Machines tab's Home Assistant card (t268): configured or not, its name, address, online, version, roles and what to do when it does not answer; never the token. |
+| `/api/role-matrix` | GET | signed in | The Machines tab's role matrix (t234): each machine, each role it has, could have or cannot have, why and the fix, from the last daily probe (never probing on the request). |
 | `/api/tasks` | GET | signed in | The Tasks tab (t307): every backlog task in Active, Queued, Needs a person, To review, Suggested and Done (newest 50), P0 first; a blocked task says why. |
 | `/api/board` | GET | signed in | The Queued card's Board (t243): queued tasks in Blocked, Ready and Grouped lanes, each with why it waits, what it depends on, what needs it and its group. |
 | `/api/task/` + task id | GET | signed in | A queued task's expanded row (t237): its facts, criteria, last 10 attempts and last 8 notes, credentials replaced; 404 says why. |
@@ -999,15 +1000,15 @@ usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port POR
 
 ### `tutti roles`
 
-roles of machines and devices: list them, set or unset one (docs/MACHINES.md, Roles)
+roles of machines and devices: list them, the matrix (has, turned off, cannot, why and the fix), set or unset one (docs/MACHINES.md, Roles)
 
 ```text
-usage: tutti roles [-h] [--all] {list,set,unset} [name] [role]
+usage: tutti roles [-h] [--all] {list,matrix,set,unset} [name] [role]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {list,set,unset}` |  |  |
+| `action {list,matrix,set,unset}` |  |  |
 | `name` | a machine, a device, or a network device's address |  |
 | `role` | e.g. windows-test-runner, ui-desktop, gpu-ai, airplay-receiver |  |
 | `--all` | list: also every role Tutti knows and what it means |  |

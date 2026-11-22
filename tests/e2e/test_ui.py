@@ -582,6 +582,8 @@ class DeviceAndMachineTabs(unittest.TestCase):
                 page = open_view(ctx, f'#{name}')
                 page.wait_for_selector(f'#{name}-settings .setting-card', state='visible')
                 self.assertEqual(page.locator('#settings-body > *').count(), 0)   # one copy of the rows: ids stay unique
+                if name == 'machines':   # t234: the role matrix, one disclosure per machine
+                    page.wait_for_selector('#role-matrix details[data-matrix]')
                 found = page.evaluate('tuttiChecks.layout()') + axe(page)
                 if found:
                     problems[f'{name} {width}'] = found

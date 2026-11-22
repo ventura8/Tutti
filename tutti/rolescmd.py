@@ -52,9 +52,23 @@ def _kind(cfg, name):
         return ''
 
 
+def _matrix(cfg, out):
+    """`tutti roles matrix`: every machine, every role it has, could have or cannot, why and the fix (t234)."""
+    from . import rolematrix
+    _code, answer = rolematrix.get(cfg)
+    mark = {'has': '+', 'off': '~', 'cannot': '-'}
+    for m in answer['machines']:
+        out(f'{m["name"]}: {m["has"]} roles, {m["off"]} turned off, {m["cannot"]} it cannot have')
+        for r in m['rows']:
+            out(f'  {mark[r["state"]]} {r["role"]}: {r["why"]}' + (f'  (fix: {r["fix"]})' if r['fix'] else ''))
+    return 0
+
+
 def cmd_roles(cfg, a, out=print):
     if a.action == 'list':
         return _list(cfg, a, out)
+    if a.action == 'matrix':
+        return _matrix(cfg, out)
     if not a.name or not a.role:
         out('say which: tutti roles set|unset <machine or device> <role>')
         return 2
@@ -75,8 +89,9 @@ def cmd_roles(cfg, a, out=print):
 
 
 def add_parser(add):
-    s = add('roles', cmd_roles, 'roles of machines and devices: list them, set or unset one (docs/MACHINES.md, Roles)')
-    s.add_argument('action', choices=['list', 'set', 'unset'])
+    s = add('roles', cmd_roles, 'roles of machines and devices: list them, the matrix (has, turned off, cannot, why and the fix), '
+            'set or unset one (docs/MACHINES.md, Roles)')
+    s.add_argument('action', choices=['list', 'matrix', 'set', 'unset'])
     s.add_argument('name', nargs='?', help='a machine, a device, or a network device\'s address')
     s.add_argument('role', nargs='?', help='e.g. windows-test-runner, ui-desktop, gpu-ai, airplay-receiver')
     s.add_argument('--all', action='store_true', help='list: also every role Tutti knows and what it means')

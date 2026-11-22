@@ -665,3 +665,12 @@ The new `GET /api/job-log/<id>` checked `dashboard.authorize`, which calls `coll
 nothing sets it: with Google sign-in on, a viewer could read an admin's job logs. The sign-in gate's own list
 (`authweb.ADMIN_GET`) is what refuses a viewer's GET; CodeRabbit caught it. Lesson: an admin-only GET goes in
 `authweb.ADMIN_GET`, with a test that its path matches it.
+
+## A long-running dashboard served new pages with old code (2026-11-22)
+
+Five tabs were merged and the owner found Tasks, Discovered and Agents empty. Nothing was wrong with them: the household
+dashboard had run since the day before, its Python code loaded then, while it reads `tutti/web` from disk on every request.
+The new pages asked for `/api/tasks` and the others, which the old server did not have. Self-update restarts only release
+installs, never a checkout. Fix: the dashboard watches its own code and restarts when it changes (docs/DASHBOARD.md,
+*New code*). Lesson: anything that serves files live and code from memory must restart, or refuse, when the two differ.
+

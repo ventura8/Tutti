@@ -481,6 +481,38 @@ DAY = 24 * 3600
 RESTART_RETRY = 300
 
 
+CODE_EVERY = 60   # seconds between looks at the dashboard's own code on disk
+
+
+def code_fingerprint(root):
+    """(newest mtime, file count) of the Python code under <root>/tutti: it changes when a merge, a pull or an update
+    lands. The pages (tutti/web) are read from disk on every request, so only the code can go stale in a running dashboard."""
+    newest, count = 0.0, 0
+    for folder, _dirs, files in os.walk(os.path.join(root, 'tutti')):
+        for f in files:
+            if f.endswith('.py'):
+                try:
+                    newest, count = max(newest, os.path.getmtime(os.path.join(folder, f))), count + 1
+                except OSError:
+                    pass
+    return newest, count
+
+
+def start_code_watch(stop, root, restart, every=CODE_EVERY, fingerprint=code_fingerprint, thread=None):
+    """A dashboard whose code changed on disk restarts itself (docs/DASHBOARD.md, *New code*): otherwise new pages would
+    call routes the running server does not have yet. `restart` may return False (Chat is busy): it is asked again next time."""
+    import threading
+    start = fingerprint(root)
+
+    def loop():
+        while not stop.wait(every):
+            if fingerprint(root) != start and restart() is not False:
+                return
+    t = (thread or threading.Thread)(target=loop, daemon=True, name='tutti-code-watch')
+    t.start()
+    return t
+
+
 def start_daily(cfg, stop, root, restart, update=self_update, wait=DAY, retry=RESTART_RETRY):
     """The dashboard's daily self-update (release installs with self_update.enabled): a new version restarts the dashboard
     in place (same pid, so a service manager sees no exit), and the page reloads itself for the new version (update.js).

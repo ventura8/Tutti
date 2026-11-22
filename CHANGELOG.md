@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Dashboard: it restarts itself within a minute when its code changes on disk (a merge or pull in the checkout it runs
+  from), so new tabs never call routes the running server lacks; Discovered no longer lists Docker or VM addresses.
+
 ### Added
 
 - Dashboard (t237): a task under **Needs you** (needing a person, or to review) has **All details**, which opens to

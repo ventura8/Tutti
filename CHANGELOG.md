@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Machines tab (t233): the Home Assistant card shows who is home, the power in use now with the biggest users, and each
+  Tutti machine's own plug (found by name, or `home_assistant.plugs`) (docs/MACHINES.md, *Home Assistant*).
+
 ### Fixed
 
 - Scouts: a scout's diff whose hunk headers miscount their lines (a model's common slip) still applies (`git apply

@@ -253,6 +253,8 @@ FIELDS = {
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
     'home_assistant.url': field('Home Assistant', 'Its address, e.g. http://homeassistant.local:8123 (no user or password in '
                                 'it). Shown on the Machines tab (docs/MACHINES.md, Home Assistant).', 'text'),
+    'home_assistant.plugs': field('Machine plugs', 'Which power sensor is each machine\'s plug, e.g. {w5090: '
+                                  'sensor.pc_plug_power}; a sensor with the machine\'s name in its id is found by itself.', 'yaml'),
     'home_assistant.token_env': field('Its token name', 'The name its long-lived access token has in '
                                       '~/.config/tutti/home-assistant.env (default TUTTI_HA_TOKEN); the token itself is never '
                                       'in the config.', 'text'),

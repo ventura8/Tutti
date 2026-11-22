@@ -7,6 +7,8 @@ printed or sent anywhere but that URL. Without a token Tutti still says whether 
 `view`; `status` does the one request."""
 import json
 import re
+import socket
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -52,6 +54,37 @@ def view(s, answer=None, problem=''):
             'problem': problem}
 
 
+LOOKUP_TRIES = 3
+KNOWN = {}   # host name -> the last address it resolved to (a .local name over mDNS fails now and then)
+
+
+def _name_failed(e):
+    reason = getattr(e, 'reason', e)
+    return isinstance(reason, socket.gaierror)
+
+
+def reliable(fetch, url, token, resolve=None, pause=0.3, sleep=time.sleep):
+    """`fetch(url, token)` that survives a flaky name lookup: retried, then sent to the last address the name had."""
+    resolve = resolve or socket.gethostbyname
+    host = urlsplit(url).hostname
+    for attempt in range(LOOKUP_TRIES):
+        try:
+            answer = fetch(url, token)
+            try:
+                KNOWN[host] = resolve(host)   # resolved just now: cheap, and the fallback for the next failure
+            except OSError:
+                pass
+            return answer
+        except (urllib.error.URLError, OSError) as e:
+            if isinstance(e, urllib.error.HTTPError) or not _name_failed(e):
+                raise
+            if attempt + 1 < LOOKUP_TRIES:
+                sleep(pause)
+    if host in KNOWN:
+        return fetch(url.replace(f'//{host}', f'//{KNOWN[host]}', 1), token)
+    raise OSError(f'the name {host} did not resolve ({LOOKUP_TRIES} tries): put its address in home_assistant.url')
+
+
 def status(cfg, fetch=None, token_fn=None):
     """{configured, item} for GET /api/home-assistant; one request to <url>/api/config with the token, if there is one."""
     from . import secretenv
@@ -64,7 +97,7 @@ def status(cfg, fetch=None, token_fn=None):
     token = (token_fn or secretenv.get)(s['token_env']).strip()
     fetch = fetch or _fetch
     try:
-        answer = fetch(f'{s["url"]}/api/config', token)
+        answer = reliable(fetch, f'{s["url"]}/api/config', token)
     except urllib.error.HTTPError as e:
         why = (f'answers, but the token was refused ({e.code}): make a long-lived access token in your Home Assistant profile '
                f'and put it in ~/.config/tutti/home-assistant.env as {s["token_env"]}=...') if e.code in (401, 403) \

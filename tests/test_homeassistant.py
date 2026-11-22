@@ -3,6 +3,7 @@ token, a wrong URL or an instance that does not answer each say what to do; the 
 import json
 import os
 import shutil
+import socket
 import subprocess
 import unittest
 import urllib.error
@@ -59,6 +60,49 @@ class Status(unittest.TestCase):
         c = mock.Mock(cfg={})
         code, body, *_ = dashboard.get(c, homeassistant.API, 'tok', {})
         self.assertEqual((code, json.loads(body)['configured']), (200, False))
+
+
+class Lookup(unittest.TestCase):
+    def setUp(self):
+        homeassistant.KNOWN.clear()
+        self.addCleanup(homeassistant.KNOWN.clear)
+
+    def flaky(self, fails):
+        calls = []
+
+        def fetch(url, token):
+            calls.append(url)
+            if len(calls) <= fails:
+                raise urllib.error.URLError(socket.gaierror(-2, 'Name or service not known'))
+            return DOC
+        return fetch, calls
+
+    def test_a_flaky_name_is_retried(self):
+        fetch, calls = self.flaky(2)
+        got = homeassistant.reliable(fetch, 'http://ha.local:8123/api/config', 't', resolve=lambda h: '192.0.2.98',
+                                     sleep=lambda s: None)
+        self.assertEqual((got, len(calls)), (DOC, 3))
+        self.assertEqual(homeassistant.KNOWN['ha.local'], '192.0.2.98')
+
+    def test_after_the_tries_the_last_address_is_used_and_without_one_it_says_what_to_do(self):
+        homeassistant.KNOWN['ha.local'] = '192.0.2.98'
+        fetch, calls = self.flaky(3)
+        homeassistant.reliable(fetch, 'http://ha.local:8123/api/config', 't', resolve=lambda h: '192.0.2.98', sleep=lambda s: None)
+        self.assertEqual(calls[-1], 'http://192.0.2.98:8123/api/config')
+        homeassistant.KNOWN.clear()
+        fetch, _ = self.flaky(9)
+        with self.assertRaisesRegex(OSError, 'did not resolve'):
+            homeassistant.reliable(fetch, 'http://ha.local:8123/api/config', 't', sleep=lambda s: None)
+
+    def test_a_refused_token_is_not_retried(self):
+        calls = []
+
+        def refused(url, token):
+            calls.append(url)
+            raise urllib.error.HTTPError(url, 401, 'no', {}, None)
+        with self.assertRaises(urllib.error.HTTPError):
+            homeassistant.reliable(refused, 'http://ha.local:8123/api/config', 't', sleep=lambda s: None)
+        self.assertEqual(len(calls), 1)
 
 
 class Found(unittest.TestCase):

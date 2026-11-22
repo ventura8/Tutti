@@ -94,6 +94,26 @@ def resolve_repo(cfg, repo):
     return repo
 
 
+def fresh_base(top, say=print):
+    """The commit a new run starts from: the branch's upstream after a fetch when the local checkout is behind it (a stale
+    checkout made workers redo old code and write broken tests), else HEAD (ahead or diverged: local commits are kept).
+    No remote, no upstream or no network: HEAD, said."""
+    if ship.git(top, 'remote', check=False) == '':
+        return 'HEAD'
+    upstream = ship.git(top, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}', check=False)
+    if not upstream or ' ' in upstream:
+        return 'HEAD'
+    remote = upstream.split('/', 1)[0]
+    if subprocess.run([worktree.git_bin(), '-C', top, 'fetch', '-q', remote], capture_output=True, timeout=120).returncode != 0:
+        say(f'run: could not fetch {remote}; starting from the local HEAD')
+        return 'HEAD'
+    behind = subprocess.run([worktree.git_bin(), '-C', top, 'merge-base', '--is-ancestor', 'HEAD', upstream]).returncode == 0
+    if behind and ship.git(top, 'rev-parse', 'HEAD') != ship.git(top, 'rev-parse', upstream):
+        say(f'run: the local checkout is behind {upstream}; starting from {upstream}')
+        return upstream
+    return 'HEAD'
+
+
 def tree_for(cfg, repo, run_id, name=None, say=print):
     """The worktree the worker edits: <project.worktrees>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
     or reused when it already is a worktree of the same repository. Returns (path, created)."""
@@ -108,8 +128,9 @@ def tree_for(cfg, repo, run_id, name=None, say=print):
     if os.path.exists(wt):
         raise ship.ShipError(f'refused: {wt} exists and is not a git worktree; move it away or pick another --track name')
     os.makedirs(root, exist_ok=True)
-    ship.git(top, 'worktree', 'add', '-q', '--detach', wt, 'HEAD')
-    say(f'run: new worktree {wt} at {ship.git(top, "log", "--oneline", "-1")}')
+    base = fresh_base(top, say)
+    ship.git(top, 'worktree', 'add', '-q', '--detach', wt, base)
+    say(f'run: new worktree {wt} at {ship.git(wt, "log", "--oneline", "-1")}')
     return wt, True
 
 

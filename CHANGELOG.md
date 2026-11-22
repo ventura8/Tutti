@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Autopilot: a run with no report whose process could not be confirmed is held at most 6 h, then counted as ended without
+  a report and its task queued again. Before, such runs held every slot (20 of 20 for 33 h) and the autopilot started
+  nothing new.
+
 ## 0.31.12 (2026-11-22)
 
 ### Added
@@ -27,9 +35,6 @@
 
 ### Fixed
 
-- Autopilot: a run with no report whose process could not be confirmed is held at most 6 h, then counted as ended without
-  a report and its task queued again. Before, such runs held every slot (20 of 20 for 33 h) and the autopilot started
-  nothing new.
 - `tutti may-run`: the caller who holds a machine's session lease (`--who`, or `$TUTTI_SESSION`) is not refused for load,
   since that load is its own work (pause, heat, limited hours and slots still apply). A machine's `capped` containers (a
   worker its governor holds to a CPU share) count as yielding, not as load.
@@ -422,7 +427,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Reject unsafe routed-check track names before creating a lock or contacting a machine (t403).
 - Reload the failover watchdog in place rather than triggering failover leave on a code change (t404).
 
-
 ## 0.30.2 (2026-11-18)
 
 ### Changes
@@ -552,7 +556,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Add a regression test for takeover room on an account linked to a shared CLI worker (t204).
 
-
 ## [0.27.8] - 2026-11-18
 
 ### Fixed
@@ -565,7 +568,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Chat briefly polls an identified delegated run when its report is not ready (t296).
-
 
 ## [0.27.6] - 2026-11-18
 
@@ -1399,8 +1401,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   - a select with a long option (My notifications) ran past a phone's edge.
 
 ## 0.9.3 (2026-11-15)
-
-
 
 ### Security
 

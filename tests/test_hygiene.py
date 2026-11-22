@@ -72,8 +72,9 @@ class Windows:
         self.calls.append(command)
         if command == 'echo ok':
             return done('ok\r\n')
+        if command == 'wsl --shutdown':
+            self.hung = False   # after the shutdown it answers
         if command == 'wsl -e true' and self.hung:
-            self.hung = False   # the first look times out; after the shutdown it answers
             raise subprocess.TimeoutExpired(command, timeout)
         if command == hygiene.TRACE_SIZE:
             return done(f'{self.trace}\r\n')
@@ -214,6 +215,11 @@ class Check(unittest.TestCase):
     def test_a_hung_wsl_is_restarted_when_nothing_holds_it(self):
         cfg = make({'pc': {'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/opt/run64.sh'}})
         win = Windows(hung=True)
+        for _ in range(hygienecheck.HUNG_ROUNDS - 1):   # a slow round or two is a busy PC, not a hung one
+            c, *_ = ctx(cfg, Machine(measure()), win)
+            hygienecheck.check(c)
+            self.assertNotIn('wsl --shutdown', win.calls)
+            self.assertIn('slow to answer', hygiene.read(cfg)['pc']['wsl'])
         c, *_ = ctx(cfg, Machine(measure()), win)
         lines = hygienecheck.check(c)
         self.assertIn('wsl --shutdown', win.calls)
@@ -223,9 +229,33 @@ class Check(unittest.TestCase):
     def test_a_hung_wsl_whose_look_fails_is_still_restarted(self):
         cfg = make({'pc': {'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/opt/run64.sh'}})
         win = Windows(hung=True)
-        c, *_ = ctx(cfg, Machine(measure(), down=True), win)
-        hygienecheck.check(c)
+        for _ in range(hygienecheck.HUNG_ROUNDS):
+            c, *_ = ctx(cfg, Machine(measure(), down=True), win)
+            hygienecheck.check(c)
         self.assertIn('wsl --shutdown', win.calls)
+
+    def test_a_slow_wsl_that_answers_in_the_last_look_and_a_recent_restart_are_left_alone(self):
+        cfg = make({'pc': {'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/opt/run64.sh'}})
+
+        class Slow(Windows):   # misses the 30 s look, answers within the long one
+            def __call__(self, m, command, timeout):
+                if command == 'wsl -e true' and timeout < hygienecheck.CONFIRM_S:
+                    self.calls.append(command)
+                    raise subprocess.TimeoutExpired(command, timeout)
+                return super().__call__(m, command, timeout)
+        win = Slow()
+        for _ in range(hygienecheck.HUNG_ROUNDS + 1):
+            c, *_ = ctx(cfg, Machine(measure()), win)
+            hygienecheck.check(c)
+        self.assertNotIn('wsl --shutdown', win.calls)   # the PC at load 14 on 2026-11-22
+        data = hygiene.read(cfg)
+        data['pc'].update(wsl_slow=hygienecheck.HUNG_ROUNDS, wsl_restarted_at=NOW - 600)
+        hygiene.write(cfg, data)
+        win = Windows(hung=True)
+        c, *_ = ctx(cfg, Machine(measure()), win)
+        hygienecheck.check(c)
+        self.assertNotIn('wsl --shutdown', win.calls)   # restarted 10 minutes ago: not again within the hour
+        self.assertIn('at most one restart an hour', hygiene.read(cfg)['pc']['wsl'])
 
     def test_low_space_cleans_at_most_hourly(self):
         meas = hygiene.parse_measure(measure(disks=(('/home/u', 500, 50),)))

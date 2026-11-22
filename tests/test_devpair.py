@@ -162,6 +162,8 @@ class MdnsTest(unittest.TestCase):
 class FlowTest(unittest.TestCase):
     def test_a_tv_gets_the_code_flow_and_a_phone_the_qr_code(self):
         self.assertEqual(adbpair.flow_for('tv'), 'code')
+        self.assertEqual(adbpair.flow_for('watch'), 'code')   # a Wear OS watch has no camera for the QR code
+        self.assertIn('ADB debugging', ' '.join(adbpair.steps('watch', 'code')))
         self.assertEqual(adbpair.flow_for('phone'), 'qr')
         self.assertEqual(adbpair.flow_for(None), 'qr')
         self.assertEqual(adbpair.flow_for('tv', 'usb'), 'usb')
@@ -175,6 +177,8 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(adbpair.kind_of('nosdcard', feats), 'tv')
         self.assertEqual(adbpair.kind_of('tablet,nosdcard', set()), 'tablet')
         self.assertEqual(adbpair.kind_of('nosdcard', set()), 'phone')
+        self.assertEqual(adbpair.kind_of('watch,nosdcard', set()), 'watch')
+        self.assertEqual(adbpair.kind_of('nosdcard', {'android.hardware.type.watch'}), 'watch')
         self.assertEqual(adbpair.capabilities(feats), ['tv', 'wifi'])
         self.assertEqual(adbpair.name_for('Pixel 9 Pro', {'pixel9pro'}), 'pixel9pro2')
         self.assertEqual(adbpair.name_for('', set()), 'device')

@@ -9,6 +9,9 @@
 
 ### Added
 
+- Devices (owner, 2026-11-22): a Wear OS **watch** kind (`tutti devices pair --watch`: the pairing-code flow; it runs only
+  on its charger, 60 % or more and under 38 °C). The Devices tab lists every device Tutti knows with its state, the media
+  devices on the network, and how to pair one that is missing (docs/MACHINES.md, *Android devices*).
 - Machines (t225): `tutti machines add --host <address>` sets up a found computer: a key if needed, `ssh-copy-id` only when
   key login fails (you type its password once, into ssh; Tutti never sees it), a check, then the config entry. Each
   Discovered row has **Set up** with its one command and a copy button (docs/MACHINES.md, *Set up a found computer*).

@@ -216,6 +216,7 @@ include tests/test_settings.py
 include tests/test_setup.py
 include tests/test_shards.py
 include tests/test_share.py
+include tests/test_share_lock.py
 include tests/test_shared_status.py
 include tests/test_ship.py
 include tests/test_slot.py

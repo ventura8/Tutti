@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Run worktrees: when a branch's lockfile differs from the main checkout, Tutti runs `npm ci` in the worktree instead of
+  hard-linking the main checkout's `node_modules`, which were the wrong packages and failed routed checks with missing
+  dependencies.
+
 ## 0.31.13 (2026-11-22)
 
 ### Fixed
@@ -8,10 +16,6 @@
   before, a stale checkout made workers redo old code and write broken tests. Local commits are kept.
 
 ### Fixed
-
-- Run worktrees: when a branch's lockfile differs from the main checkout, Tutti runs `npm ci` in the worktree instead of
-  hard-linking the main checkout's `node_modules`, which were the wrong packages and failed routed checks with missing
-  dependencies.
 
 ### Added
 

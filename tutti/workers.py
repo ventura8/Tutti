@@ -163,7 +163,12 @@ def guide_files(task):
     """Files the brief points to as guides (an earlier attempt's diff, a run log) under a .tutti-state folder: read-only
     grants, so agy can open them (2026-11-22: a redo task stopped on "read_file ... auto-denied"). Only existing files
     with these suffixes; never a config or credential file."""
-    return sorted({m for m in GUIDE_FILE.findall(str(task or '')) if os.path.isfile(m)})
+    out = set()
+    for m in GUIDE_FILE.findall(str(task or '')):
+        real = os.path.realpath(m)   # `..` and symlinks resolved: the real file must itself sit under a .tutti-state folder
+        if '..' not in m.split('/') and '.tutti-state' in real.split(os.sep) and os.path.isfile(real):
+            out.add(real)
+    return sorted(out)
 
 
 def grant_tree(argv, cwd, reads=()):

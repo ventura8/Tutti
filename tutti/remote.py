@@ -663,7 +663,8 @@ def runner_command(machine, track, command, mount='', identity=None):
     env = ' '.join(f'-e {shlex.quote(k if v is None else f"{k}={v}")}' for k, v in r.get('env', {}).items())
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
     label = f'--label io.tutti.run={identity} ' if valid_run_identity(identity) else ''
-    return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={cpus_now(machine, r["cpus"])} {env} {extra} {label}'
+    cpus = cpus_now(machine, r['cpus'])
+    return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={cpus} {env} {extra} {label}'
             f'--name tutti-{machine["name"]}-{track}-$RANDOM -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" '
             f'{mount + " " if mount else ""}{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
 

@@ -222,6 +222,7 @@ tests/test_share_lock.py
 tests/test_shared_status.py
 tests/test_ship.py
 tests/test_slot.py
+tests/test_slot_holders.py
 tests/test_strangers.py
 tests/test_taskdeps.py
 tests/test_taskdetail.py

@@ -840,10 +840,8 @@ def reader_problems(name, a):
             return [f'{key}.bucket is {r.get("bucket")!r}: use primary or secondary, or omit it to match accounts.{name}.window']
         return _interval_errors(key, r)
     if fmt == 'browser-usage':
-        url = a.get('usage_url')
-        if not isinstance(url, str) or not url.startswith('https://'):
-            return [f'{key}: give an https:// usage page in accounts.{name}.usage_url']
-        return _interval_errors(key, r)
+        return [f'{key}.format is browser-usage: Tutti no longer opens a usage page to read usage (owner, 2026-11-23); '
+                f'remove accounts.{name}.reader, or give it an API or command reader']
     return _command_errors(key, r, 'allowance' if fmt == 'github-premium' else 'bucket')
 
 

@@ -4,6 +4,10 @@
 
 ### Added
 
+- TUI (t201): `tutti tui`, the dashboard's Overview, Tasks, Needs you, Hosts and Agents in a terminal: the keys in a footer on
+  every screen, `?` for help, arrow and vim keys, readable at 80x24 and on resize, status as an icon and a word (never
+  colour alone), NO_COLOR, a plain mode for screen readers; it reads the dashboard's last round so it fills at once
+  (docs/TUI.md).
 - Agents tab (t252): each card shows its **track record** from every attempt in the backlog: runs, passed, the most common
   kind of failure and the top reasons (docs/DASHBOARD.md, *Agents*).
 

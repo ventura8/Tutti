@@ -351,6 +351,7 @@ def apply_fix(cfg, repo, wt, changed, say):
     """Runs the repo's fix step over the change (prettier --write, regenerated docs) so a style-only failure does not fail
     the run; a failing fix is said and the check then reports what is still wrong. True when it ran."""
     fix = fix_for(cfg, repo)
+    changed = [n for n in changed or [] if os.path.exists(os.path.join(wt, n))]   # a deleted file would fail the formatter
     if not fix or not changed:
         return False
     r = ship.shell(wt, ship.expand_changed(fix, changed), {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt})

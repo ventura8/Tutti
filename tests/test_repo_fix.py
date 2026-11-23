@@ -34,5 +34,11 @@ class RepoFix(unittest.TestCase):
         self.assertEqual(delegate.fix_for({}, self.repo), '')
 
 
+    def test_deleted_files_are_left_out_of_the_fix(self):
+        said = []
+        self.assertTrue(delegate.apply_fix(self.cfg('for f in {changed:ts}; do test -e "$f" || exit 9; done'), self.repo,
+                                           self.repo, ['a.ts', 'gone.ts'], said.append))
+        self.assertIn('fix step done', said[0])
+
 if __name__ == '__main__':
     unittest.main()

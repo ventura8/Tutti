@@ -47,5 +47,21 @@ class ShareLock(unittest.TestCase):
         self.assertIn('npm ci failed', said[-1])
 
 
+    def test_a_hung_install_times_out_with_the_fix(self):
+        import subprocess
+        said = []
+        run = mock.Mock(side_effect=subprocess.TimeoutExpired('npm', 1))
+        with mock.patch('shutil.which', return_value='/usr/bin/npm'):
+            self.assertFalse(worktree.install(self.wt, said.append, run))
+        self.assertIn('took over', said[-1])
+
+    def test_a_yarn_lockfile_installs_with_yarn(self):
+        os.remove(os.path.join(self.wt, 'package-lock.json'))
+        open(os.path.join(self.wt, 'yarn.lock'), 'w').close()
+        run = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
+        with mock.patch('shutil.which', return_value='/usr/bin/yarn'):
+            self.assertTrue(worktree.install(self.wt, print, run))
+        self.assertEqual(run.call_args[0][0][0], 'yarn')
+
 if __name__ == '__main__':
     unittest.main()

@@ -101,6 +101,7 @@ include tests/fixtures/sigstore/gh-verify-v0.5.2.json
 include tests/run.py
 include tests/test_absence.py
 include tests/test_agentsview.py
+include tests/test_agy_guide_reads.py
 include tests/test_aiassist.py
 include tests/test_apibudget.py
 include tests/test_apidoc.py

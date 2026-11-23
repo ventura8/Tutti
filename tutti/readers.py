@@ -268,9 +268,7 @@ def automatic_reader(name, account):
         return account['reader']
     if account.get('worker') == 'codex' or name == 'codex':
         return {'format': 'codex-app-server', 'every_minutes': 15}
-    if account.get('usage_url'):
-        return {'format': 'browser-usage', 'url': account['usage_url'], 'every_minutes': 15}
-    return None
+    return None   # a usage_url is a link for people: Tutti never opens it to read usage (browserusage.OFF)
 
 
 def remote_codex_problem(cfg, name, account):

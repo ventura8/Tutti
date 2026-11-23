@@ -185,7 +185,12 @@ def view(cfg):
 
 
 def read_pages(cfg, brk, record, who='tutti', pages=None):
-    """Reads each helper page in its own tab; `record(json_text)` saves the readings. Returns {url: problem or None}."""
+    """Formerly read each usage page in its own tab; now refuses every page (browserusage.OFF): no usage page is opened."""
+    from . import browserusage
+    return {url: browserusage.OFF for url in (pages if pages is not None else helper.helper_pages(cfg))}
+
+
+def _read_pages_old(cfg, brk, record, who='tutti', pages=None):
     out = {}
     for url in (pages if pages is not None else helper.helper_pages(cfg)):
         try:

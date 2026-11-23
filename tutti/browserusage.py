@@ -2,8 +2,17 @@
 from . import browsercmd, helper
 
 
+OFF = ('reading usage from a web page is off (owner, 2026-11-23): Tutti reads usage only through a provider\'s API or '
+       'from the usage notes agents send with their messages; usage_url is a link for people only')
+
+
 def read(cfg, url):
-    """Read all account meters on one configured page through the Work browser's read-only extractor."""
+    """Formerly read meters from a usage page in the Work browser; now always refused (OFF): no usage page is opened."""
+    raise ValueError(OFF)
+
+
+def _read_page(cfg, url):
+    """The old page reader, kept unreachable for reference until it is deleted with the browser usage helper."""
     targets = helper.helper_pages(cfg).get(url)
     if not targets:
         raise ValueError(f'{url} is not a configured usage page: add accounts.<name>.usage_url')

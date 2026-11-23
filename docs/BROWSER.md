@@ -102,7 +102,7 @@ starts the service again. The step is listed in docs/MOVE.md.
 | `tutti browser status` | the browser machine, the mode, the endpoint |
 | `tutti browser sign-in <url>` | opens `<url>` in the work browser, in front, for a sign-in |
 | `tutti browser sites` | checks each needed site's sign-in |
-| `tutti browser read` | reads every usage page with no reader (accounts with `usage_url` and no `reader`) and records it |
+| `tutti browser read` | off since 2026-11-23: Tutti never opens a usage page to read usage (API readers and agents' own usage notes only) |
 | `tutti browser page <url> [--type T]` | one task through the broker: the page's text (the `text` extractor) |
 | `tutti browser remote <machine> <url> [--type T] [-- <cmd>]` | a worker on `<machine>` does a task through the broker |
 | `tutti browser isolate [--sign-in <url>]` | isolated mode's one-time setup command, or a sign-in on it |

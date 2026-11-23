@@ -100,6 +100,7 @@ tests/fixtures/sigstore/gh-verify-v0.5.2.json
 tests/run.py
 tests/test_absence.py
 tests/test_agentsview.py
+tests/test_agy_guide_reads.py
 tests/test_aiassist.py
 tests/test_apibudget.py
 tests/test_apidoc.py

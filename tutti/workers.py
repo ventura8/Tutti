@@ -156,7 +156,17 @@ TERM_WAIT = 10   # seconds a CLI stopped at the threshold gets to exit before it
 COMPACT_RC = 76   # the run was stopped at the context threshold, to be started again with a handoff (tutti/autocompact.py)
 
 
-def grant_tree(argv, cwd):
+GUIDE_FILE = re.compile(r'(/[^\s\'"`,;()]+/\.tutti-state/[^\s\'"`,;()]+\.(?:patch|diff|log|md|txt))')
+
+
+def guide_files(task):
+    """Files the brief points to as guides (an earlier attempt's diff, a run log) under a .tutti-state folder: read-only
+    grants, so agy can open them (2026-11-22: a redo task stopped on "read_file ... auto-denied"). Only existing files
+    with these suffixes; never a config or credential file."""
+    return sorted({m for m in GUIDE_FILE.findall(str(task or '')) if os.path.isfile(m)})
+
+
+def grant_tree(argv, cwd, reads=()):
     """A headless CLI with an allow-list (a JSON settings argument with permissions.allow, as agy's --settings) may read and
     write its own worktree: `read_file(<tree>)` and `write_file(<tree>)` are added, never a wider grant. Without them agy
     auto-denies every file read in headless mode and the run ends with no output (2026-11-14: 23 wasted agy runs)."""
@@ -174,7 +184,8 @@ def grant_tree(argv, cwd):
         perms = data.get('permissions') if isinstance(data, dict) else None
         allow = perms.get('allow') if isinstance(perms, dict) else None
         if isinstance(allow, list):
-            perms['allow'] = [*allow, *[g for g in (f'read_file({tree})', f'write_file({tree})') if g not in allow]]
+            want = (f'read_file({tree})', f'write_file({tree})', *[f'read_file({os.path.abspath(r)})' for r in reads])
+            perms['allow'] = [*allow, *[g for g in want if g not in allow]]
             a = json.dumps(data, separators=(',', ':'))
         out.append(a)
     return out
@@ -202,7 +213,7 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
-    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd)
+    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd, guide_files(task))
     env = {**worker_env(cfg), **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)

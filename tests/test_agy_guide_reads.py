@@ -20,12 +20,22 @@ class GuideReads(unittest.TestCase):
             allow = json.loads(argv[1])['permissions']['allow']
             self.assertIn(f'read_file({patch})', allow)
             self.assertNotIn(f'write_file({patch})', allow)
-            self.assertEqual(len(allow), 3)
+            self.assertEqual(sorted(allow), sorted([f'read_file({d})', f'write_file({d})', f'read_file({patch})']))
 
     def test_no_guide_means_only_the_tree(self):
         self.assertEqual(workers.guide_files('fix the bug in a.ts'), [])
         self.assertEqual(workers.guide_files(None), [])
 
+
+    def test_traversal_and_symlinks_out_of_tutti_state_are_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            runs = os.path.join(d, '.tutti-state', 'runs')
+            os.makedirs(runs)
+            outside = os.path.join(d, 'notes.txt')
+            open(outside, 'w').close()
+            link = os.path.join(runs, 'link.txt')
+            os.symlink(outside, link)
+            self.assertEqual(workers.guide_files(f'see {runs}/../../notes.txt and {link}'), [])
 
 if __name__ == '__main__':
     unittest.main()

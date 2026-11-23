@@ -325,7 +325,7 @@ def _queue(cfg, data, name, scan):
     for title, size, source, notes, ref, kinds, rank_ in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
         live.add((name, ref))
         task, added = backlog.add(data, {**backlog.new_task(name, title, (), check, size, source, notes), 'depbot_ref': ref,
-                                         'depbot_src': kinds, 'rank': rank_})
+                                         'depbot_src': kinds, 'rank': rank_}, cfg=cfg)
         if added:
             events.append(f'depbots: queued {task["id"]} {title}')
         elif task['status'] == 'queued':

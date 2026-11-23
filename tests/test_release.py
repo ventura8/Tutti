@@ -237,7 +237,10 @@ class PersonTest(Base):
         try:
             child.wait(timeout=20)
         finally:
-            subprocess.run(['pkill', '-g', str(child.pid)], check=False)   # the session's leftovers, by its group id
+            try:
+                os.killpg(child.pid, 9)
+            except ProcessLookupError:
+                pass
         with open(log, encoding='utf8') as f:
             out = f.read()
         self.assertIn(devices.PERSON_LINE, out)

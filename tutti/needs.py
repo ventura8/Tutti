@@ -193,6 +193,8 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
             if choice not in q['options']:
                 t['notes'] = [*t.get('notes', []), f'The person\'s answer: {choice}'][-20:]
     telemetry.record('feature', 'needs.answer', defaulted=choice == q['default'])
+    from . import integrations
+    integrations.ask_owner_answer(cfg, q['question'], choice)
     if not waiting:   # retried by hand, dropped, done or gone meanwhile: the answer is kept, the task left as it is
         return True, f'{qid} answered: {choice}; task {q["task"]} no longer waited for it, so nothing changed'
     return True, f'{qid} answered: {choice}; task {q["task"]} ' + ('dropped' if choice == 'drop' else 'resumes')
@@ -380,12 +382,13 @@ def batch_text(qs):
 
 def deliver_chat(cfg, key, qs):
     """The batch as one message in the user's "Questions from Tutti" conversation (made once)."""
-    from . import chat
+    from . import chat, integrations
     store, sub = chat.Store(config.state_dir(cfg)), chat_sub(key)
     conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == 'Questions from Tutti'), None)
     cid = (conv or store.create(sub, title='Questions from Tutti'))['id']
     store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': batch_text(qs), 'at': chat.now_iso(),
                                  'status': 'done', 'model': 'tutti', 'cards': []})
+    integrations.needs_attention(cfg, [f'{q["id"]}: {q["question"]}' for q in qs])
 
 
 def tick(cfg, now=None, at_work_fn=None, send=None):

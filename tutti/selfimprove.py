@@ -218,7 +218,7 @@ def add_candidates(cfg, items, source, now, accept=None):
             t = backlog.new_task(pol['autopilot_repo'], it['title'], source=source, notes=notes)
             t.update(project=pol['name'], sig=it['sig'], pr_mode='ready', added=now,
                      status='queued' if (auto_accept(cfg) if accept is None else accept) else 'candidate')
-            _t, new = backlog.add(data, t)
+            _t, new = backlog.add(data, t, cfg=cfg)
             added += int(new)
     return added
 

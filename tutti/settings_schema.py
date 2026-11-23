@@ -49,6 +49,7 @@ SECTIONS = [
      ['self_update', 'update']),
     ('browser', 'Work browser', 'The household\'s one Chrome for every browser task; sites signed in there are shared by '
      'everyone who uses it (docs/BROWSER.md).', ['browser']),
+    ('integrations', 'Integrations', 'Integrations for external services (Linear, Slack, Discord).', ['integrations']),
     ('dashboard', 'Dashboard', 'This page: its port, how often it refreshes, and which processes it shows as jobs.',
      ['dashboard', 'project']),
     ('chat', 'Chat', 'The Chat tab: what viewers may ask it to do, and how much of a conversation a model sees (docs/CHAT.md).',
@@ -552,6 +553,11 @@ FIELDS = {
     'vpn.wireguard.hub': field('WireGuard hub', 'The always-on Tutti host. Empty: the dashboard\'s computer.', 'select',
                                choices_from='machines'),
     'vpn.wireguard.endpoint': field('Hub\'s public name', 'For use away from home. Empty: its LAN address.', 'text'),
+    'integrations.linear.enabled': field('Linear', 'Create a Linear issue when a new task is added.', 'switch', default=False),
+    'integrations.linear.team_id': field('Linear Team ID', 'The ID of the Linear team.', 'text'),
+    'integrations.slack.enabled': field('Slack', 'Notify Slack when a task is updated.', 'switch', default=False),
+    'integrations.slack.channel': field('Slack Channel', 'The Slack channel ID.', 'text'),
+    'integrations.discord.enabled': field('Discord', 'Notify Discord when a task is updated.', 'switch', default=False),
 }
 # a Termux machine's policy fields, like a device's
 FIELDS.update({f'machines.*.{k}': v for k, v in POLICY.items()})

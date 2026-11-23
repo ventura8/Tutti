@@ -10,9 +10,9 @@ import sys
 
 from . import config
 
-FILES = ('grok.env',)
+FILES = ('grok.env', 'slack.env', 'discord.env', 'linear.env')
 SECRET_RX = re.compile(r'(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|DSN|AUTH)', re.I)
-KEEP = {'TUTTI_GROK_URL'}           # set by the same file; a webhook URL carries its routine id, treat it as secret too
+KEEP = {'TUTTI_GROK_URL', 'DISCORD_WEBHOOK_URL'}   # webhook URLs carry their token/id, treat as secret too
 OWNED = {'TUTTI_GROK_KEY', 'TUTTI_GROK_URL'}   # plus every name a secret file holds; never a run's own TUTTI_BROWSER_TOKEN
 MASK = '****'
 

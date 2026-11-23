@@ -146,6 +146,7 @@ tests/test_fleet.py
 tests/test_github.py
 tests/test_grokpatch.py
 tests/test_groksetup.py
+tests/test_heat_cap_start.py
 tests/test_helper_parse.py
 tests/test_hhjobs.py
 tests/test_homeassistant.py

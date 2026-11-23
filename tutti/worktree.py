@@ -76,16 +76,30 @@ def lock_differs(main, top, rel):
     return False
 
 
+INSTALLERS = {'package-lock.json': ['npm', 'ci', '--prefer-offline', '--no-audit', '--no-fund'],
+              'pnpm-lock.yaml': ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'],
+              'yarn.lock': ['yarn', 'install', '--frozen-lockfile']}
+INSTALL_TIMEOUT = 900
+
+
 def install(top, say=print, run=subprocess.run):
-    """`npm ci` in the worktree (its own lockfile); False when npm is missing or the install failed, said with the fix."""
-    if not shutil.which('npm'):
-        say(f'worktree: the lockfile differs from the main checkout and npm is not installed; run npm ci in {top}')
+    """The worktree's own install, by its lockfile (npm ci, pnpm or yarn), bounded by INSTALL_TIMEOUT; False when the tool
+    is missing, the install failed or timed out, said with the fix."""
+    lock = next((n for n in LOCKS if os.path.exists(os.path.join(top, n))), 'package-lock.json')
+    argv = INSTALLERS[lock]
+    if not shutil.which(argv[0]):
+        say(f'worktree: the lockfile differs from the main checkout and {argv[0]} is not installed; run {" ".join(argv[:2])} in {top}')
         return False
-    r = run(['npm', 'ci', '--prefer-offline', '--no-audit', '--no-fund'], cwd=top, capture_output=True, text=True)
+    try:
+        r = run(argv, cwd=top, capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        say(f'worktree: {" ".join(argv[:2])} took over {INSTALL_TIMEOUT} s in {top} (registry or network?); run it there by hand')
+        return False
     if r.returncode != 0:
-        say(f'worktree: npm ci failed in {top}: {(r.stderr or r.stdout).strip()[-300:]}; fix the lockfile, then run it again')
+        say(f'worktree: {" ".join(argv[:2])} failed in {top}: {(r.stderr or r.stdout).strip()[-300:]}; fix the lockfile, then '
+            'run it again')
         return False
-    say('worktree: installed its own dependencies (npm ci): its lockfile differs from the main checkout')
+    say(f'worktree: installed its own dependencies ({" ".join(argv[:2])}): its lockfile differs from the main checkout')
     return True
 
 

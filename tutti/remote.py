@@ -644,7 +644,7 @@ def cpus_now(machine, cpus):
     cap = (machine.get('heat') or {}).get('cap_c')
     if cap is None:
         return f'{cpus}'
-    low = float((machine.get('heat') or {}).get('throttle_cpus') or 1)
+    low = min(float((machine.get('heat') or {}).get('throttle_cpus') or 1), float(cpus))   # never more than the runner's own
     probe = 't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
     return f'"$({probe}[ "${{t:-0}}" -ge {int(float(cap) * 1000)} ] && echo {low:g} || echo {cpus})"'
 

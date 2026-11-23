@@ -2,6 +2,12 @@
 
 ## 0.31.14 (2026-11-23)
 
+### Fixed
+
+- agy's guide-file grants refuse `..` and symlinks that leave a `.tutti-state` folder (Grok's review of #2254).
+- A run worktree with its own lockfile installs with that lockfile's tool (npm, pnpm or yarn), bounded at 15 minutes.
+- The repo fix step leaves deleted files out of `{changed}`; the hot-machine CPU cap never exceeds the runner's CPUs.
+
 ### Added
 
 - `autopilot.repos.<repo>.fix`: formatters and generators (`prettier --write {changed:ts,js}`, a regenerated doc) run

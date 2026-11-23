@@ -129,7 +129,7 @@ class RemoteTest(unittest.TestCase):
         line = remote.runner_command(self.cfg['machines']['a'], 'trk', "echo 'hi' && exit 3")
         for part in ('--memory=12g', '--memory-swap=12g', "-e 'K=v w'", 'img:1', 'tutti-a-trk-'):
             self.assertIn(part, line)
-        self.assertTrue('--cpus=8 ' in line or '|| echo 8)"' in line)   # a heat cap reads the temperature at start
+        self.assertIn('-ge 85000 ] && echo 1 || echo 8)"', line)   # the default heat.cap_c: read at start, 8 when cool
         self.assertIn('mkdir -p $HOME && echo', line)
 
     def test_run_label_is_validated_and_observation_never_proves_exit(self):

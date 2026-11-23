@@ -353,3 +353,9 @@ are deferred with an update/restart message. A distinct bound-run operation prev
 starting work if the connection changes after the capability check. The identity is a correlation value, not an authentication secret, a proof that a process
 tree stopped, or a fence against a same-user worker. Per-attempt worktrees, remote effects and household lease fencing
 still need separate ownership controls.
+
+## Fix step
+
+`autopilot.repos.<repo>.fix` is a shell line run in the run's worktree after the worker and before the check, with the same
+`{changed:ts,js}` placeholders as `check`: formatters (`npx prettier --write`) and generators (a regenerated scenario list).
+A run whose only failure was style then passes; a failing fix step is logged and the check says what is left.

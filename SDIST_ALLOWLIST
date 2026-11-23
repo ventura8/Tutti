@@ -197,6 +197,7 @@ tests/test_readers.py
 tests/test_release.py
 tests/test_releases.py
 tests/test_rendered_text.py
+tests/test_repo_fix.py
 tests/test_reroute.py
 tests/test_review_policy.py
 tests/test_rolematrix.py

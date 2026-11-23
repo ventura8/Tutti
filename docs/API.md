@@ -687,6 +687,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `autopilot.fill_room` | switch | `True` | Fill free room: Free room on the trigger accounts is filled from the repos' TODOs, gaps and untested files. | admin |
 | `autopilot.auto_review` | switch | `True` | Review and land results: A passing result is reviewed by review.fallback, then landed. | admin |
 | `autopilot.repos.*.path` | text |  | Folder: The repository on this computer. | admin |
+| `autopilot.repos.*.fix` | text |  | Fix first: Formatters and generators run on a run's change before its check ({changed:ts,js} works as in the check): style-only failures fix themselves. | admin |
 | `autopilot.repos.*.check` | text |  | Check: The repo's gates; a result passes only when they pass. | admin |
 | `autopilot.repos.*.where` | select local, route |  | Checks run: local, or route (on a machine). | admin |
 | `autopilot.repos.*.pr` | switch |  | Open a pull request: Deprecated by land: pr. | admin |

@@ -324,6 +324,35 @@ def run_compacting(cfg, name, task, files, wt, log, extra, worker_log, run=worke
     return rc, lines
 
 
+def fix_for(cfg, repo):
+    """`autopilot.repos.<r>.fix` of the repo at `repo`: formatters and generators run before the check, or ''."""
+    here = os.path.realpath(repo)
+    for r in ((cfg.get('autopilot') or {}).get('repos') or {}).values():
+        if isinstance(r, dict) and r.get('path') and os.path.realpath(config.expand(r['path'])) == here:
+            return str(r.get('fix') or '')
+    return ''
+
+
+def apply_fix(cfg, repo, wt, changed, say):
+    """Runs the repo's fix step over the change (prettier --write, regenerated docs) so a style-only failure does not fail
+    the run; a failing fix is said and the check then reports what is still wrong. True when it ran."""
+    fix = fix_for(cfg, repo)
+    if not fix or not changed:
+        return False
+    r = ship.shell(wt, ship.expand_changed(fix, changed), {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt})
+    say('run: fix step done (autopilot.repos.<repo>.fix)' if r.returncode == 0 else
+        f'run: the fix step exited {r.returncode} (autopilot.repos.<repo>.fix); the check says what is left')
+    return True
+
+
+def diff_after_fix(cfg, repo, wt, diff, checks, say):
+    """(changed, stat) of the run, taken again after the repo's fix step when it ran."""
+    changed, stat = capture_diff(wt, diff)
+    if checks and apply_fix(cfg, repo, wt, changed, say):
+        changed, stat = capture_diff(wt, diff)
+    return changed, stat
+
+
 def chosen_checks(cfg, repo, check_list):
     """(checks, where they come from): `tutti run --check` (the autopilot's task check) beats the target repo's own."""
     if check_list is not None:
@@ -364,7 +393,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)
         rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list)
-        changed, stat = capture_diff(wt, p['diff'])
+        changed, stat = diff_after_fix(cfg, repo, wt, p['diff'], checks, say)
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}

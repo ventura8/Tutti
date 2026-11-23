@@ -198,6 +198,7 @@ include tests/test_readers.py
 include tests/test_release.py
 include tests/test_releases.py
 include tests/test_rendered_text.py
+include tests/test_repo_fix.py
 include tests/test_reroute.py
 include tests/test_review_policy.py
 include tests/test_rolematrix.py

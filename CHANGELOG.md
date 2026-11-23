@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- `autopilot.repos.<repo>.fix`: formatters and generators (`prettier --write {changed:ts,js}`, a regenerated doc) run
+  on a run's change before its check, so a run that only failed on style no longer fails.
+
 ### Fixed
 
 - Run worktrees: when a branch's lockfile differs from the main checkout, Tutti runs `npm ci` in the worktree instead of

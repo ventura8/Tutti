@@ -223,6 +223,7 @@ include tests/test_share_lock.py
 include tests/test_shared_status.py
 include tests/test_ship.py
 include tests/test_slot.py
+include tests/test_slot_holders.py
 include tests/test_strangers.py
 include tests/test_taskdeps.py
 include tests/test_taskdetail.py

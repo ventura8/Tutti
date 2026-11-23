@@ -525,7 +525,7 @@ class PlanTest(Base):
 
     def test_slow_start_rechecks_current_clock_and_effective_share(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
-        cfg['accounts']['agy-gemini']['usage_url'] = 'https://example.com/usage'
+        cfg['accounts']['agy-gemini']['reader'] = {'command': ['agy', '-p', '/usage'], 'bucket': 'gemini-5h'}   # an API-style reader
         now = TEST_NOW
         s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
              'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}

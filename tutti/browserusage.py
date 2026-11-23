@@ -1,7 +1,6 @@
 """Read configured subscription meters from their visible, scoped usage pages."""
 from . import browsercmd, helper
 
-
 OFF = ('reading usage from a web page is off (owner, 2026-11-23): Tutti reads usage only through a provider\'s API or '
        'from the usage notes agents send with their messages; usage_url is a link for people only')
 

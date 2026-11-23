@@ -1152,7 +1152,7 @@ class NoUsagePages(unittest.TestCase):
         self.assertIsNone(readers.automatic_reader('cursor', {'usage_url': 'https://usage.example/billing'}))
 
     def test_the_page_reader_and_browser_read_refuse_without_opening_anything(self):
-        from tutti import browsercmd, browserusage
+        from tutti import browsercmd
         with self.assertRaises(ValueError) as e:
             browserusage.read({}, 'https://usage.example/billing')
         self.assertIn('off', str(e.exception))

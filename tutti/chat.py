@@ -24,7 +24,8 @@ MAX_CONVERSATIONS = 200    # the oldest beyond this are dropped
 MAX_MESSAGES = 400         # per conversation; the oldest beyond this are dropped
 TITLE_MAX = 80
 HISTORY_TURNS = 10         # earlier messages a model sees
-DEFAULTS = {'viewer_tasks_per_day': 5, 'viewer_projects': [], 'history_turns': HISTORY_TURNS}
+MODEL_GROUPINGS = ('provider', 'account', 'none')
+DEFAULTS = {'viewer_tasks_per_day': 5, 'viewer_projects': [], 'history_turns': HISTORY_TURNS, 'model_grouping': 'provider'}
 # work a viewer may create, within the limits: backlog tasks, which the autopilot runs under its own pacing and sharing rules.
 # A hand-off or a scout question spends an account at once, so it is an admin's (never another member's private quota).
 WORK_TOOLS = ('backlog_add',)
@@ -482,7 +483,7 @@ def errors(cfg):
     if c is None:
         return []
     if not isinstance(c, dict):
-        return ['chat must be a mapping (viewer_tasks_per_day, viewer_projects, history_turns)']
+        return ['chat must be a mapping (viewer_tasks_per_day, viewer_projects, history_turns, model_grouping)']
     errs = []
     v = c.get('viewer_tasks_per_day', DEFAULTS['viewer_tasks_per_day'])
     if not isinstance(v, int) or isinstance(v, bool) or not 0 <= v <= 1000:
@@ -493,6 +494,9 @@ def errors(cfg):
     h = c.get('history_turns', HISTORY_TURNS)
     if not isinstance(h, int) or isinstance(h, bool) or not 0 <= h <= 50:
         errs.append(f'chat.history_turns is {h!r}: a whole number from 0 to 50')
+    g = c.get('model_grouping', DEFAULTS['model_grouping'])
+    if g not in MODEL_GROUPINGS:
+        errs.append(f'chat.model_grouping is {g!r}: choose one of {", ".join(MODEL_GROUPINGS)}')
     return errs
 
 
@@ -720,6 +724,17 @@ def late_quota_unreliable(account):
                 or any(late_quota_unreliable(limit) for limit in account.get('limits') or []))
 
 
+def online_provider(name, w):
+    """The provider label for an online worker: explicit `provider`, else its command basename, else its name."""
+    explicit = str((w or {}).get('provider') or '').strip()
+    if explicit:
+        return explicit
+    cmd = (w or {}).get('command')
+    if isinstance(cmd, list) and cmd and str(cmd[0]).strip():
+        return os.path.basename(str(cmd[0]).strip())
+    return name
+
+
 def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args):
     """Choose a configured account whose quota can safely be bound to this worker's command."""
     from . import routing, workers
@@ -746,7 +761,7 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
             why = f'{acc_name}: quota is unknown or stale; refresh the account and its linked limits'
         if not why and acc and routing.quota_closed(acc):
             why = f'{acc_name}: a linked quota is in panic or spent'
-        candidate = {'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
+        candidate = {'kind': 'cli', 'worker': name, 'account': acc_name, 'provider': online_provider(name, w), 'why': why, 'tools': True,
                      'label': f'{name} ({acc_name} account)'}
         if binding_ok:
             candidate.update(selector=selector, selector_value=values[acc_name])
@@ -813,8 +828,12 @@ def choices(cfg, snap, user, owner_sub=None, own_machine=None):
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
     out = [{'id': k, 'label': v, 'group': 'mode', 'available': True} for k, v in PICKS.items()]
     for c in local + online:
-        out.append({'id': c['worker'], 'label': c['label'], 'group': 'local' if c['kind'] == 'ollama' else 'online',
-                    'available': not c['why'], 'why': c['why'], 'tools': c['tools']})
+        item = {'id': c['worker'], 'label': c['label'], 'group': 'local' if c['kind'] == 'ollama' else 'online',
+                'available': not c['why'], 'why': c['why'], 'tools': c['tools']}
+        if c['kind'] != 'ollama':
+            item['provider'] = c.get('provider') or c['worker']
+            item['account'] = c.get('account') or c['worker']
+        out.append(item)
     return out
 
 

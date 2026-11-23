@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Added
+
+- Group related online models in the Chat model picker by provider, by account, or all together, configurable via `chat.model_grouping` and switchable in the UI (t405).
+
 ## 0.31.1 (2026-11-19)
 
 ### Fixed

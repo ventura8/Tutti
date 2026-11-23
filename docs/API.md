@@ -795,6 +795,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `chat.viewer_tasks_per_day` | number (a day) |  | Work a viewer may create a day: Tasks, hand-offs and scout questions from the chat, per viewer; 0: viewers only ask. Admins have no limit. | admin |
 | `chat.viewer_projects` | list |  | Viewers' projects: The projects viewers may queue work for; empty: every project. | admin |
 | `chat.history_turns` | number |  | Messages a model sees: The earlier messages of a conversation sent with each question. | admin |
+| `chat.model_grouping` | select provider, account, none |  | Online model grouping: Group online models in the Chat model picker by provider, by account, or all together. | admin |
 | `browser.machine` | select |  | Browser machine: The one machine whose Chrome every user and worker uses; empty is this one. | admin |
 | `browser.mode` | select existing, dedicated, isolated | `dedicated` | Which Chrome: existing: your own Chrome and its sign-ins; dedicated: Tutti's own profile; isolated: a sandboxed Chrome as its own user (`tutti browser isolate`). | admin |
 | `browser.sites` | list |  | Sites to sign in to: Shared by everyone who uses the work browser: choose only what the work needs. | admin |

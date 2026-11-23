@@ -24,6 +24,7 @@ const SLASH = [
     { cmd: '/tests', help: 'queue the full test suite: /tests project', arg: true, send: true },
 ];
 const MODE_WORDS = { autonomous: 'auto', auto: 'auto', ask: 'ask', confirm: 'ask', plan: 'plan', review: 'plan', answer: 'answer', just: 'answer' };
+const MODEL_GROUPINGS = { provider: 'By provider', account: 'By account', none: 'All online' };
 const SHORTCUTS = [['Enter', 'send'], ['Shift+Enter', 'a new line'], ['Esc', 'stop the answer, or close a list'],
     ['↑ (empty box)', 'edit your last message'], ['/', 'commands; from anywhere in the Chat: go to the message box'],
     ['@', 'add a project, job, machine or file (@project/path) as context'], ['Ctrl+K or ⌘K', 'search your chats'],
@@ -63,6 +64,35 @@ function usageText(u) {
     return `${shortNum(u.in)} in · ${shortNum(u.out)} out${cost}`;
 }
 
+// Group online models by provider, by account, or all together for the model picker.
+function groupOnline(items, grouping) {
+    if (grouping === 'none') return items.length ? [{ key: 'online', label: 'Online agents', items }] : [];
+    const by = new Map();
+    for (const m of items) {
+        const key = String((grouping === 'account' ? m.account : m.provider) || m.id || 'other');
+        if (!by.has(key)) by.set(key, []);
+        by.get(key).push(m);
+    }
+    return [...by.keys()].sort((a, b) => a.localeCompare(b)).map((key) => ({
+        key: `online:${key}`,
+        label: `Online · ${key}`,
+        items: by.get(key).slice().sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id))),
+    }));
+}
+
+function groupModels(models, grouping = 'provider') {
+    const mode = [], local = [], online = [];
+    for (const m of models || []) {
+        if (m.group === 'mode') mode.push(m);
+        else if (m.group === 'local') local.push(m);
+        else online.push(m);
+    }
+    const out = [];
+    if (mode.length) out.push({ key: 'mode', label: 'Mode', items: mode });
+    if (local.length) out.push({ key: 'local', label: 'Local models', items: local });
+    return out.concat(groupOnline(online, grouping in MODEL_GROUPINGS ? grouping : 'provider'));
+}
+
 // ---- the pickers
 
 const ctl = { popup: null, items: [], active: -1, timer: 0 };
@@ -79,11 +109,12 @@ function fillSelect(box, options, value) {
 
 function drawControls() {
     const s = currentSettings();
-    const groups = { mode: el('optgroup', { label: 'Mode' }), local: el('optgroup', { label: 'Local models' }), online: el('optgroup', { label: 'Online agents' }) };
-    for (const m of CHAT.models || []) {
-        groups[m.group].append(el('option', { value: m.id, text: m.available ? m.label : `${m.label} (not now: ${m.why})` }));
-    }
-    fillSelect(cq('chat-model'), Object.values(groups).filter((g) => g.children.length), s.model);
+    const grouping = CHAT.modelGrouping || CHAT.limits?.model_grouping || 'provider';
+    const groups = groupModels(CHAT.models || [], grouping).map((g) => el('optgroup', { label: g.label },
+        ...g.items.map((m) => el('option', { value: m.id, text: m.available ? m.label : `${m.label} (not now: ${m.why})` }))));
+    fillSelect(cq('chat-model'), groups, s.model);
+    const groupBox = cq('chat-model-group');
+    if (groupBox) fillSelect(groupBox, Object.entries(MODEL_GROUPINGS).map(([k, v]) => el('option', { value: k, text: v })), grouping);
     const efforts = (CHAT.efforts?.length ? CHAT.efforts : ['auto', 'low', 'medium', 'high', 'max']);
     fillSelect(cq('chat-effort'), efforts.map((e) => el('option', { value: e, text: e === 'auto' ? 'Auto' : e[0].toUpperCase() + e.slice(1) })), s.effort);
     const modes = Object.keys(CHAT.modes || {}).length ? CHAT.modes : { auto: 'Autonomous', ask: 'Ask before acting', plan: 'Plan review' };
@@ -330,6 +361,11 @@ function chatShortcut(e) {
 
 function initChatControls() {
     cq('chat-model').addEventListener('change', (e) => setControl('model', e.target.value, 'Model'));
+    cq('chat-model-group')?.addEventListener('change', (e) => {
+        CHAT.modelGrouping = e.target.value;
+        drawControls();
+        say(`Model grouping: ${MODEL_GROUPINGS[e.target.value] || e.target.value}.`);
+    });
     cq('chat-effort').addEventListener('change', (e) => setControl('effort', e.target.value, 'Effort'));
     cq('chat-mode').addEventListener('change', (e) => setControl('mode', e.target.value, 'Mode'));
     cq('chat-input').addEventListener('input', () => void updatePopup());
@@ -340,4 +376,4 @@ function initChatControls() {
 }
 
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', initChatControls);
-if (typeof module !== 'undefined') module.exports = { parseSlash, tokenAt, popupFor, usageText, shortNum, SLASH };
+if (typeof module !== 'undefined') module.exports = { parseSlash, tokenAt, popupFor, usageText, shortNum, groupModels, MODEL_GROUPINGS, SLASH };

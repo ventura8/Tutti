@@ -301,6 +301,7 @@ chat:
   viewer_tasks_per_day: 5   # 0: viewers only ask
   viewer_projects: []       # empty: every project under autopilot.repos
   history_turns: 10         # earlier messages a model sees
+  model_grouping: provider  # provider, account, or none (online model grouping in the picker)
 ```
 
 A Chat `job_status` check for a known delegated run without a report polls for up to two minutes while the answer is

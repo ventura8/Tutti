@@ -494,6 +494,8 @@ FIELDS = {
                                   item='project'),
     'chat.history_turns': field('Messages a model sees', 'The earlier messages of a conversation sent with each question.', 'number',
                                 min=0, max=50),
+    'chat.model_grouping': field('Online model grouping', 'Group online models in the Chat model picker by provider, by account, '
+                                 'or all together.', 'select', choices=['provider', 'account', 'none']),
     # dashboard
     'browser.machine': field('Browser machine', 'The one machine whose Chrome every user and worker uses; empty is this one.',
                              'select', choices_from='machines'),

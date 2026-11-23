@@ -258,9 +258,12 @@ class Roles(unittest.TestCase):
 
     def test_config_errors_name_the_key(self):
         self.assertEqual(chat.errors({'chat': chat.DEFAULTS}), [])
-        errs = chat.errors({'chat': {'viewer_tasks_per_day': -1, 'viewer_projects': 'map', 'history_turns': 99}})
-        self.assertEqual(len(errs), 3)
+        errs = chat.errors({'chat': {'viewer_tasks_per_day': -1, 'viewer_projects': 'map', 'history_turns': 99,
+                                     'model_grouping': 'bogus'}})
+        self.assertEqual(len(errs), 4)
         self.assertTrue(all(e.startswith('chat.') for e in errs))
+        for valid in chat.MODEL_GROUPINGS:
+            self.assertEqual(chat.errors({'chat': {'model_grouping': valid}}), [])
 
 
 class Models(unittest.TestCase):
@@ -2272,6 +2275,40 @@ class ControlsLogic(unittest.TestCase):
         self.assertEqual(jsctl("usageText({in: 12000, out: 300, usd: 0.05})"), '12k in · 300 out · ≈ $0.05 at API prices')
         self.assertEqual(jsctl("usageText({in: 900, out: 20, usd: 0})"), '900 in · 20 out · local: no cost')
         self.assertEqual(jsctl("usageText(null)"), 'No tokens used yet')
+
+    def test_online_models_group_by_provider_account_or_flat(self):
+        sample = json.dumps([
+            {'id': 'auto', 'label': 'Auto', 'group': 'mode'},
+            {'id': 'pc', 'label': 'qwen on pc', 'group': 'local'},
+            {'id': 'claude-b', 'label': 'claude-b (work)', 'group': 'online', 'provider': 'anthropic', 'account': 'work'},
+            {'id': 'claude-a', 'label': 'claude-a (personal)', 'group': 'online', 'provider': 'anthropic', 'account': 'personal'},
+            {'id': 'codex', 'label': 'codex (work)', 'group': 'online', 'provider': 'openai', 'account': 'work'},
+        ])
+        by_provider = jsctl(f"groupModels({sample}, 'provider').map((g) => [g.label, g.items.map((m) => m.id)])")
+        self.assertEqual(by_provider, [
+            ['Mode', ['auto']],
+            ['Local models', ['pc']],
+            ['Online · anthropic', ['claude-a', 'claude-b']],
+            ['Online · openai', ['codex']],
+        ])
+        by_account = jsctl(f"groupModels({sample}, 'account').map((g) => [g.label, g.items.map((m) => m.id)])")
+        self.assertEqual(by_account, [
+            ['Mode', ['auto']],
+            ['Local models', ['pc']],
+            ['Online · personal', ['claude-a']],
+            ['Online · work', ['claude-b', 'codex']],
+        ])
+        flat = jsctl(f"groupModels({sample}, 'none').map((g) => [g.label, g.items.map((m) => m.id)])")
+        self.assertEqual(flat, [
+            ['Mode', ['auto']],
+            ['Local models', ['pc']],
+            ['Online agents', ['claude-b', 'claude-a', 'codex']],
+        ])
+
+    def test_choices_include_provider_and_account_metadata(self):
+        self.assertEqual(chat.online_provider('w1', {'provider': 'Anthropic', 'command': ['claude']}), 'Anthropic')
+        self.assertEqual(chat.online_provider('w1', {'command': ['/usr/bin/codex', 'exec']}), 'codex')
+        self.assertEqual(chat.online_provider('w1', {}), 'w1')
 
 
 class Page(HTMLParser):

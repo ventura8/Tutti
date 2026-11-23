@@ -127,6 +127,8 @@ The **Agents** tab (`#agents`, t252, `tutti/agentsview.py`, `tutti/web/agents.js
 each worker (a coding CLI, a local model, an online API), each account no worker or scout spends, and each scout. A card
 shows:
 
+- **Track record** (learned from every attempt in the backlog): runs, how many passed, the most common kind of failure and
+  the top failure reasons, so an agent that keeps failing shows it.
 - **Cost**, from the config: *pays per use* (and whether it is still kept off), *pays per token* for an online API,
   *electricity only* for a local model, or *subscription* for an account Tutti paces; nothing when the config does not say.
 - **Roles**, only from the config, each with why: *Main agent* (`main.preferred`, or which `main.fallback`), *Worker*

@@ -56,6 +56,17 @@ class Cards(unittest.TestCase):
                'autopilot': {'accounts': ['a2']}}
         self.assertIn('worker', [r['role'] for r in agentsview.cards(cfg, {})[0]['roles']])
 
+    def test_the_track_record_comes_from_every_attempt(self):
+        tasks = [{'size': 'S', 'attempts': [{'step': 'cursor', 'ok': True}, {'step': 'cursor', 'ok': False, 'class': 'real',
+                                                                           'why': 'the run ended\nwithout a report'}]},
+                 {'size': 'M', 'attempts': [{'step': 'cursor-other', 'ok': False, 'class': 'environment', 'why': 'usage limit'},
+                                            'junk', {'ok': True}]}]
+        r = agentsview.track_records(tasks)
+        self.assertEqual((r['cursor']['runs'], r['cursor']['passed'], r['cursor']['sizes']), (2, 1, {'S': [2, 1]}))
+        self.assertEqual(r['cursor']['why'], ['the run ended without a report'])
+        self.assertEqual(agentsview.record_line(r, ['cursor', 'cursor-other']), '3 runs, 1 passed (33 %); most failures: real (1)')
+        self.assertEqual(agentsview.record_line(r, ['never']), '')
+
     def test_cost_comes_from_the_config(self):
         cards = {c['name']: c for c in agentsview.cards(example(), {})}
         self.assertEqual(agentsview.cost({}, {'kind': 'cli', 'costs_money': True}, []), 'pays per use: kept off until enabled: true')
@@ -80,7 +91,10 @@ class Cards(unittest.TestCase):
         card = agentsview.cards(example(), {})[0]
         out = json.loads(subprocess.run(['node', '-e', f'{stub}\n{src}\nconsole.log(JSON.stringify(text(agentCard({json.dumps(card)}))))'],
                                         capture_output=True, text=True, check=True).stdout)
-        for part in ('Cost: subscription',
+        card = {**card, 'record': '3 runs, 1 passed (33 %)', 'failures': ['usage limit']}
+        out = json.loads(subprocess.run(['node', '-e', f'{stub}\n{src}\nconsole.log(JSON.stringify(text(agentCard({json.dumps(card)}))))'],
+                                        capture_output=True, text=True, check=True).stdout)
+        for part in ('Track record: 3 runs, 1 passed', 'Fails with: usage limit', 'Cost: subscription',
                      'cursor', 'checking', 'Roles', 'Main agent', 'main.fallback, number 3', 'Can', 'coding agent (CLI)'):
             self.assertIn(part, out)
 

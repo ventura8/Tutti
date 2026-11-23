@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Agents tab (t252): each card shows its **track record** from every attempt in the backlog: runs, passed, the most common
+  kind of failure and the top reasons (docs/DASHBOARD.md, *Agents*).
+
 ## 0.31.16 (2026-11-23)
 
 ### Changes

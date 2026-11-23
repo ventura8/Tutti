@@ -19,6 +19,8 @@ function agentCard(a) {
         a.running ? el('p', { class: 'agent__now', text: `${a.running} running now` }) : null,
         ...list('Roles', a.roles), ...list('Can', a.capabilities), ...list('Limits', a.limits),
         a.cost ? el('p', { class: 'row__note', 'data-cost': '', text: `Cost: ${a.cost}` }) : null,
+        a.record ? el('p', { class: 'row__note', 'data-record': '', text: `Track record: ${a.record}` }) : null,
+        ...(a.failures || []).map((w) => el('p', { class: 'row__note', text: `Fails with: ${w}` })),
         a.roles.length ? null : el('p', { class: 'row__note', text: 'No role in the config yet: add it to routing.workers, main.fallback or review to use it.' }));
 }
 

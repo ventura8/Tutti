@@ -58,22 +58,59 @@ def _copy(src, dst):
     return False
 
 
-def share(top, patterns, say=print):
+LOCKS = ('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock')
+
+
+def lock_differs(main, top, rel):
+    """True when the lockfile next to `rel` (a node_modules folder) differs between the main checkout and the worktree: the
+    main checkout's packages would be the wrong ones (a branch that changed its dependencies)."""
+    base = os.path.dirname(rel)
+    for name in LOCKS:
+        a, b = os.path.join(main, base, name), os.path.join(top, base, name)
+        if os.path.exists(a) or os.path.exists(b):
+            try:
+                with open(a, 'rb') as fa, open(b, 'rb') as fb:
+                    return fa.read() != fb.read()
+            except OSError:
+                return True
+    return False
+
+
+def install(top, say=print, run=subprocess.run):
+    """`npm ci` in the worktree (its own lockfile); False when npm is missing or the install failed, said with the fix."""
+    if not shutil.which('npm'):
+        say(f'worktree: the lockfile differs from the main checkout and npm is not installed; run npm ci in {top}')
+        return False
+    r = run(['npm', 'ci', '--prefer-offline', '--no-audit', '--no-fund'], cwd=top, capture_output=True, text=True)
+    if r.returncode != 0:
+        say(f'worktree: npm ci failed in {top}: {(r.stderr or r.stdout).strip()[-300:]}; fix the lockfile, then run it again')
+        return False
+    say('worktree: installed its own dependencies (npm ci): its lockfile differs from the main checkout')
+    return True
+
+
+def share(top, patterns, say=print, run=subprocess.run):
     """Hard-links (cp -al) each folder matching `patterns` from the main checkout into the worktree when it is missing there.
     Hard links cost no space; a later install in the worktree replaces files instead of writing through them."""
     main = main_checkout(top)
     if not main or os.path.realpath(main) == os.path.realpath(top):
         return []
-    done = []
+    done, stale = [], []
     for pat in patterns:
         for src in sorted(glob.glob(os.path.join(main, pat))):
             rel = os.path.relpath(src, main)
             dst = os.path.join(top, rel)
             if os.path.isdir(src) and not os.path.exists(dst) and os.path.isdir(os.path.dirname(dst)):
-                if _copy(src, dst):
+                if os.path.basename(rel) == 'node_modules' and lock_differs(main, top, rel):
+                    stale.append(rel)   # the main checkout's packages are the wrong ones for this branch
+                elif _copy(src, dst):
                     done.append(rel)
     if done:
         say(f'worktree: shared {", ".join(done)} from {main} (hard links)')
+    if 'node_modules' in stale:
+        install(top, say, run)
+    elif stale:
+        say(f'worktree: not shared (their lockfile differs from the main checkout): {", ".join(stale)}; run npm ci there')
     return done
 
 

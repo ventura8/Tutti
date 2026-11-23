@@ -11,6 +11,9 @@
 #      only: the command itself runs with the caller's umask). A lock that is a symlink is refused, a new one is made with
 #      noclobber (O_EXCL: a planted link is never created through), and every lock is opened read-only, so even a link
 #      swapped in between the check and the open is never written or truncated.
+#      SLOT_STALE_H (3): a waiting run names each slot holder (pid, age, command; <lock>.who) every SLOT_REPORT_S (300) s and
+#      flags a holder past this many hours, or one whose process is gone, so a stuck run is seen; it never kills it.
+#      A waiting run also says its place in the queue (<prefix>wait.<pid> files, oldest first).
 #      THERMAL_GLOB (/sys/class/thermal/thermal_zone*/temp): where the millidegrees are read (tests point it elsewhere).
 prefix="${SLOT_LOCK_PREFIX:-/tmp/tutti-slot-}"
 locks=()
@@ -58,8 +61,40 @@ too_hot() {
 	fi
 	return 1
 }
+# who holds each slot, with age; a holder past SLOT_STALE_H hours or with no live process is flagged (never killed)
+holders() {
+	local lock pid since cmd age now
+	now=$(date +%s)
+	for lock in "${locks[@]}"; do
+		[ -r "$lock.who" ] || continue
+		flock -n "$lock" true 2>/dev/null && continue
+		read -r pid since cmd < "$lock.who" || continue
+		age=$(( (now - since) / 60 ))
+		if ! kill -0 "$pid" 2>/dev/null && [ ! -d "/proc/$pid" ]; then
+			echo "slot.sh:   ${lock##*/}: pid $pid (${age} min, $cmd): its process is gone but the lock is held (a child keeps it?)" >&2
+		elif [ "$age" -ge $(( ${SLOT_STALE_H:-3} * 60 )) ]; then
+			echo "slot.sh:   ${lock##*/}: pid $pid for ${age} min ($cmd): past ${SLOT_STALE_H:-3} h, likely stuck: check it" >&2
+		else
+			echo "slot.sh:   ${lock##*/}: pid $pid for ${age} min ($cmd)" >&2
+		fi
+	done
+}
+# this run's place among the waiters (1 = next)
+position() {
+	local f n=1 mine
+	mine=$(stat -c %Y "$waitf" 2>/dev/null || echo 0)
+	for f in "${prefix}"wait.*; do
+		if [ ! -e "$f" ] || [ "$f" = "$waitf" ]; then continue; fi
+		kill -0 "${f##*.}" 2>/dev/null || { rm -f "$f" 2>/dev/null; continue; }
+		[ "$(stat -c %Y "$f" 2>/dev/null || echo 0)" -le "$mine" ] && n=$((n + 1))
+	done
+	echo "$n"
+}
 said=""
 queued=""
+reported=0
+waitf="${prefix}wait.$$"
+trap 'rm -f "$waitf"' EXIT
 while :; do
 	for lock in "${locks[@]}"; do
 		if [[ ! -e "$lock" && ! -L "$lock" ]]; then
@@ -85,13 +120,21 @@ while :; do
 			fi
 			# the dashboard reads these two lines: queued (progress 0, "waiting for a slot"), then out of the queue
 			[[ -z "$queued" ]] || echo "slot.sh: got a slot" >&2
+			rm -f "$waitf"
+			echo "$$ $(date +%s) ${*:1:3}" | cut -c1-120 > "$lock.who" 2>/dev/null || true
 			"$@"
 			exit $?
 		fi
 	done
+	[[ -e "$waitf" ]] || : > "$waitf" 2>/dev/null || true
 	if [[ -z "$queued" && -z "$said" ]]; then
-		echo "slot.sh: waiting for a free slot (all ${#locks[@]} busy)" >&2
+		echo "slot.sh: waiting for a free slot (all ${#locks[@]} busy), place $(position) in the queue" >&2
 		queued=1
+	fi
+	if [[ -n "$queued" ]] && [ $(( $(date +%s) - reported )) -ge "${SLOT_REPORT_S:-300}" ]; then
+		echo "slot.sh: still waiting, place $(position) in the queue; the slots are held by:" >&2
+		holders
+		reported=$(date +%s)
 	fi
 	sleep "${SLOT_POLL:-15}"
 done

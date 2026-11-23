@@ -292,12 +292,14 @@ class LimitsConfig(unittest.TestCase):
         self.assertTrue(any('reserve' in e for e in config.validate(cfg)))
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class PointsWording(unittest.TestCase):
     def test_over_the_share_says_by_how_much(self):
         from tutti import planner
         self.assertEqual(planner.points_line({'this_window': 6.3, 'allowance': 2.3}), 'used 6.3 of its 2.3 weekly points (over by 4.0)')
         self.assertEqual(planner.points_line({'this_window': 1, 'allowance': 2}), 'used 1 of its 2 weekly points')
+        self.assertEqual(planner.points_line({'this_window': 2.04, 'allowance': 2}), 'used 2.04 of its 2 weekly points')
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -216,7 +216,7 @@ def _at(t, now):
 def points_line(p):
     """'used 6.3 of its 2.3 weekly points (over by 4)': what this window spent of the weekly limit against its fair share."""
     used, share = p['this_window'], p['allowance']
-    over = f' (over by {used - share:.1f})' if used > share else ''
+    over = f' (over by {used - share:.1f})' if round(used - share, 1) > 0 else ''
     return f'used {used:g} of its {share:g} weekly points{over}'
 
 

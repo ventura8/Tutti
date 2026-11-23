@@ -147,6 +147,7 @@ include tests/test_fleet.py
 include tests/test_github.py
 include tests/test_grokpatch.py
 include tests/test_groksetup.py
+include tests/test_heat_cap_start.py
 include tests/test_helper_parse.py
 include tests/test_hhjobs.py
 include tests/test_homeassistant.py

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.16 (2026-11-23)
+
+### Changes
+
+- feat(slot): waiting runs see their queue place and who holds each slot; stuck holders flagged (#2724)
+
 ## 0.31.15 (2026-11-23)
 
 ### Fixed

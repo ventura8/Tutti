@@ -12,7 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from tutti import autopilot, browserusage, cli, codexusage, config, dashboard, helper, pacing, readers, routing, state, workers
+from tutti import autopilot, browserusage, cli, codexusage, config, dashboard, pacing, readers, routing, state, workers
 
 # These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
 _PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
@@ -699,19 +699,12 @@ class ReadersTest(unittest.TestCase):
         self.assertIn('accounts.codex.read_on', result['problem'])
         read.assert_not_called()
 
-    def test_explicit_browser_reader_requires_https_and_includes_its_account(self):
+    def test_an_explicit_browser_reader_is_refused(self):
         account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': 'browser-usage'}}
-        self.assertEqual(config.reader_problems('a', account), [])
-        self.assertTrue(config.reader_problems('a', {**account, 'usage_url': 'http://provider.example'}))
-        cfg = cfg_of(self.tmp.name, {'a': account})
-        self.assertEqual(helper.helper_pages(cfg)[account['usage_url']][0]['account'], 'a')
-        with mock.patch('tutti.browserusage.read', return_value={'readings': {'a': {'used': 20}}}) as read:
-            result = readers.Readers(cfg).read_all()['a']
-        self.assertEqual(result['used'], 20)
-        read.assert_called_once_with(cfg, account['usage_url'])
+        self.assertIn('no longer opens a usage page', config.reader_problems('a', account)[0])
 
     def test_automatic_reader_intervals_reject_invalid_values(self):
-        for fmt in ('codex-app-server', 'browser-usage'):
+        for fmt in ('codex-app-server',):
             for value in (0, -1, True, '15', float('nan'), float('inf')):
                 account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': fmt, 'every_minutes': value}}
                 self.assertTrue(config.reader_problems('a', account), (fmt, value))
@@ -1141,9 +1134,6 @@ class CliTest(unittest.TestCase):
         self.assertIsNone(state.account_of_worker(cfg, 'pc'))
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class NoUsagePages(unittest.TestCase):
     """Owner, 2026-11-23: Tutti never opens a usage page to read usage; API readers and agents' own notes only."""
@@ -1159,3 +1149,7 @@ class NoUsagePages(unittest.TestCase):
         brk = object()   # any use of the broker would raise AttributeError
         self.assertEqual(browsercmd.read_pages({}, brk, None, pages=['https://usage.example/b']),
                          {'https://usage.example/b': browserusage.OFF})
+
+
+if __name__ == '__main__':
+    unittest.main()

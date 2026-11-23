@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- `ROADMAP.md` at the repository root with Now / Next / Later / Done sections, status indicators, a Mermaid Gantt
+  timeline, and links to backlog IDs, PRs, and `docs/ROADMAP.md` (`t216`).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

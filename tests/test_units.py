@@ -127,8 +127,9 @@ class RemoteTest(unittest.TestCase):
 
     def test_docker_runner_is_capped_and_quotes_the_command(self):
         line = remote.runner_command(self.cfg['machines']['a'], 'trk', "echo 'hi' && exit 3")
-        for part in ('--memory=12g', '--memory-swap=12g', '--cpus=8', "-e 'K=v w'", 'img:1', 'tutti-a-trk-'):
+        for part in ('--memory=12g', '--memory-swap=12g', "-e 'K=v w'", 'img:1', 'tutti-a-trk-'):
             self.assertIn(part, line)
+        self.assertTrue('--cpus=8 ' in line or '|| echo 8)"' in line)   # a heat cap reads the temperature at start
         self.assertIn('mkdir -p $HOME && echo', line)
 
     def test_run_label_is_validated_and_observation_never_proves_exit(self):

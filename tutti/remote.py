@@ -637,6 +637,18 @@ def container_observation(identity, rows, query_ok):
     return {'state': 'observed' if found else 'unknown', 'containers': sorted(set(found))}
 
 
+def cpus_now(machine, cpus):
+    """The --cpus value: `cpus`, or, when the machine sets heat.cap_c, a shell expression read on the machine as the container
+    starts: heat.throttle_cpus (default 1) at or above cap_c (2026-11-23: an 8-CPU run took the NUC to 103 C between two
+    watchdog rounds). The hottest thermal zone is read, as slot.sh does."""
+    cap = (machine.get('heat') or {}).get('cap_c')
+    if cap is None:
+        return f'{cpus}'
+    low = float((machine.get('heat') or {}).get('throttle_cpus') or 1)
+    probe = 't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
+    return f'"$({probe}[ "${{t:-0}}" -ge {int(float(cap) * 1000)} ] && echo {low:g} || echo {cpus})"'
+
+
 def runner_command(machine, track, command, mount='', identity=None):
     """The line that runs `command` at the tree root: plain bash, or a capped container (memory, no extra swap, CPUs).
     `mount` is extra docker -v arguments (a linked worktree's main .git)."""
@@ -651,7 +663,7 @@ def runner_command(machine, track, command, mount='', identity=None):
     env = ' '.join(f'-e {shlex.quote(k if v is None else f"{k}={v}")}' for k, v in r.get('env', {}).items())
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
     label = f'--label io.tutti.run={identity} ' if valid_run_identity(identity) else ''
-    return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={r["cpus"]} {env} {extra} {label}'
+    return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={cpus_now(machine, r["cpus"])} {env} {extra} {label}'
             f'--name tutti-{machine["name"]}-{track}-$RANDOM -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" '
             f'{mount + " " if mount else ""}{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
 

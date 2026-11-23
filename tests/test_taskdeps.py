@@ -149,11 +149,6 @@ class Cli(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn('say what to set', out)
 
-
-if __name__ == '__main__':
-    os.environ.setdefault('TUTTI_TELEMETRY', 'off')
-    unittest.main()
-
     def test_the_chain_follows_every_level_and_estimates_by_size(self):
         tasks = [{'id': 't1', 'status': 'queued', 'depends_on': ['t2']},
                  {'id': 't2', 'status': 'queued', 'depends_on': ['t3', 't4'], 'size': 'L'},
@@ -166,3 +161,7 @@ if __name__ == '__main__':
         tasks = [{'id': 't1', 'status': 'queued', 'depends_on': ['t2']}, {'id': 't2', 'status': 'dropped'}]
         self.assertEqual(taskdeps.chain(tasks[0], tasks), ([], 0))
         self.assertFalse(any(x.startswith('Chain') for x in taskdeps.describe(tasks[0], tasks)))
+
+
+if __name__ == '__main__':
+    unittest.main()

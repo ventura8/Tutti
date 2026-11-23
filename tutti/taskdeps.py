@@ -235,8 +235,9 @@ def board(tasks):
             rdeps.setdefault(i, []).append(t['id'])
 
     def card(t):
+        c, hours = chain(t, tasks)
         return {'id': t['id'], 'title': str(t.get('title') or '')[:120], 'why': h.get(t['id'], ''),
-                'depends_on': ids(t, 'depends_on'), 'chain': chain(t, tasks)[0], 'chain_hours': chain(t, tasks)[1],
+                'depends_on': ids(t, 'depends_on'), 'chain': c, 'chain_hours': hours,
                 'needed_by': rdeps.get(t['id'], []),
                 'group': [i for i in grouped.get(t['id'], [t['id']]) if i != t['id']]}
     lanes_ = lanes(tasks)

@@ -204,6 +204,7 @@ tests/test_review_policy.py
 tests/test_rolematrix.py
 tests/test_roles.py
 tests/test_routing.py
+tests/test_run_result.py
 tests/test_runner_suite.py
 tests/test_scout_service_env.py
 tests/test_scouts.py

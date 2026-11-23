@@ -24,5 +24,19 @@ class RunResult(unittest.TestCase):
         self.assertTrue(delegate.outcome(run(denied=['x'])).startswith('FAILED: the worker\'s CLI refused'))
 
 
+    def test_runs_show_exits_1_for_a_failed_run_even_without_a_stored_rc(self):
+        import types
+        from unittest import mock
+
+        from tutti import cli
+        for stored, want in (({'rc': 1}, 1), ({'rc': 0}, 0), ({'changed': []}, 1)):
+            r = {k: v for k, v in run(**({'changed': []} if 'changed' in stored else {})).items()}
+            r.update({k: v for k, v in stored.items() if k == 'rc'})
+            a = types.SimpleNamespace(action='show', id='1795000000-1')
+            with mock.patch.object(delegate, 'load_report', return_value=r), \
+                    mock.patch.object(delegate, 'paths', return_value={'report': __file__}), \
+                    mock.patch('builtins.print'):
+                self.assertEqual(cli.cmd_runs({}, a), want, stored)
+
 if __name__ == '__main__':
     unittest.main()

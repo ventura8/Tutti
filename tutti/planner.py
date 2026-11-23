@@ -213,8 +213,15 @@ def _at(t, now):
     return tz.show(t, now=now, date=hours >= 24)
 
 
+def points_line(p):
+    """'used 6.3 of its 2.3 weekly points (over by 4)': what this window spent of the weekly limit against its fair share."""
+    used, share = p['this_window'], p['allowance']
+    over = f' (over by {used - share:.1f})' if round(used - share, 1) > 0 else ''
+    return f'used {used:g} of its {share:g} weekly points{over}'
+
+
 def explain_limited(name, p, when):
-    head = (f'{name}: spend by {when}; this window: {p["this_window"]:g} of {p["allowance"]:g} weekly points '
+    head = (f'{name}: spend by {when}; this window {points_line(p)} '
             f'({p["runnable"]} of {p["windows"]} windows left can run)')
     if p.get('owner_reserve'):
         head += f'; {p["owner_reserve"]:g} weekly points kept for the owner ({p["mode"]})'
@@ -259,7 +266,7 @@ def rows(p):
     time (ISO, UTC), which the page shows in the viewer's own time with UTC in a tooltip."""
     out = []
     if p['limit']:
-        out.append({'label': 'This window', 'value': f'{p["this_window"]:g} of {p["allowance"]:g} weekly points'})
+        out.append({'label': 'This window', 'value': points_line(p)})
         out.append({'label': 'Windows left', 'value': f'{p["runnable"]} of {p["windows"]} can run'})
     else:
         out.append({'label': 'Points left', 'value': f'{p["left"]:g}'})
@@ -343,7 +350,7 @@ def agree(s, p, a, now):
 
 def _spend_why(p):
     if p['limit']:
-        return f'{p["this_window"]:g} of {p["allowance"]:g} weekly points this window; {_proj(p)}'
+        return f'this window {points_line(p)}; {_proj(p)}'
     if p.get('owner_reserve') is not None:
         return f'{p["left"]:g} points left, spread evenly to the target'
     return 'behind its pace'
@@ -354,7 +361,7 @@ def _held_by_limit(s, p, now):
         return 'this window is in autopilot.quiet_hours: its share moves to the windows that can run'
     reset = _at(parse_time(p['resets']), now) if p.get('resets') else 'its reset'
     return (f'{s.get("window") or "this"} window has room; the limit {binding(s, p, now)["why"]} is binding: '
-            f'new work waits for the {reset} reset ({p["this_window"]:g} of {p["allowance"]:g} weekly points this window)')
+            f'new work waits for the {reset} reset (this window {points_line(p)}; the next window gets a new share)')
 
 
 def plan_alone(s, a, now, rate=None, owner=None):

@@ -62,7 +62,7 @@ class Allowance(unittest.TestCase):
         self.assertEqual(routing.account_unfit(s), '')
         self.assertIn('agy: spend by 04:00 (UTC, in 2.0 h)', p['why'])
         self.assertIn('resets 05:00 (UTC, in 3.0 h)', p['why'])
-        self.assertIn('this window: 1 of 2 weekly points', p['why'])
+        self.assertIn('this window used 1 of its 2 weekly points', p['why'])
         self.assertIn('would be lost at its end → 5 task(s) now', p['why'])
         spent = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 84)])['quota_plan']['why']
         self.assertIn('→ nothing more this window', spent)
@@ -71,7 +71,7 @@ class Allowance(unittest.TestCase):
         # projected past 100: the even share
         p = state([('2026-01-05T03:00Z', 70), ('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 81)])['quota_plan']
         got = {r['label']: r.get('value') or r.get('at') for r in p['rows']}
-        self.assertEqual(got['This window'], '1 of 2 weekly points')
+        self.assertEqual(got['This window'], 'used 1 of its 2 weekly points')
         self.assertEqual(got['Spend by'], p['expires'])                    # a time stays ISO: the page shows it in local time
         self.assertEqual((got['Decision'], got['Why']), ('5 task(s) now', '10 % would be lost at its end'))
         self.assertFalse(any('agy' in str(r.get('value', '')) for r in p['rows']))
@@ -290,6 +290,15 @@ class LimitsConfig(unittest.TestCase):
         self.assertIn('HH:MM-HH:MM', config.quiet_hours_errors(['10pm-6am'])[0])
         cfg = config.normalise({'accounts': {'cursor': {'window': 'monthly', 'reserve': -5}}})
         self.assertTrue(any('reserve' in e for e in config.validate(cfg)))
+
+
+
+class PointsWording(unittest.TestCase):
+    def test_over_the_share_says_by_how_much(self):
+        from tutti import planner
+        self.assertEqual(planner.points_line({'this_window': 6.3, 'allowance': 2.3}), 'used 6.3 of its 2.3 weekly points (over by 4.0)')
+        self.assertEqual(planner.points_line({'this_window': 1, 'allowance': 2}), 'used 1 of its 2 weekly points')
+        self.assertEqual(planner.points_line({'this_window': 2.04, 'allowance': 2}), 'used 2.04 of its 2 weekly points')
 
 
 if __name__ == '__main__':

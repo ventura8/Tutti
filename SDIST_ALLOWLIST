@@ -56,6 +56,7 @@ docs/SELFHEAL.md
 docs/TELEMETRY.md
 docs/TERMS.md
 docs/TESTING.md
+docs/TUI.md
 docs/USAGE-PACING.md
 docs/VERDICT.md
 docs/WELCOME.md
@@ -230,6 +231,7 @@ tests/test_tasketa.py
 tests/test_tasklist.py
 tests/test_telemetry.py
 tests/test_temps.py
+tests/test_tui.py
 tests/test_tz.py
 tests/test_unblocker.py
 tests/test_units.py
@@ -420,6 +422,8 @@ tutti/transfer.py
 tutti/translate.py
 tutti/triage.py
 tutti/trial.py
+tutti/tui.py
+tutti/tuicmd.py
 tutti/tz.py
 tutti/unblocker.py
 tutti/update.py

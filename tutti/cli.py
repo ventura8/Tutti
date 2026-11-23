@@ -1996,6 +1996,8 @@ def parser():
     rolescmd.add_parser(add)
     from . import backupcmd
     backupcmd.add_parser(add)
+    from . import tuicmd
+    tuicmd.add_parser(add)
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
     s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install', 'hours', 'lease', 'night'],

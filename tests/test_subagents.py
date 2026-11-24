@@ -60,6 +60,25 @@ class SubagentsTest(unittest.TestCase):
         self.assertEqual(os.path.basename(subagents.session_folder(base, cwd)), 'new')
         self.assertIsNone(subagents.session_folder(base, '/elsewhere'))
 
+    def test_the_calling_session_comes_from_its_environment(self):
+        from unittest import mock
+        self.assertEqual(subagents.own_session({'CLAUDE_CODE_SESSION_ID': '34644ebd-f5fa-421f'}), '34644ebd-f5fa-421f')
+        self.assertIsNone(subagents.own_session({}))
+        self.assertIsNone(subagents.own_session({'CLAUDE_CODE_SESSION_ID': '../../etc'}))
+        from types import SimpleNamespace
+
+        from tutti import cli
+        cfg = {'agents': {'max_claude_subagents': 3, 'subagent_active_seconds': 900}}
+        a = SimpleNamespace(max=None, seconds=None, projects=self.tmp.name, cwd='/somewhere/else', session=None)
+        self.agent('a', TOOL, 5)
+        os.utime(os.path.join(self.session, 'subagents', 'agent-a.jsonl'))
+        from contextlib import redirect_stdout
+        from io import StringIO
+        out = StringIO()
+        with mock.patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 's1'}), redirect_stdout(out):
+            self.assertEqual(cli.cmd_agents(cfg, a), 0)
+        self.assertIn('1', out.getvalue())   # found s1 by its id although the cwd names no project
+
     def test_the_command_exits_1_at_the_limit_and_2_without_a_session(self):
         from contextlib import redirect_stderr, redirect_stdout
         from io import StringIO

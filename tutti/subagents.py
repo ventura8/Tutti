@@ -55,6 +55,16 @@ def live(entry, age, active_seconds=ACTIVE_SECONDS):
     return entry is not None and not is_ended(entry) and 0 <= age < active_seconds
 
 
+SESSION_ENV = 'CLAUDE_CODE_SESSION_ID'   # set by Claude Code in every command its session runs
+
+
+def own_session(env=None):
+    """The calling Claude Code session's id from its environment, or None outside a session: the session that asks is the
+    one counted, never a guess from the newest transcript."""
+    sid = (os.environ if env is None else env).get(SESSION_ENV) or ''
+    return sid if re.fullmatch(r'[0-9A-Za-z-]{1,64}', sid) else None
+
+
 def session_folder(base, cwd, session=None):
     """The session's folder under `base` (~/.claude/projects): the named session in any project, else the most recently written
     session of this directory's project. None when there is none."""

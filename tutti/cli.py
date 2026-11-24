@@ -946,9 +946,10 @@ def cmd_agents(cfg, a):
     limit = int(a.max if a.max is not None else conf['max_claude_subagents'])
     seconds = float(a.seconds if a.seconds is not None else conf['subagent_active_seconds'])
     base = os.path.expanduser(a.projects or '~/.claude/projects')
-    folder = subagents.session_folder(base, a.cwd or os.getcwd(), a.session)
+    session = a.session or subagents.own_session()   # the calling session first; the newest transcript only outside one
+    folder = subagents.session_folder(base, a.cwd or os.getcwd(), session)
     if not folder:
-        say(f'no Claude Code session found under {base} for {a.session or a.cwd or os.getcwd()}: pass --session <id> '
+        say(f'no Claude Code session found under {base} for {session or a.cwd or os.getcwd()}: pass --session <id> '
             '(the folder name under ~/.claude/projects/<project>/) or run it from the session\'s directory')
         return 2
     live = subagents.count(folder, seconds_now(), seconds)

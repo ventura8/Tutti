@@ -580,10 +580,13 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
             ai_answers = aiassist.answered(data)   # fed below, outside the scouts' lock
             from . import grokpatch
             patches = grokpatch.answered(data)   # t206: a scout's diffs, kept on their tasks below
+            from . import scoutreview
+            reviews = scoutreview.answered(data)   # a review's findings become a task on its PR (below, the backlog's lock)
             left = spendrest.room(sc, data, acc, sent + n, now) if acc else 0
         events += spendrest.feed_seconds(cfg, answers)   # the backlog's lock: never inside the scouts' lock
         events += aiassist.feed(cfg, ai_answers, now)
         events += grokpatch.feed(cfg, patches)
+        events += scoutreview.feed(cfg, reviews)
         if patches and sc.get('patch_autoland', True):   # apply, check, open the PR, off the dashboard's round
             grokpatch.land_in_background(cfg, [a['task'] for a in patches], name)
         events += grokpatch.auto(cfg, sc, acc, gh_fn, post_fn, env, now)   # t206: a fitting task goes to the scout by itself

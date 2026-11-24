@@ -213,6 +213,7 @@ tests/test_routing.py
 tests/test_run_result.py
 tests/test_runner_suite.py
 tests/test_scout_service_env.py
+tests/test_scoutreview.py
 tests/test_scouts.py
 tests/test_secretenv.py
 tests/test_security_audit.py
@@ -396,6 +397,7 @@ tutti/roles.py
 tutti/rolescmd.py
 tutti/routing.py
 tutti/scoutcmd.py
+tutti/scoutreview.py
 tutti/scouts.py
 tutti/scrub.py
 tutti/secretenv.py

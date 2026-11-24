@@ -226,6 +226,77 @@ class Autoland(unittest.TestCase):
         self.assertFalse(grokpatch._inside(root, 'tests/../../outside.txt'))
         self.assertFalse(grokpatch._inside(root, '/etc/passwd'))
 
+def tk(**kw):
+    return {'id': 't1', 'status': 'queued', 'scope': ['a.py'], 'size': 'S', 'added': 1, **kw}
+
+
+class AutoPure(unittest.TestCase):
+    def test_a_small_queued_file_scoped_task_is_picked_most_urgent_first(self):
+        tasks = [tk(id='t1', priority=3), tk(id='t2', priority=0), tk(id='t3', size='L', priority=0)]
+        self.assertEqual(grokpatch.pick(tasks, 0, 0), 't2')
+
+    def test_nothing_is_picked_past_the_day_or_open_limit_or_for_unfit_tasks(self):
+        self.assertIsNone(grokpatch.pick([tk()], grokpatch.AUTO_PER_DAY, 0))
+        self.assertIsNone(grokpatch.pick([tk()], 0, grokpatch.AUTO_OPEN))
+        for bad, why in ((tk(size='L'), 'size'), (tk(scope=['src/']), 'files'), (tk(scope=[]), 'files'),
+                         (tk(status='running'), 'queued'), (tk(patch={'second': True}), 'tries'),
+                         (tk(patch={'error': 'x'}), 'refused'), (tk(patch={'request': 's1'}), 'already')):
+            ok, reason = grokpatch.eligible(bad)
+            self.assertFalse(ok, why)
+            self.assertIn(why, reason)
+        self.assertTrue(grokpatch.eligible(tk(patch={'failure': {'diff': 'd', 'output': 'o'}}))[0])   # goes back once
+
+    def test_a_kept_diff_is_applied_once_unless_its_start_was_lost(self):
+        t = tk(patch={'diff': '/x.diff'})
+        self.assertEqual(grokpatch.to_apply([t], 1000), ['t1'])
+        t['patch']['applying'] = 900
+        self.assertEqual(grokpatch.to_apply([t], 1000), [])
+        self.assertEqual(grokpatch.to_apply([t], 900 + 7300), ['t1'])
+
+
+class AutoRound(RoundTrip):
+    test_sent_held_kept_applied_and_checked = None
+    test_an_out_of_scope_diff_is_refused_and_a_failed_check_goes_back_once = None
+    test_a_diff_whose_hunk_header_miscounts_its_lines_still_applies = None
+    test_a_task_without_file_scope_or_not_queued_is_refused = None
+
+    SC = {'name': 'grok', 'skills': ['drafting'], 'reply': {'github_repo': 'o/app'}}
+
+    def run_auto(self, acc=None, sc=None, spawn=None):
+        with mock.patch.object(scouts, 'send', side_effect=self.send):
+            return grokpatch.auto(self.cfg, sc or self.SC, acc, now=1000.0, spawn=spawn or mock.Mock())
+
+    def test_a_fitting_task_is_sent_and_a_kept_diff_is_applied_in_the_background(self):
+        events = self.run_auto()
+        self.assertIn('t1: sent to grok', events[0])
+        self.assertIn('t1', grokpatch.holds(backlog.load(self.cfg)['tasks']))
+        self.assertEqual(self.run_auto(), [])   # one at a time: the first still waits
+        r = scouts.load(self.cfg)['requests'][0]
+        self.answer(r, answer())
+        landing = mock.Mock()
+        self.assertEqual(self.run_auto(spawn=landing), [])   # autoland on (the default): scouts.tick lands it, never twice
+        landing.assert_not_called()
+        spawn = mock.Mock()
+        events = self.run_auto(sc={**self.SC, 'patch_autoland': False}, spawn=spawn)
+        self.assertIn('being applied', events[0])
+        self.assertEqual(spawn.call_args[0][0][-3:], ['scout', 'apply', 't1'])
+        self.assertEqual(grokpatch.to_apply(backlog.load(self.cfg)['tasks'], 1000.0), [])
+
+    def test_nothing_is_sent_while_the_allowance_is_used_or_drafting_is_off(self):
+        events = self.run_auto(acc={'panic': True, 'reset': 'Mon'})
+        self.assertIn('nothing sent to grok', events[0])
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.run_auto(sc={**self.SC, 'skills': ['research']}), [])
+        self.assertEqual(self.sent, [])
+
+    def test_a_task_the_scout_cannot_take_is_marked_and_left_to_the_workers(self):
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't1')['scope'] = ['../x']
+        events = self.run_auto()
+        self.assertIn('not sent to grok', events[0])
+        self.assertIn('error', self.task()['patch'])
+        self.assertEqual(self.run_auto(), [])   # not tried again every round
+
 
 if __name__ == '__main__':
     unittest.main()

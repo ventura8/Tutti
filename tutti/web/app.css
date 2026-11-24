@@ -784,6 +784,8 @@ body[data-view-name='chat'] .foot { display: none; }
 .agents__lead { color: var(--on-surface-2); }
 .agents__grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); align-items: start; }
 .agent { display: grid; gap: 6px; }
+.agent--main { border-color: var(--accent); border-width: 2px; }
+.agent__main { margin: 0; }
 .agent__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .agent__name { font-size: 1.0625rem; font-weight: 600; overflow-wrap: anywhere; }
 .agent__head { font-size: 0.875rem; font-weight: 600; margin: 4px 0 0; }

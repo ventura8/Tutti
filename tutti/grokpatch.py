@@ -9,12 +9,17 @@ The contract Grok agreed to (ventura8/Tutti#2139): one ```diff block per answer,
 files, at most a few lines of rationale; input up to about 60 KB, a diff up to about 20 KB; a few tasks a day. A failed
 check goes back once as a new task with the failing output and the first diff.
 
-Pure: brief, extract, paths, check_scope. I/O: gather (git), ask (the scout's webhook), feed (the backlog), apply (git and
-the check)."""
+Automatic (the scout round, `auto`): while the scout's account has room, a queued task that fits (file scope, size S or M,
+not yet tried) is sent by itself, a kept diff is applied and checked by itself, and a failed check goes back once. A task the
+scout fails, or cannot take, is left for the workers as before.
+
+Pure: brief, extract, paths, check_scope, eligible, pick. I/O: gather (git), ask (the scout's webhook), feed (the backlog),
+apply (git and the check), auto (the round)."""
 import contextlib
 import os
 import re
 import subprocess
+import sys
 import time
 
 from . import backlog, config, scouts, worktree
@@ -24,6 +29,11 @@ MAX_DIFF = 20_000    # bytes of diff taken from an answer
 KIND = 'patch'
 DIFF_RX = re.compile(r'```diff[ \t]*\n(.*?)```', re.S)
 PATH_RX = re.compile(r'^(?:---|\+\+\+) (?:a/|b/)?(\S+)', re.M)
+
+
+AUTO_SIZES = ('S', 'M')   # larger tasks do not fit a 20 KB diff drafted from 60 KB of input
+AUTO_PER_DAY = 3          # "a few tasks a day" (the contract)
+AUTO_OPEN = 1             # patch requests waiting for an answer at once
 
 
 class PatchError(ValueError):
@@ -110,6 +120,45 @@ def check_scope(diff, scope):
     if outside:
         raise PatchError(f'patch: the diff changes {", ".join(outside)}, outside the scope ({", ".join(scope)}); it was not applied')
     return touched
+
+
+def eligible(task, now=None):
+    """(ok, why) for the automatic round: a queued task with file scope and a small size that no scout has handled yet,
+    or whose first diff failed the check and has not gone back once."""
+    p = task.get('patch') or {}
+    scope = task.get('scope') or []
+    if task.get('status') != 'queued':
+        return False, 'not queued'
+    if p.get('request') or p.get('diff'):
+        return False, 'a scout already has it'
+    if p.get('error'):
+        return False, 'its diff was refused once; the workers take it'
+    if p.get('second'):
+        return False, 'the scout had its tries'
+    if task.get('size', 'S') not in AUTO_SIZES:
+        return False, f'size {task.get("size")} is over {AUTO_SIZES[-1]}'
+    if not scope or any(s.endswith('/') for s in scope):
+        return False, 'its scope is not a list of files'
+    if task.get('depends_on') or float(task.get('not_before') or 0) > (now or 0):
+        return False, 'blocked or waiting'
+    return True, 'fits'
+
+
+def pick(tasks, sent_today, waiting, now=None, per_day=AUTO_PER_DAY, open_max=AUTO_OPEN):
+    """The id of the next task to send, or None: at most `per_day` a day and `open_max` waiting; the most urgent
+    (lowest P level, then oldest) eligible task first."""
+    from . import priority
+    if sent_today >= per_day or waiting >= open_max:
+        return None
+    ok = [t for t in tasks if eligible(t, now)[0]]
+    ok.sort(key=lambda t: (priority.task_level(t) if 'priority' in t else 9, t.get('added') or 0))
+    return ok[0]['id'] if ok else None
+
+
+def to_apply(tasks, now=0):
+    """Ids of tasks whose diff is kept and not being applied (a start older than 2 h counts as lost)."""
+    return [t['id'] for t in tasks if t.get('status') == 'queued' and (t.get('patch') or {}).get('diff')
+            and (not t['patch'].get('applying') or now - float(t['patch']['applying']) > 7200)]
 
 
 # ---- I/O
@@ -237,22 +286,31 @@ def apply(cfg, tid, run=subprocess.run):
         _git(path, 'worktree', 'remove', '--force', wt)
     if not re.fullmatch(r't\d+', str(tid)):
         raise PatchError(f'patch: "{tid}" is not a task id like t123')
-    _git(path, 'worktree', 'add', '-B', f'grok/{tid}', '--', wt, safe_sha(p['base']))
-    with open(diff_path, encoding='utf-8') as f:
-        diff = f.read()
-    check_scope(diff, task.get('scope') or [])   # checked again here: the saved file is read, never passed to git as an argument
-    # --recount: a model's hunk headers often miscount their lines (Grok said larger diffs risk it; t259's did): git counts
-    _git(wt, 'apply', '--recount', '--check', stdin=diff)
-    _git(wt, 'apply', '--recount', stdin=diff)
-    _git(wt, 'add', '-A')
-    _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-F', '-',
-         stdin=f'{task["title"][:60]} ({tid})\n\nDrafted by scout {p["scout"]} ({p["request"]}), applied and checked by Tutti.')
+    try:
+        _git(path, 'worktree', 'add', '-B', f'grok/{tid}', '--', wt, safe_sha(p['base']))
+        with open(diff_path, encoding='utf-8') as f:
+            diff = f.read()
+        check_scope(diff, task.get('scope') or [])   # checked again here: the saved file is read, never passed to git as an argument
+        # --recount: a model's hunk headers often miscount their lines (Grok said larger diffs risk it; t259's did): git counts
+        _git(wt, 'apply', '--recount', '--check', stdin=diff)
+        _git(wt, 'apply', '--recount', stdin=diff)
+        _git(wt, 'add', '-A')
+        _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-F', '-',
+             stdin=f'{task["title"][:60]} ({tid})\n\nDrafted by scout {p["scout"]} ({p["request"]}), applied and checked by Tutti.')
+    except PatchError as e:   # the diff does not apply: say so on the task, free it for the workers (never stuck 'applying')
+        with backlog.locked(cfg) as data:
+            t = backlog.find(data, tid)
+            t['patch'].pop('applying', None)
+            t['patch'].update(error=str(e)[:300], request=None, diff=None)
+            t['notes'] = [*t.get('notes', []), f'The scout\'s diff could not be applied: {e}']
+        raise
     check = task.get('check') or ((cfg.get('autopilot') or {}).get('repos', {}).get(task['repo']) or {}).get('check') or 'true'
     r = run(['bash', '-lc', check], cwd=wt, capture_output=True, text=True, timeout=3600)
     out = (r.stdout or '') + (r.stderr or '')
     ok = r.returncode == 0
     with backlog.locked(cfg) as data:
         t = backlog.find(data, tid)
+        t['patch'].pop('applying', None)
         t['patch'].update(applied=time.time(), ok=ok, worktree=wt)
         if ok:
             t.update(status='review', branch=f'grok/{tid}', worktree=wt)
@@ -260,7 +318,7 @@ def apply(cfg, tid, run=subprocess.run):
         else:
             t['notes'] = [*t.get('notes', []), f'The scout\'s diff failed the check (exit {r.returncode}).'
                           + ('' if p.get('second') else f' `tutti scout patch {tid}` sends it back once with the output.')]
-            t['patch']['failure'] = {'diff': open(diff_path, encoding='utf8').read(), 'output': out[-6000:]}
+            t['patch']['failure'] = {'diff': diff, 'output': out[-6000:]}
             t['patch']['request'] = t['patch']['diff'] = None
     return ok, wt, out
 
@@ -356,3 +414,45 @@ def land_in_background(cfg, tids, via, thread=None):
     t.start()
     return t
 
+
+
+def auto(cfg, sc, acc, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None, spawn=subprocess.Popen):
+    """The scout round's patch step (docs/SCOUTS.md, *Patches*): sends the next fitting task while the scout's account has
+    room, and starts `tutti scout apply` for every kept diff (detached: the check can take long). Returns event lines.
+    Off when the scout's skills lack `drafting`."""
+    now = now or time.time()
+    if 'drafting' not in (sc.get('skills') or []):
+        return []
+    events = []
+    data = backlog.load(cfg)
+    # with autoland on (the default), scouts.tick already applies, checks and opens the PR for each kept diff: never twice
+    for tid in ([] if sc.get('patch_autoland', True) else to_apply(data['tasks'], now)):
+        with backlog.locked(cfg) as d:
+            t = backlog.find(d, tid)
+            t['patch']['applying'] = now
+        log = os.path.join(config.state_dir(cfg), 'patches', f'apply-{tid}.log')
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, 'a', encoding='utf8') as f:
+            spawn([sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bin', 'tutti'),
+                   'scout', 'apply', tid], stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+        events.append(f'{tid}: the diff is being applied and checked ({log})')
+    ok, why = scouts.allowance(acc)
+    if not ok:
+        return events + [f'patch: nothing sent to {sc["name"]}: {why}']
+    with scouts.locked(cfg) as sdata:
+        mine = [r for r in sdata['requests'] if r['scout'] == sc['name'] and r.get('kind') == KIND and r['status'] != 'failed']
+        today = sum(1 for r in mine if now - float(r.get('added') or 0) < 86400)
+        waiting = sum(1 for r in mine if r['status'] in ('queued', 'waiting'))
+    tid = pick(data['tasks'], today, waiting, now)
+    if not tid:
+        return events
+    task = backlog.find(data, tid)
+    try:
+        r = ask(cfg, tid, sc['name'], gh_fn, post_fn, env, failure=(task.get('patch') or {}).get('failure'), now=now)
+    except (PatchError, scouts.ScoutError) as e:   # never stops the round; the next one tries the next task
+        with backlog.locked(cfg) as d:
+            t = backlog.find(d, tid)
+            t['patch'] = {**(t.get('patch') or {}), 'error': str(e)[:300], 'request': None}
+            t['notes'] = [*t.get('notes', []), f'The scout could not take it: {e}']
+        return events + [f'{tid}: not sent to {sc["name"]}: {e}']
+    return events + [f'{tid}: sent to {sc["name"]} as a patch task ({r["id"]})']

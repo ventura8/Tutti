@@ -483,7 +483,7 @@ class CliAndDashboardTest(Folder):
             self.assertEqual(cli.main(['--config', self.cfg['_path'], 'main', 'nobody']), 2)
         self.assertIn('Goal X', out.getvalue())
         self.assertIn('tutti handoff', out.getvalue())
-        self.assertIn('main agent: cursor (switched by the owner)', out.getvalue())
+        self.assertIn('main agent: cursor (pinned by the owner', out.getvalue())
 
     def test_conduct_with_an_unknown_main_says_the_choices(self):
         err = io.StringIO()
@@ -680,6 +680,40 @@ class RoleHandOffTest(Folder):
                                          chat_fn=lambda cfg, text: notes.append(text))
         self.assertIn('restored to agy (preferred; limit reset)', restored)
         self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def reserve(self, used=80):
+        """A weekly reading below panic whose planner has no room left (the owner's reserve): the cause of t273's stand-in."""
+        return {'used': used, 'verdict': 'ahead', 'panic': False,
+                'quota_plan': {'limit': None, 'left': 0.0, 'allowance': 0.0, 'expires': 'x', 'tasks': 0}}
+
+    def test_a_main_below_panic_keeps_the_role_though_the_planner_keeps_its_room_for_the_owner(self):
+        rows = {'agy-claude': self.reserve(), 'agy-gemini': self.reserve()}
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', self.states(**rows)), '')
+        self.assertIsNone(conduct.hand_off_role(self.cfg, self.states(**rows), chat_fn=lambda *a: self.fail('no note')))
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def test_a_main_at_panic_still_hands_off_and_the_stand_in_is_labelled_automatic_until_it_returns(self):
+        notes = []
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97})
+        conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [], chat_fn=lambda c, t: notes.append(t))
+        self.assertEqual(conduct.chosen_by(self.cfg), 'auto')
+        state = conduct.main_state(self.cfg, panic)
+        self.assertIn('automatic stand-in', conduct._main_src(state))
+        self.assertNotIn('owner', conduct._main_src(state))
+        back = self.states(**{'agy-claude': self.reserve(), 'agy-gemini': self.reserve()})   # reset not needed: below panic
+        line = conduct.hand_off_role(self.cfg, back, connect_fn=lambda *a, **k: [], chat_fn=lambda c, t: notes.append(t))
+        self.assertIn('restored to agy', line)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def test_an_owner_pin_is_labelled_as_one_and_is_not_undone_by_a_hand_back(self):
+        conduct.choose(self.cfg, 'cursor')
+        self.assertEqual(conduct.chosen_by(self.cfg), 'owner')
+        ok = self.states(**{'agy-claude': 5, 'agy-gemini': 5})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, ok, chat_fn=lambda *a: self.fail('no note')))
+        self.assertEqual((conduct.current(self.cfg), conduct.preferred(self.cfg)), ('cursor', 'cursor'))   # lasting, no expiry
+        self.assertIn('pinned by the owner', conduct._main_src(conduct.main_state(self.cfg, ok)))
+        conduct.choose(self.cfg, 'auto')   # only the owner's own `auto` hands the choice back to Tutti
+        self.assertTrue(conduct.is_auto(self.cfg))
 
     def test_pick_auto_prefers_preferred_then_first_fallback(self):
         self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',

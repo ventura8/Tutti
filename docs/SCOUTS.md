@@ -97,6 +97,14 @@ Grok agreed to ([ventura8/Tutti#2139](https://github.com/ventura8/Tutti/issues/2
    check there. A pass leaves the task in **review** with that branch; the owner's checkout is never touched.
 4. A failed check keeps the diff and the output; `tutti scout patch <task>` sends them back once for a corrected diff.
 
+**By itself (t206).** The scout round (the dashboard's, `tutti scout tick`) does steps 1 to 4 without a command while the
+scout has `drafting` among its `skills` (the default; take it out to turn this off) and its account has room (never past its
+allowance, never on-demand spend): it sends the most urgent queued task that fits (scope given as files, size S or M, not
+blocked, not tried by a scout yet), at most 3 a day and one waiting at a time; it starts `tutti scout apply` for each kept
+diff in the background (log: `<state>/patches/apply-<task>.log`); a failed check goes back once. A task whose diff was
+refused or does not apply, or whose second diff failed, is left for the workers and is not sent again. A task in **review**
+with branch `grok/<task>` is landed like any worker's. Held tasks show *waits for grok's diff* in the plan.
+
 Until Tutti's check passes, a scout's diff is unverified. A few patch tasks a day suit Grok; it promises no turnaround.
 
 **Landing by itself** (`scouts.<name>.patch_autoland`, on by default). When a diff arrives, the scout round applies it at

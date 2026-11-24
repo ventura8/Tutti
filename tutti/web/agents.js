@@ -1,6 +1,8 @@
 // Tutti dashboard: the Agents tab (#agents, t252, tutti/agentsview.py). One card per agent from /api/state's `agents`: its
 // roles (from the config, each with why), what it can do, its limits and what it does now. Uses app.js's el() and chip().
 
+const MAIN_WHY = { owner: 'pinned by the owner', auto: 'chosen by Tutti', config: 'from the config' };
+
 const AGENT_TONE = { ready: 'ok', 'not ready': 'bad', checking: 'idle', paced: 'idle' };
 
 // One agent's card (pure but for el(): node tests build it with a fake el)
@@ -10,10 +12,14 @@ function agentCard(a) {
             : el('li', {}, el('strong', { text: x.label }), ` · ${x.why}`))))] : []);
     const where = [a.kind, a.model, a.machine ? `on ${a.machine}` : '', a.account && a.account !== a.name ? `account ${a.account}` : '']
         .filter(Boolean).join(' · ');
-    return el('article', { class: 'card agent', 'data-agent': a.name, 'aria-labelledby': `agent-${a.name}` },
+    const main = a.main_now ? chip(`Main agent now · ${MAIN_WHY[a.main_by] || 'chosen'}`, 'accent')
+        : (a.main_preferred ? chip('Preferred main (waiting)', 'idle') : null);
+    return el('article', { class: `card agent${a.main_now ? ' agent--main' : ''}`, 'data-agent': a.name, 'aria-labelledby': `agent-${a.name}`,
+        ...(a.main_now ? { 'data-main': 'now' } : {}) },
         el('header', { class: 'agent__top' },
             el('h3', { class: 'agent__name', id: `agent-${a.name}`, text: a.name }),
             chip(a.state, AGENT_TONE[a.state] || 'idle')),
+        main ? el('p', { class: 'agent__main' }, main) : null,
         el('p', { class: 'row__note', text: where }),
         a.note ? el('p', { class: 'row__note', text: a.note }) : null,
         a.running ? el('p', { class: 'agent__now', text: `${a.running} running now` }) : null,

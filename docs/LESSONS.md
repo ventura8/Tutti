@@ -715,3 +715,13 @@ will not come. Fix: the hold is bounded (6 h), then the attempt is counted and t
 Found by reading the new per-agent track record (Agents tab), whose numbers looked impossible. Lesson: every wait for an
 outside event needs a bound and a visible count of what it holds.
 
+## The main agent was "out" at 80 % (2026-11-24, t273/t275)
+
+Claude (weekly reading 80 %, resets in 4 days) was handed to a local model and stayed there, labelled "switched by the
+owner". The main role used the workers' fit test (`account_unfit`), whose "planned room is used" is the owner's reserve: the
+main agent's own use. It also wrote Tutti's hand-off into the same record as the owner's pin. Fix: the main role is out only
+on panic, spent or unreadable (`main_unfit`); each choice says who made it. The 65 attempts of t275 failed for another
+reason: local model servers (nuc, laptop) were down and the ladder kept trying them; and t203/t206 failed because Grok Bot
+cannot be a worker (research only, ~10 s CPU per cell): it drafts diffs and Tutti applies them. Lesson: a task that fails
+the same way ten times needs its cause read, not another retry.
+

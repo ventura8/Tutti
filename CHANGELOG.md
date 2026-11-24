@@ -8,6 +8,12 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ## [0.23.6] - 2026-11-16
 
+### Added
+
+- Dashboard **Discovered** tab (`tutti/network_discovery.py`): lists unconfigured LAN/VPN devices found via ARP/neighbour
+  table, ADB, mDNS, SSDP/DLNA, AirPlay/Chromecast and SSH, with their type, current roles, possible roles and sources,
+  updating automatically with dashboard probes.
+
 ### Fixed
 
 - While the main agent is in panic, the other accounts fill their room up to their own panic line (tasks that fit at

@@ -551,6 +551,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines, 'configured': known['machines']},
             'devices': {'items': probes.get('devices') or [], 'configured': known['devices']},
+            'discovered': probes.get('discovered') or [],
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
             'jobs': jobs,
             'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}

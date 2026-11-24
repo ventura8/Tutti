@@ -102,9 +102,9 @@ class Collector:
 
     def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None,
                  activity_fn=projects.probe_activity, prs_fn=releases.all_prs, readings_fn=remote.device_readings,
-                 power_fn=remote.power_readings, ollama_fn=local.ollama_get):
+                 power_fn=remote.power_readings, ollama_fn=local.ollama_get, discover_fn=None):
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
-        self.power_fn, self.ollama_fn = power_fn, ollama_fn
+        self.power_fn, self.ollama_fn, self.discover_fn = power_fn, ollama_fn, discover_fn
         self.readings_fn = readings_fn
         self.activity_fn, self.prs_fn = activity_fn, prs_fn
         self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
@@ -167,6 +167,10 @@ class Collector:
             readings = keepon.readings_with_revive(self.cfg, readings)
         fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn,
                                 readings_fn=readings)
+        try:
+            fresh['discovered'] = self.discover_fn(self.cfg) if self.discover_fn else []
+        except (OSError, ValueError):
+            fresh['discovered'] = []
         if config_error:
             fresh['error'] = config_error
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)
@@ -1137,7 +1141,8 @@ def make_handler(collector, token):
 
 def server(cfg, port, collector=None):
     """The HTTP server on 127.0.0.1:<port> (0 picks a free port). Not started: call serve_forever()."""
-    collector = collector or Collector(cfg)
+    from . import network_discovery
+    collector = collector or Collector(cfg, discover_fn=network_discovery.scan)
     from . import auth
     if exposed(cfg):
         problems = auth.network_errors(cfg)

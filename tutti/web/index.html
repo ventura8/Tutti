@@ -367,7 +367,12 @@
                     <p class="card__meta" id="controls-meta"></p>
                 </header>
                 <ul id="idle-warnings" class="list" aria-label="Idle while work waits"></ul>
+                <div class="row" role="tablist" aria-label="Configured and discovered devices">
+                    <button class="btn btn--text" id="tab-devices" type="button" role="tab" aria-selected="true" aria-controls="devices">Configured</button>
+                    <button class="btn btn--text" id="tab-discovered" type="button" role="tab" aria-selected="false" aria-controls="discovered">Discovered</button>
+                </div>
                 <ul id="devices" class="list" aria-label="Android devices"></ul>
+                <ul id="discovered" class="list" aria-label="Discovered devices" hidden></ul>
                 <div id="device-actions" class="row" role="group" aria-label="Pair or move devices"></div>
                 <div id="device-tools" aria-live="polite"></div>
                 <h3 class="card__sub">Pause or resume</h3>

@@ -177,6 +177,8 @@ function renderControls(s) {
     $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row', 'data-device': d.name, 'data-status': 'checking' },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d, paused.get(`device:${d.name}`))))
         : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
+
+    renderDiscovered(s.discovered || []);
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
     const row = (kind, name, state) => {
@@ -304,3 +306,32 @@ function renderPresence(s) {
     $('host-warning').hidden = !warn;   // in the Where Tutti runs card (where.js)
     $('host-warning').textContent = warn;
 }
+
+let activeDeviceTab = 'devices';
+
+function setDeviceTab(tab) {
+    activeDeviceTab = tab === 'discovered' ? 'discovered' : 'devices';
+    $('devices').hidden = activeDeviceTab !== 'devices';
+    $('discovered').hidden = activeDeviceTab !== 'discovered';
+    $('tab-devices').setAttribute('aria-selected', String(activeDeviceTab === 'devices'));
+    $('tab-discovered').setAttribute('aria-selected', String(activeDeviceTab === 'discovered'));
+}
+
+function discoveredRow(d) {
+    const parts = [d.type || 'device'];
+    if (d.ip && d.ip !== d.name) parts.push(d.ip);
+    if (d.roles?.length) parts.push(`roles: ${d.roles.join(', ')}`);
+    if (d.possible_roles?.length) parts.push(`can be: ${d.possible_roles.join(', ')}`);
+    if (d.sources?.length) parts.push(`via ${d.sources.join(', ')}`);
+    return el('li', { class: 'row', 'data-discovered': d.name },
+        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: parts.join(' · ') })));
+}
+
+function renderDiscovered(discovered) {
+    $('tab-discovered').textContent = discovered.length ? `Discovered (${discovered.length})` : 'Discovered';
+    $('discovered').replaceChildren(...(discovered.length ? discovered.map(discoveredRow)
+        : [el('li', {}, empty('No new devices discovered', 'Everything found on the network is already set up.'))]));
+}
+
+$('tab-devices')?.addEventListener('click', () => setDeviceTab('devices'));
+$('tab-discovered')?.addEventListener('click', () => setDeviceTab('discovered'));

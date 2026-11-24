@@ -127,6 +127,7 @@ def latest(entries, account, since=None):
     return best
 
 
+SAFETY_FRESH_HOURS = 2   # a takeover, panic rescue or slow start acts only on a reading younger than this (never stale_hours)
 STALE_HOURS = 6   # a reading older than this is stale (accounts.<n>.stale_hours changes it): no verdict, a reminder
 NO_READING = 'no reading'
 PANIC_AT = 95  # percent of the whole quota: at or over it before the target time, the account is in panic mode

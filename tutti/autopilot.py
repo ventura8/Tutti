@@ -385,7 +385,9 @@ def observed_quota(cfg, name, s, now):
     try:
         at = pacing.parse_time(s['reading_at'])
         age = (now - at).total_seconds()
-        hours = float(((cfg.get('accounts') or {}).get(name) or {}).get('stale_hours') or pacing.STALE_HOURS)
+        # acting on a quota (a rescue, a takeover) needs a fresher reading than showing it: the shorter of the two limits
+        shown = float(((cfg.get('accounts') or {}).get(name) or {}).get('stale_hours') or pacing.STALE_HOURS)
+        hours = min(shown, pacing.SAFETY_FRESH_HOURS)
     except (KeyError, TypeError, ValueError, OverflowError):
         return False
     if not math.isfinite(hours) or hours <= 0 or age < 0 or age >= hours * 3600:

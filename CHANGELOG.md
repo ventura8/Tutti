@@ -7,6 +7,7 @@
 - Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
   full name no longer makes a new empty `<prefix><prefix><id>` worktree.
 - A usage reading older than `stale_hours` (default now 6 h, was 2) shows the verdict `stale`, never "on pace" or "ahead".
+- A usage reading older than `stale_hours` (default now 6 h, was 2) shows the verdict `stale`, never "on pace" or "ahead". A rescue, a takeover or a slow start still acts only on a reading younger than 2 h.
 - Readers heal themselves: a failed reader command is retried; an agy bucket missing from the answer is replaced by one that
   clearly belongs to the same model (never one another account reads), else the account is `unreadable` and left out of pacing;
   a headless claude run's `rate_limit_event` weekly utilization is written to the account's `reading_file` (docs/USAGE-PACING.md).

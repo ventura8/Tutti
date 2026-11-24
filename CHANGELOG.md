@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Tests: the work-queue round tests and the dashboard's `/api/state` test no longer depend on whether a person is at the
+  computer running them (a person's presence held every `here` job and cut the machine's share, so they failed on a
+  desk and passed in CI).
+
 ## 0.31.18 (2026-11-24)
 
 ### Fixed
@@ -23,9 +31,6 @@
   (`<state>/auto-picks.json`, docs/USAGE-PACING.md).
 - Runs: **fix rounds** (`delegate.fix_rounds`, default 3). A check that fails on a worker's diff sends its errors back to the
   same worker in the same worktree, and the checks run again; FAILED only after the last round (docs/WORKERS.md).
-- Tests: the work-queue round tests and the dashboard's `/api/state` test no longer depend on whether a person is at the
-  computer running them (a person's presence held every `here` job and cut the machine's share, so they failed on a
-  desk and passed in CI).
 
 ## 0.31.17 (2026-11-24)
 

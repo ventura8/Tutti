@@ -113,6 +113,18 @@ def chosen(cfg):
     return c.get('agent') if c.get('agent') in cfg['workers'] else None
 
 
+def chosen_by(cfg):
+    """Who made the current choice: 'owner' (a pin), 'auto' (a hand-off), or '' (none). A record written before this was kept
+    counts as Tutti's own when it names the agent the last hand-off went to (so an old stand-in is not shown as a pin)."""
+    c = choice_record(cfg)
+    if c.get('agent') not in cfg['workers']:
+        return ''
+    if c.get('by') in ('owner', 'auto'):
+        return c['by']
+    last = read_json(role_path(cfg)) or {}
+    return 'auto' if last.get('to') == c['agent'] else 'owner'
+
+
 def is_auto(cfg):
     """True when main.agent is auto: Tutti picks the current main itself."""
     return settings(cfg).get('agent') == AUTO
@@ -150,8 +162,9 @@ def current(cfg):
     return agent or ''
 
 
-def _write_choice(cfg, agent, now):
-    write_json(choice_path(cfg), {'agent': agent, 'at': now.isoformat(), 'rev': uuid.uuid4().hex})
+def _write_choice(cfg, agent, now, by='owner'):
+    """`by` says who switched: the owner (a pin, lasting) or Tutti's own hand-off (a stand-in until the preferred agent has room)."""
+    write_json(choice_path(cfg), {'agent': agent, 'at': now.isoformat(), 'rev': uuid.uuid4().hex, 'by': by})
 
 
 def set_auto(cfg, now=None):
@@ -179,7 +192,7 @@ def choose(cfg, agent, now=None, owner=True):
         names = ', '.join([AUTO, *candidates(cfg)]) if candidates(cfg) else AUTO
         raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be {names}')
     now = now or datetime.now(timezone.utc)
-    _write_choice(cfg, agent, now)
+    _write_choice(cfg, agent, now, 'owner' if owner else 'auto')
     if owner:
         from . import users
         users.write(config.state_dir(cfg), main_agent=agent, preferred_main=agent)
@@ -216,7 +229,7 @@ def conductor_account_reason(cfg, name, state):
     """A conductor must bind to an account with known quota, including every linked window."""
     if state is None:
         return 'usage state missing: refresh the account before using it'
-    reason = routing.account_unfit({**state, '_missing_limits': routing.missing_limits(cfg, name, state)})
+    reason = routing.main_unfit({**state, '_missing_limits': routing.missing_limits(cfg, name, state)})
     def unreliable(s):
         return bool(s.get('stale') or s.get('after_reset') or s.get('reader_problem') or s.get('selected_source') == 'estimate'
                     or any(unreliable(x) for x in s.get('limits') or []))
@@ -889,15 +902,17 @@ def main_state(cfg, states):
         last = {**last, 'status': 'ended without a record (its process is gone)'}
     running = last if last and last.get('status') == 'running' else None
     return {'agent': current(cfg), 'preferred': preferred(cfg), 'auto': is_auto(cfg),
-            'configured': settings(cfg)['agent'], 'chosen': chosen(cfg), 'fallback': settings(cfg)['fallback'],
+            'configured': settings(cfg)['agent'], 'chosen': chosen(cfg), 'chosen_by': chosen_by(cfg), 'fallback': settings(cfg)['fallback'],
             'choices': [{'name': n, 'kind': cfg['workers'][n]['kind'], 'out': out_reason(cfg, n, states) or None}
                         for n in candidates(cfg)],
             'running': running, 'last': None if running else last}
 
 
 def _main_src(m):
+    if m['chosen'] and m.get('chosen_by') == 'auto':
+        return f' (automatic stand-in: returns to {m["preferred"]} when it has room)' if m.get('preferred') else ' (automatic stand-in)'
     if m['chosen'] and not m['auto']:
-        return ' (switched by the owner)'
+        return ' (pinned by the owner: `tutti main auto` lets Tutti pick)'
     return ' (auto)' if m['auto'] else ' (main.agent in the config)'
 
 

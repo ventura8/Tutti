@@ -104,6 +104,18 @@ accounts while the main agent panics (docs/AUTOPILOT.md).
 An owner switch (`tutti main <agent>`, the dashboard Switch, the Chat header selector, `tutti user main-agent`) sets both
 preferred and current and leaves auto. `tutti main auto` turns auto on and keeps preferred.
 
+**What counts as "out" for the main agent (t273).** Only the agent's own panic, a spent quota or an unreadable reading
+(`routing.main_unfit`). The planner's "room" for the workers, with the owner's reserve held back, does **not** make the main
+agent out: that reserve is the main agent's own use. (Before, a weekly reading of 80 % with 0 points left for the workers
+handed the role to a local model days before the reset, and nothing brought it back until the reset.)
+
+**Who switched.** Each choice records `by`: `owner` (a pin) or `auto` (Tutti's hand-off). `tutti main`, the Main agent card and
+the Agents tab say **pinned by the owner** or **automatic stand-in, returns to <preferred> when it has room**; the Agents tab
+marks the current main card (*Main agent now*) and the preferred one while it waits. A pin is lasting and does not expire at the
+preferred agent's reset: it replaces the preferred main too (above), so Tutti never moves it, except to hand the role on while
+the pinned agent itself is out and back again when it has room. Only `tutti main auto` (or the dashboard's Auto) gives the
+choice back to Tutti; to pin an agent only for a while, pick it, then pick Auto.
+
 ## The config
 
 ```yaml

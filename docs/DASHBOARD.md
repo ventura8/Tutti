@@ -123,6 +123,8 @@ how to set it up. A machine or device the config already has is left out. It loo
 
 ## Agents
 
+The card of the current main agent has an accent border and the chip **Main agent now** (pinned by the owner, chosen by Tutti, or from the config); the preferred main has **Preferred main (waiting)** while a stand-in holds the role (t273).
+
 The **Agents** tab (`#agents`, t252, `tutti/agentsview.py`, `tutti/web/agents.js`) has one card per agent Tutti can use:
 each worker (a coding CLI, a local model, an online API), each account no worker or scout spends, and each scout. A card
 shows:

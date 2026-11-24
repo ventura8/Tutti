@@ -296,6 +296,19 @@ def account_unfit(s):
     return ''
 
 
+def main_unfit(s):
+    """Why an account must not carry the MAIN agent, or ''. Only its own panic, a spent quota or an unreadable one: the
+    planner's room and the owner's reserve (account_unfit) are for the workers, and that reserve IS the main agent's use."""
+    reason = quota_unfit(s)
+    if reason:
+        return reason
+    for lim in s.get('limits') or []:
+        why = main_unfit(lim)
+        if why:
+            return f'its limit {lim["name"]}: {why}'
+    return ''
+
+
 def rank(s):
     v = s.get('verdict')
     if v in USE_FIRST:

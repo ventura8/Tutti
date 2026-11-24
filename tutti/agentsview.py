@@ -162,6 +162,15 @@ def records_of(cfg):
     return recs
 
 
+def main_marks(snap, name):
+    """{'main_now', 'main_preferred', 'main_by'} for one agent from the dashboard's `main` block: the Agents tab says which
+    card is the main agent now, and whether the owner pinned it or Tutti put it there while the preferred one is out."""
+    m = snap.get('main') or {}
+    now = bool(m.get('agent')) and m['agent'] == name
+    return {'main_now': now, 'main_preferred': bool(m.get('preferred')) and m['preferred'] == name,
+            'main_by': ('auto' if m.get('auto') else m.get('chosen_by') or 'config') if now else ''}
+
+
 def cards(cfg, snap):
     """The Agents tab: workers first (in the config's order) with every account they spend, then accounts no worker or scout
     spends, then scouts."""
@@ -175,6 +184,7 @@ def cards(cfg, snap):
         state = live.get(name)
         out.append({'name': name, 'kind': w.get('kind'), 'model': w.get('model') or (w.get('command') or [None])[0],
                     'machine': w.get('machine') or 'this host', 'account': ', '.join(accs) or None,
+                    **main_marks(snap, name),
                     'roles': roles(cfg, name, w, accs), 'capabilities': capabilities(w), 'cost': cost(cfg, w, accs),
                     'limits': [f'{n}: {x}' if len(accs) > 1 else x for n in accs for x in _limits(accounts.get(n))],
                     'state': 'checking' if state is None else 'ready' if state.get('ready') else 'not ready',
@@ -184,13 +194,15 @@ def cards(cfg, snap):
     for name in cfg.get('accounts') or {}:
         if name in spent:
             continue
-        out.append({'name': name, 'kind': 'account', 'model': None, 'machine': None, 'account': name, 'roles': roles(cfg, name, None, name),
+        out.append({'name': name, 'kind': 'account', 'model': None, 'machine': None, 'account': name, **main_marks(snap, name),
+                    'roles': roles(cfg, name, None, name),
                     'capabilities': ['an account Tutti paces (no worker of its own)'],
                     'cost': cost(cfg, None, [name]), 'limits': _limits(accounts.get(name)),
                     'state': 'paced', 'note': '', 'running': _running(snap, name, name)})
     for name, sc in (cfg.get('scouts') or {}).items():
         sc, seen = sc or {}, scouts.get(name)
         out.append({'name': name, 'kind': 'scout', 'model': sc.get('kind'), 'machine': None, 'account': sc.get('account'),
+                    **main_marks(snap, name),
                     'roles': [{'role': 'scout', 'label': ROLE_LABELS['scout'], 'why': f'scouts.{name}'}],
                     'capabilities': [str(x) for x in sc.get('skills') or []],
                     'cost': cost(cfg, None, [sc['account']] if sc.get('account') else []),

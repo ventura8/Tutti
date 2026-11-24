@@ -76,6 +76,14 @@ class Cards(unittest.TestCase):
         self.assertEqual(agentsview.cost(paid, {'kind': 'cli'}, ['a']), 'pays per use')
         self.assertTrue(agentsview.cost({}, {'kind': 'cli'}, ['a']).startswith('subscription'))
 
+    def test_the_current_main_is_marked_on_its_card_and_only_there(self):
+        snap = {'main': {'agent': 'cursor', 'preferred': 'agy', 'auto': False, 'chosen_by': 'auto'}}
+        cards = {c['name']: c for c in agentsview.cards(example(), snap)}
+        self.assertEqual((cards['cursor']['main_now'], cards['cursor']['main_by']), (True, 'auto'))
+        self.assertEqual((cards['agy']['main_now'], cards['agy']['main_preferred']), (False, True))
+        self.assertEqual(sum(c['main_now'] for c in cards.values()), 1)
+        self.assertFalse(any(c['main_now'] for c in agentsview.cards(example(), {})))   # no main block: nothing is marked
+
     def test_an_agent_the_config_gives_no_role_gets_none(self):
         cfg = {'workers': {'spare': {'kind': 'unknown'}}, 'accounts': {}}
         self.assertEqual(agentsview.cards(cfg, {})[0]['roles'], [])
@@ -94,6 +102,10 @@ class Cards(unittest.TestCase):
         card = {**card, 'record': '3 runs, 1 passed (33 %)', 'failures': ['usage limit']}
         out = json.loads(subprocess.run(['node', '-e', f'{stub}\n{src}\nconsole.log(JSON.stringify(text(agentCard({json.dumps(card)}))))'],
                                         capture_output=True, text=True, check=True).stdout)
+        card = {**card, 'main_now': True, 'main_by': 'owner'}
+        out = json.loads(subprocess.run(['node', '-e', f'{stub}\n{src}\nconsole.log(JSON.stringify(text(agentCard({json.dumps(card)}))))'],
+                                        capture_output=True, text=True, check=True).stdout)
+        self.assertIn('Main agent now · pinned by the owner', out)
         for part in ('Track record: 3 runs, 1 passed', 'Fails with: usage limit', 'Cost: subscription',
                      'cursor', 'checking', 'Roles', 'Main agent', 'main.fallback, number 3', 'Can', 'coding agent (CLI)'):
             self.assertIn(part, out)

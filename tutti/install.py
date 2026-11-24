@@ -426,7 +426,7 @@ def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=F
         return 1, f'self-update: installing the Python requirements of {latest} failed; {current} stays'
     point_current(home_dir, latest)
     warn = f' {SKIP_WARNING}' if skip_verify else ''
-    return 0, f'self-update: {current} -> {latest} (restart the dashboard, or it restarts itself within a day).{warn}'
+    return 0, f'self-update: {current} -> {latest} (a running dashboard restarts itself within a minute, once Chat is idle).{warn}'
 
 
 def stage_update(home_dir=None, current=__version__, fetch_fn=fetch, verify_fn=None, sleep=time.sleep):
@@ -509,6 +509,58 @@ def start_code_watch(stop, root, restart, every=CODE_EVERY, fingerprint=code_fin
             if fingerprint(root) != start and restart() is not False:
                 return
     t = (thread or threading.Thread)(target=loop, daemon=True, name='tutti-code-watch')
+    t.start()
+    return t
+
+
+VERSION_LINE = re.compile(r"^__version__\s*=\s*['\"]([0-9][0-9A-Za-z.+-]*)['\"]", re.M)
+RESTARTED_ENV = 'TUTTI_RESTARTED_FOR'   # the installed version a restart was already made for: no restart loop if it did not help
+
+
+def installed_version(home_dir):
+    """The version `current` points at (read from its tutti/__init__.py), or None when it cannot be read."""
+    try:
+        with open(os.path.join(home_dir, 'current', 'tutti', '__init__.py'), encoding='utf8') as f:
+            m = VERSION_LINE.search(f.read(4096))
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def restart_pending(root, running=__version__, home_dir=None, installed=installed_version):
+    """None, or {running, installed, text}: a release install whose `current` moved on while this process kept the old code.
+    A git checkout or pipx install has no `current`, so it never reports one."""
+    home_dir = home_dir or home()
+    if not is_release_install(root, home_dir):
+        return None
+    now = installed(home_dir)
+    if not now or now == running:
+        return None
+    return {'running': running, 'installed': now,
+            'text': f'Tutti {now} is installed but this dashboard still runs {running}: it restarts by itself when Chat is idle '
+                    f'(or restart it from Settings)'}
+
+
+def start_version_watch(stop, root, restart, running=__version__, home_dir=None, every=CODE_EVERY, installed=installed_version,
+                        env=None, thread=None):
+    """A dashboard whose installed version differs from the one it runs (docs/DASHBOARD.md, *New code*) restarts at the next
+    safe point. `tutti self-update` moves `current` to a new folder, which the code watch (it looks at the folder it started
+    from) cannot see. `restart` may return False (Chat is busy): it is asked again next time. A restart that did not change
+    the running version is not repeated for the same installed version (the environment remembers it)."""
+    import threading
+    env = os.environ if env is None else env
+
+    def loop():
+        while not stop.wait(every):
+            pending = restart_pending(root, running, home_dir, installed)
+            if not pending or env.get(RESTARTED_ENV) == pending['installed']:
+                continue
+            env[RESTARTED_ENV] = pending['installed']
+            if restart() is False:
+                env.pop(RESTARTED_ENV, None)   # deferred: try again next time
+                continue
+            return
+    t = (thread or threading.Thread)(target=loop, daemon=True, name='tutti-version-watch')
     t.start()
     return t
 

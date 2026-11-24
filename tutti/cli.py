@@ -1304,6 +1304,7 @@ def _serve_dashboard(cfg, a, collector, httpd):
         collector.start()
     install.start_daily(cfg, collector.stop, remote.ROOT, lambda: _dashboard_daily_restart(collector))
     install.start_code_watch(collector.stop, config.ROOT, lambda: _dashboard_daily_restart(collector))   # new code: restart
+    install.start_version_watch(collector.stop, remote.ROOT, lambda: _dashboard_daily_restart(collector))   # new release: restart
     install.start_selftest(collector.stop, lambda: dashboard.self_test(collector))   # t241: the live self-test
     if (cfg.get('backup') or {}).get('enabled', True):   # t246: the daily backup, verified (docs/BACKUP.md)
         from . import backup

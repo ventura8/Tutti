@@ -90,6 +90,15 @@ code lands in the checkout it runs from (a merge, a pull, `tutti update`), it re
 (`install.start_code_watch`), waiting while Chat is answering; otherwise new pages would call routes the running server
 does not have yet, and new tabs would show nothing.
 
+`tutti self-update` installs into a new folder and moves `current`, which the code watch (it looks at the folder it started
+from) cannot see. So a second watch (`install.start_version_watch`) compares the running `__version__` with the one
+`current` holds, every minute. While they differ the dashboard shows a banner (`restart_pending` in `/api/state`) and
+restarts in place at the next safe point, with the same Chat guard as Settings' Restart (it waits for active answers and
+actions and asks again a minute later). A restart that leaves the version unchanged is not repeated for the same installed
+version (`TUTTI_RESTARTED_FOR`), so a bad install cannot loop. The autopilot loop, the scout round and the failover checks
+run inside the dashboard process, so they move to the new code with it. Git checkouts and pipx installs have no `current`
+and never show the banner.
+
 ## Self-test
 
 The **Self-test** card (t241, `tutti/selftest.py`) shows the live self-test: a minute after the dashboard starts, and then

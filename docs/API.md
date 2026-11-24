@@ -124,7 +124,7 @@ not both); `tutti hosts` is `tutti machines`.
 
 `/api/state` keys: `autopilot`, `config`, `controls`, `devices`, `disk`, `dispatch`, `failover`, `fleet`, `generated_at`,
 `household`, `household_use`, `hygiene`, `jobs`, `local_models`, `machines`, `main`, `outside`, `presence`, `probe_error`,
-`projects`, `queue`, `refresh_seconds`, `releases_stuck`, `scouts`, `security`, `selfheal`, `setup`, `summary`,
+`projects`, `queue`, `refresh_seconds`, `releases_stuck`, `restart_pending`, `scouts`, `security`, `selfheal`, `setup`, `summary`,
 `telemetry`, `updates`, `usage`, `version`, `where`, `work_browser`, `work_queue`, `workers`. The page tolerates new keys;
 treat them as additive.
 

@@ -407,6 +407,8 @@ class Collector:
         out['work_browser'] = browsercmd.view(self.cfg)
         from . import intake  # the intake guard (docs/INTAKE.md): commits and leases no Tutti task explains
         out['outside'] = intake.cached(self.cfg)
+        from . import install  # a release installed under a running dashboard: shown until it restarts onto it
+        out['restart_pending'] = install.restart_pending(config.ROOT)
         out['releases_stuck'] = stuck.cached(config.ROOT)   # merged versions no release publishes: never silent
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())

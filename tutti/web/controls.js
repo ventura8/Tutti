@@ -46,7 +46,8 @@ function device(d, paused) {
     const c = d.card || { status: d.status, label: DEVICE_CHIP[d.status] || d.status, tone: DEVICE_TONE[d.status], why: d.reason };
     const why = paused ? pausedBy(paused) : c.why;
     return el('li', { class: 'row', 'data-device': d.name, 'data-status': c.status },
-        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
+        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` }),
+            d.also_host ? chip('also a host', 'accent') : null),
         chip(c.label, c.tone),
         el('div', { class: 'row__stats' }, deviceAction(d)),
         deviceStats(d),
@@ -174,9 +175,12 @@ function renderControls(s) {
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;
-    $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row', 'data-device': d.name, 'data-status': 'checking' },
+    const devNodes = (items) => (items.length ? items.map((d) => (d.checking ? el('li', { class: 'row', 'data-device': d.name, 'data-status': 'checking' },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d, paused.get(`device:${d.name}`))))
-        : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
+        : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]);
+    $('devices').replaceChildren(...devNodes(devices));
+    if ($('devices-tab-list')) $('devices-tab-list').replaceChildren(...devNodes(devices));
+    if ($('devices-tab-meta')) $('devices-tab-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'}`;
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
     const row = (kind, name, state) => {

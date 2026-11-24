@@ -1730,10 +1730,10 @@ def parser():
                                     'then the nearest one upwards)')
     sub = p.add_subparsers(dest='cmd', required=True)
 
-    def add(name, fn, text):
+    def add(name, fn, text, aliases=()):
         if name not in SUBCOMMANDS:
             SUBCOMMANDS.append(name)
-        s = sub.add_parser(name, help=text, description=text)
+        s = sub.add_parser(name, aliases=list(aliases), help=text, description=text)
         s.set_defaults(fn=fn)
         return s
 
@@ -1762,9 +1762,10 @@ def parser():
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
     s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
-    s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
+    s = add('hosts', cmd_machines, 'probe every host: free slots, load, yield flag (add-android: set up a Termux host)',
+            aliases=('machines',))
     s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
-    s.add_argument('--name', help='add-android: the machine name')
+    s.add_argument('--name', help='add-android: the host name')
     s.add_argument('--host', help='add-android: the device IP address')
     s.add_argument('--user', help='add-android: the Termux user (whoami)')
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')

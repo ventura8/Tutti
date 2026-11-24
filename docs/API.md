@@ -571,6 +571,11 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `machines.*.quiet_pct` | number |  | Share in quiet hours (%): Fans and noise at night: the share in its quiet hours. | admin |
 | `machines.*.limit` | yaml |  | Limited hours: A daily window when Tutti uses at most pct % of it: {window: "18-01", pct: 60, days: [mon, ...]} (every day unless listed; main: true follows the main machine on a move). | admin |
 | `machines.*.quiet_hours` | yaml |  | Quiet hours: Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours). | admin |
+| `machines.*.roles` | list |  | Roles: What the host can do: cast-sender, runner, etc. | admin |
+| `machines.*.presence` | yaml |  | Presence: Presence settings for this host. | admin |
+| `machines.*.sensors` | yaml |  | Sensors: Sensor settings for this host. | admin |
+| `machines.*.local_models` | yaml |  | Local models: Local models served on this host. | admin |
+| `machines.*.resume_delay` | number (seconds) | `30` | Resume delay: Seconds to wait before resuming after a pause or quiet hours. | admin |
 | `machines.*.heat` | yaml |  | Heat: cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot. | admin |
 | `machines.*.yield_file` | text | `~/.tutti/yield` | Yield flag: While this file exists, the machine gets nothing new. | admin |
 | `machines.*.lock_prefix` | text | `/tmp/tutti-slot-` | Lock files: Where its slot locks live. | admin |
@@ -599,6 +604,11 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `files.refuse` | list |  | Also refuse: Patterns refused on top of the secrets that always are. | admin |
 | `guard.low_gb` | number (GB) |  | Pause containers under: `tutti guard` pauses the runner's containers below this free memory. | admin |
 | `guard.high_gb` | number (GB) |  | Resume them over: And resumes them above this. | admin |
+| `devices.*.enabled` | switch | `True` | Enabled: Whether this device takes runs. | admin |
+| `devices.*.brightness_pct` | number | `30` | Brightness (%): Screen brightness while Tutti holds the device. | admin |
+| `devices.*.volume` | number | `2` | Volume: Media volume while Tutti holds the device. | admin |
+| `devices.*.keep_awake` | switch | `True` | Keep awake: Keep the screen awake while Tutti holds the device. | admin |
+| `devices.*.resume_delay` | number (seconds) | `30` | Resume delay: Seconds to wait before resuming after a pause or call. | admin |
 | `devices.*.serial` | text |  | adb serial: Wireless: its mDNS name (adb-…._adb-tls-connect._tcp, set by `tutti devices pair`); USB: from `adb devices`. | admin |
 | `devices.*.wireless` | list |  | Wireless adb: host:port addresses tried after USB: LAN first, then the VPN. | admin |
 | `devices.*.machine` | select |  | Plugged into: The machine the device is reached from. | admin |
@@ -831,7 +841,42 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `machines.*.policy.max_battery_c` | number (°C) | `40 (Termux)` | Hottest battery: No new run at or above this battery temperature. | admin |
 | `machines.*.policy.wifi_only` | switch | `False` | Wi-Fi only: A run starts only while the device is on Wi-Fi. | admin |
 | `machines.*.policy.screen` | select wake, off, any | `off (Termux)` | Screen: What a run does with the screen. | admin |
+| `hosts.*.host` | text |  | Host: An ssh alias from ~/.ssh/config, or local for this computer. | admin |
+| `hosts.*.transport` | select local, ssh, wsl, android, household | `ssh` | Reached by: ssh, local, wsl (a Windows machine's WSL) or android (Termux). | admin |
+| `hosts.*.user` | text |  | User: The login on the machine (Termux). | admin |
+| `hosts.*.port` | number |  | ssh port: Termux's sshd listens on 8022. | admin |
+| `hosts.*.root` | text | `tutti-wt` | Copies folder: Under the remote home, where the copies go. | admin |
+| `hosts.*.ups` | switch |  | On a UPS: This machine keeps running through a power cut: preferred as the backup main machine. | admin |
+| `hosts.*.always_on` | switch |  | Always on: This machine is never turned off: preferred as the backup main machine. | admin |
+| `hosts.*.slots` | number | `2` | Slots: At most this many runs at once. | admin |
+| `hosts.*.min_free_gb` | number (GB) | `6` | Free memory needed: A run starts only with this much memory free. | admin |
+| `hosts.*.max_load_ratio` | number |  | Load limit: Fit only while its load is under this share of its cores. | admin |
+| `hosts.*.use_pct` | number |  | Tutti's share (%): How much of this machine's slots, cores and model threads Tutti uses. | admin |
+| `hosts.*.in_use_pct` | number |  | Share while in use (%): While someone uses this machine (keyboard or mouse in the last minutes). | admin |
+| `hosts.*.quiet_pct` | number |  | Share in quiet hours (%): Fans and noise at night: the share in its quiet hours. | admin |
+| `hosts.*.limit` | yaml |  | Limited hours: A daily window when Tutti uses at most pct % of it: {window: "18-01", pct: 60, days: [mon, ...]} (every day unless listed; main: true follows the main machine on a move). | admin |
+| `hosts.*.quiet_hours` | yaml |  | Quiet hours: Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours). | admin |
+| `hosts.*.roles` | list |  | Roles: What the host can do: cast-sender, runner, etc. | admin |
+| `hosts.*.presence` | yaml |  | Presence: Presence settings for this host. | admin |
+| `hosts.*.sensors` | yaml |  | Sensors: Sensor settings for this host. | admin |
+| `hosts.*.local_models` | yaml |  | Local models: Local models served on this host. | admin |
+| `hosts.*.resume_delay` | number (seconds) | `30` | Resume delay: Seconds to wait before resuming after a pause or quiet hours. | admin |
+| `hosts.*.heat` | yaml |  | Heat: cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot. | admin |
+| `hosts.*.yield_file` | text | `~/.tutti/yield` | Yield flag: While this file exists, the machine gets nothing new. | admin |
+| `hosts.*.lock_prefix` | text | `/tmp/tutti-slot-` | Lock files: Where its slot locks live. | admin |
+| `hosts.*.locks` | list |  | Named locks: One slot per lock name, instead of a count. | admin |
+| `hosts.*.wsl_helper` | text |  | WSL helper: The path inside WSL of the base64 runner. | admin |
+| `hosts.*.runner` | yaml |  | Runner override: This machine's own runner keys over the shared runner. | admin |
+| `hosts.*.containers` | list |  | Containers: Container name prefixes shown as its jobs. | admin |
+| `hosts.*.files` | yaml |  | Files override: This machine's own files keys. | admin |
+| `hosts.*.enabled` | switch |  | On: An Android machine is opt-in. | admin |
+| `hosts.*.policy.min_battery` | number (%) | `30 (phone, tablet), 0 (tv)` | Lowest battery: A run starts only above this charge. | admin |
+| `hosts.*.policy.require_charging` | switch | `False` | Only while charging: A run starts only while the device charges. | admin |
+| `hosts.*.policy.max_battery_c` | number (°C) | `42 (phone, tablet), 0 (tv)` | Hottest battery: No new run at or above this battery temperature. | admin |
+| `hosts.*.policy.wifi_only` | switch | `False` | Wi-Fi only: A run starts only while the device is on Wi-Fi. | admin |
+| `hosts.*.policy.screen` | select wake, off, any | `wake (phone, tablet), any (tv)` | Screen: What a run does with the screen. | admin |
 | `machines` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
+| `hosts` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
 | `workers` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
 | `devices` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
 | `accounts` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
@@ -944,18 +989,34 @@ usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--auto]
 | `--check` | only say whether a newer release is out |  |
 | `--auto` | quiet no-op when turned off (self_update.enabled) or not a release install |  |
 
-### `tutti machines`
+### `tutti hosts`
 
-probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)
+probe every host: free slots, load, yield flag (add-android: set up a Termux host)
 
 ```text
-usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [{add-android}]
+usage: tutti hosts [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [{add-android}]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `action {add-android}` | print the one-time Termux setup and the config lines |  |
-| `--name` | add-android: the machine name |  |
+| `--name` | add-android: the host name |  |
+| `--host` | add-android: the device IP address |  |
+| `--user` | add-android: the Termux user (whoami) |  |
+| `--port` | add-android: Termux sshd port (8022) | `8022` |
+
+### `tutti machines`
+
+probe every host: free slots, load, yield flag (add-android: set up a Termux host)
+
+```text
+usage: tutti hosts [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [{add-android}]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {add-android}` | print the one-time Termux setup and the config lines |  |
+| `--name` | add-android: the host name |  |
 | `--host` | add-android: the device IP address |  |
 | `--user` | add-android: the Termux user (whoami) |  |
 | `--port` | add-android: Termux sshd port (8022) | `8022` |

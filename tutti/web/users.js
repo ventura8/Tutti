@@ -143,6 +143,8 @@ function showUsersView() {
     $('users-view').hidden = !on;
     if (on) {
         $('dashboard-view').hidden = true;
+        $('devices-view').hidden = true;
+        $('hosts-view').hidden = true;
         $('settings-view').hidden = true;
         $('chat-view').hidden = true;
     }

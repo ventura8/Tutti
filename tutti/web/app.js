@@ -587,7 +587,8 @@ function machine(m) {
         const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
         stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${tuttiNum(t, { digits: 0 })} °C` }));
     }
-    if ((m.cast_roles || []).length) stats.append(el('span', { text: 'Cast sender', title: 'Chrome, Chromium or the desktop sender (checked daily; machines.<m>.roles overrides)' }));
+    if (m.also_device) stats.append(chip('also a device', 'accent'));
+    if ((m.cast_roles || []).length) stats.append(el('span', { text: 'Cast sender', title: 'Chrome, Chromium or the desktop sender (checked daily; hosts.<h>.roles overrides)' }));
     if (m.heat?.cap_c !== undefined) stats.append(el('span', { class: 'temp', title: 'machines.<m>.heat (Settings): one run at the cap, none at the stop',
         text: `heat cap ${m.heat.cap_c} °C · stop ${m.heat.stop_c ?? '–'} °C` }));
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note,
@@ -700,8 +701,11 @@ function renderMachines(s) {
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
-    $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
-        : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
+    const hostNodes = () => (ms.items.length ? ms.items.map(machine)
+        : [el('li', {}, ms.probed_at ? empty('No hosts', 'Add hosts: to the config to route heavy runs.') : empty('Probing hosts…', 'ssh answers can take a few seconds.'))]);
+    $('machines').replaceChildren(...hostNodes());
+    if ($('hosts-tab-list')) $('hosts-tab-list').replaceChildren(...hostNodes());
+    if ($('hosts-tab-meta')) $('hosts-tab-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
 }
 

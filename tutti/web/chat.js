@@ -745,7 +745,11 @@ async function showActivity() {
 function chatView() {
     const h = location.hash || '';
     const admin = typeof document !== 'undefined' && document.body?.dataset.role === 'admin';
-    return h.startsWith('#settings') ? 'settings' : h.startsWith('#users') && admin ? 'users' : h.startsWith('#dashboard') ? 'dashboard' : 'chat';
+    if (h.startsWith('#settings')) return 'settings';
+    if (h.startsWith('#devices')) return 'devices';
+    if (h.startsWith('#hosts')) return 'hosts';
+    if (h.startsWith('#users') && admin) return 'users';
+    return h.startsWith('#dashboard') ? 'dashboard' : 'chat';
 }
 
 function showChatView() {

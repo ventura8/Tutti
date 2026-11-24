@@ -327,12 +327,31 @@ function renderSettings(data) {
 
 // ---- the tab
 
+function renderSectionInto(sectionId, containerId) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    if (document.body?.dataset.role === 'viewer') {
+        box.replaceChildren(h('p', { class: 'setting__note', text: 'Only an admin can change these settings.' }));
+        return;
+    }
+    if (!SET.data) {
+        box.replaceChildren(h('p', { class: 'setting__note', text: 'Loading the settings…' }));
+        return;
+    }
+    const sec = (SET.data.sections || []).find((s) => s.id === sectionId);
+    const node = sec ? sectionBlock(sec) : null;
+    box.replaceChildren(node || h('p', { class: 'setting__note', text: 'No settings found for this section.' }));
+}
+
 function drawSettings() {
     const box = document.getElementById('settings-body');
-    if (!box) return;
-    const active = document.activeElement?.id;
-    box.replaceChildren(...renderSettings(SET.data));
-    if (active && active !== 'settings-search' && document.getElementById(active)) document.getElementById(active).focus({ preventScroll: true });
+    if (box) {
+        const active = document.activeElement?.id;
+        box.replaceChildren(...renderSettings(SET.data));
+        if (active && active !== 'settings-search' && document.getElementById(active)) document.getElementById(active).focus({ preventScroll: true });
+    }
+    renderSectionInto('devices', 'devices-tab-settings');
+    renderSectionInto('hosts', 'hosts-tab-settings');
 }
 
 async function loadSettings(force) {
@@ -360,20 +379,31 @@ function goTo(target) {
     if (node) node.scrollIntoView({ block: 'start' });
 }
 
+function currentView(hash) {
+    if (hash.startsWith('#settings')) return 'settings';
+    if (hash.startsWith('#devices')) return 'devices';
+    if (hash.startsWith('#hosts')) return 'hosts';
+    if (hash.startsWith('#dashboard')) return 'dashboard';
+    if (hash.startsWith('#users') && document.body.dataset.role === 'admin') return 'users';
+    return 'chat';
+}
+
 async function showView() {
     const hash = location.hash || '';
-    // the views by hash: #settings, #users (users.js), #dashboard; anything else is the Chat (chat.js), the default
-    const view = hash.startsWith('#settings') ? 'settings' : hash.startsWith('#dashboard') ? 'dashboard' : hash.startsWith('#users') && document.body.dataset.role === 'admin' ? 'users' : 'chat';
-    const settings = view === 'settings';
-    document.getElementById('dashboard-view').hidden = view !== 'dashboard';
-    document.getElementById('settings-view').hidden = !settings;
+    // the views by hash: #settings, #devices, #hosts, #users (users.js), #dashboard; anything else is the Chat (chat.js)
+    const view = currentView(hash);
+    const setHidden = (id, hide) => { const n = document.getElementById(id); if (n) n.hidden = hide; };
+    setHidden('dashboard-view', view !== 'dashboard');
+    setHidden('devices-view', view !== 'devices');
+    setHidden('hosts-view', view !== 'hosts');
+    setHidden('settings-view', view !== 'settings');
     for (const a of document.querySelectorAll('[data-view]')) {
         if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     }
-    if (!settings) return;
-    SET.wanted = decodeURIComponent(hash.slice('#settings/'.length));
-    if (!SET.data) await loadSettings();
+    if (!['settings', 'devices', 'hosts'].includes(view)) return;
+    SET.wanted = view === 'settings' ? decodeURIComponent(hash.slice('#settings/'.length)) : '';
+    if (!SET.data && document.body?.dataset.role !== 'viewer') await loadSettings();
     else drawSettings();
     if (SET.wanted) goTo(SET.wanted);
 }

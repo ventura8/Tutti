@@ -43,6 +43,14 @@ class Card(unittest.TestCase):
         self.assertEqual(c['status'], 'idle')
         self.assertIn('1 h 35 min', c['why'])
 
+    def test_android_device_also_configured_as_host_gets_badges(self):
+        cfg = {'devices': {'pixel9pro': {'model': 'Pixel 9 Pro'}}, 'hosts': {'pixel9pro': {'host': '10.0.0.5'}}}
+        out = {'devices': {'items': [dict(PHONE)]}, 'machines': {'items': [{'name': 'pixel9pro', 'status': 'free'}]},
+               'controls': {'paused': []}, 'dispatch': {'warnings': [], 'reroute': []}}
+        attached = devicecard.attach(cfg, out)
+        self.assertTrue(attached['devices']['items'][0]['also_host'])
+        self.assertTrue(attached['machines']['items'][0]['also_device'])
+
 
 if __name__ == '__main__':
     unittest.main()

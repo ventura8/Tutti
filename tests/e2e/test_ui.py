@@ -9,9 +9,14 @@ import os
 import re
 import unittest
 
-import axe_playwright_python
+try:
+    import axe_playwright_python
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    axe_playwright_python = None
+    sync_playwright = None
+
 from harness import Dashboard
-from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -22,7 +27,7 @@ def read(path):
 
 
 CHECKS = read(os.path.join(HERE, 'checks.js'))
-AXE = read(os.path.join(os.path.dirname(axe_playwright_python.__file__), 'axe.min.js'))   # axe-core 4.12, pinned with the package
+AXE = read(os.path.join(os.path.dirname(axe_playwright_python.__file__), 'axe.min.js')) if axe_playwright_python else ''
 AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 WIDTHS = {'phone': (360, 780), 'tablet': (768, 1024), 'laptop': (1440, 900), '4k': (3840, 2160)}
 THEMES = ('light', 'dark')
@@ -39,6 +44,8 @@ class World:
 
 
 def setUpModule():
+    if not axe_playwright_python or not sync_playwright:
+        raise unittest.SkipTest('playwright or axe_playwright_python is not installed')
     World.dash = Dashboard()
     World.pw = sync_playwright().start()
     World.browser = World.pw.chromium.launch()

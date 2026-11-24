@@ -279,10 +279,34 @@ console.log(JSON.stringify({{ text: s.renderSettings({json.dumps(data)}).map(tex
         with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:
             page = f.read()
         self.assertIn('href="#settings" data-view="settings"', page)
+        self.assertIn('href="#devices" data-view="devices"', page)
+        self.assertIn('href="#hosts" data-view="hosts"', page)
         self.assertIn('id="settings-view"', page)
+        self.assertIn('id="devices-view"', page)
+        self.assertIn('id="hosts-view"', page)
         self.assertIn('settings.js?v=', page)
         with open(os.path.join(dashboard.WEB, 'sw.js'), encoding='utf8') as f:
             self.assertIn('`settings.js${V}`', f.read())
+
+    def test_devices_and_hosts_settings_sections_include_required_fields(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'tutti.config.yaml')
+            with open(path, 'w', encoding='utf8') as f:
+                yaml.safe_dump({'hosts': {'box': {'host': 'box.example'}}, 'devices': {'phone': {'serial': 'abc'}}}, f)
+            cfg = config.normalise({'hosts': {'box': {'host': 'box.example'}}, 'devices': {'phone': {'serial': 'abc'}}})
+            cfg['_path'] = path
+            payload = settings.view(cfg, env={})
+        by_id = {s['id']: s for s in payload['sections']}
+        self.assertIn('devices', by_id)
+        self.assertIn('hosts', by_id)
+        dev_keys = {r['key'] for g in by_id['devices']['groups'] for e in g['entries'] for r in e['rows']}
+        for k in ('devices.phone.enabled', 'devices.phone.brightness_pct', 'devices.phone.volume',
+                  'devices.phone.keep_awake', 'devices.phone.resume_delay', 'devices.phone.roles'):
+            self.assertIn(k, dev_keys)
+        host_keys = {r['key'] for g in by_id['hosts']['groups'] for e in g['entries'] for r in e['rows']}
+        for k in ('hosts.box.roles', 'hosts.box.quiet_hours', 'hosts.box.presence',
+                  'hosts.box.sensors', 'hosts.box.local_models', 'hosts.box.resume_delay'):
+            self.assertIn(k, host_keys)
 
 
 if __name__ == '__main__':

@@ -63,8 +63,13 @@ def attach(cfg, out):
     paused = {p['name']: p for p in (out.get('controls') or {}).get('paused') or [] if p.get('kind') == 'device'}
     disp = out.get('dispatch') or {}
     warns = {w['name']: w for w in disp.get('warnings') or [] if w.get('kind') in ('android', 'tv', 'device')}
+    hosts = cfg.get('hosts') or cfg.get('machines') or {}
+    devs = cfg.get('devices') or {}
     for d in (out.get('devices') or {}).get('items') or []:
-        label = ((cfg.get('devices') or {}).get(d['name']) or {}).get('model') or d['name']
+        label = (devs.get(d['name']) or {}).get('model') or d['name']
         moved = next((line.split(': ', 1)[-1] for line in disp.get('reroute') or [] if line.startswith(f'{label} away')), '')
+        d['also_host'] = d['name'] in hosts
         d['card'] = card(d, paused.get(d['name']), warns.get(d['name']), moved)
+    for m in (out.get('machines') or {}).get('items') or []:
+        m['also_device'] = m['name'] in devs
     return out

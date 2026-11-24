@@ -15,7 +15,7 @@ DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 RESTART = {'host', 'dashboard.port', 'dashboard.bind', 'dashboard.origins', 'auth.client_id', 'auth.session_hours',
            'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
 # Named entries: each one is drawn as its own group of fields
-ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches',
+ENTRIES = ('hosts', 'machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches',
            'review.repos')
 # About people, not this system: shown on the Manage tab (users, roles, invites, the household, each user's schedule and
 # main agent; tutti/manage.py), never in Settings
@@ -26,8 +26,8 @@ SECTIONS = [
     ('workers', 'Workers', 'The agents and local models Tutti can brief, and the order `tutti run auto` tries them.',
      ['workers', 'routing.workers', 'brief']),
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),
-    ('machines', 'Machines', 'The computers that run heavy commands, their slot queues and how commands run there.',
-     ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
+    ('hosts', 'Hosts', 'The computers that run heavy commands, their slot queues and how commands run there.',
+     ['hosts', 'machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos', 'depbots']),
@@ -186,6 +186,12 @@ FIELDS = {
     'machines.*.limit': field('Limited hours', 'A daily window when Tutti uses at most pct % of it: {window: "18-01", pct: 60, '
                               'days: [mon, ...]} (every day unless listed; main: true follows the main machine on a move).', **YAML),
     'machines.*.quiet_hours': field('Quiet hours', 'Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours).', **YAML),
+    'machines.*.roles': field('Roles', 'What the host can do: cast-sender, runner, etc.', 'list', item='role'),
+    'machines.*.presence': field('Presence', 'Presence settings for this host.', **YAML),
+    'machines.*.sensors': field('Sensors', 'Sensor settings for this host.', **YAML),
+    'machines.*.local_models': field('Local models', 'Local models served on this host.', **YAML),
+    'machines.*.resume_delay': field('Resume delay', 'Seconds to wait before resuming after a pause or quiet hours.',
+                                     'number', min=0, unit='seconds', default=30),
     'machines.*.heat': field('Heat', 'cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot.', **YAML),
     'machines.*.yield_file': field('Yield flag', 'While this file exists, the machine gets nothing new.', 'text'),
     'machines.*.lock_prefix': field('Lock files', 'Where its slot locks live.', 'text'),
@@ -216,6 +222,13 @@ FIELDS = {
     'guard.low_gb': field('Pause containers under', '`tutti guard` pauses the runner\'s containers below this free memory.', **GB),
     'guard.high_gb': field('Resume them over', 'And resumes them above this.', **GB),
     # devices
+    'devices.*.enabled': field('Enabled', 'Whether this device takes runs.', 'switch', default=True),
+    'devices.*.brightness_pct': field('Brightness (%)', 'Screen brightness while Tutti holds the device.',
+                                      'number', min=0, max=100, default=30),
+    'devices.*.volume': field('Volume', 'Media volume while Tutti holds the device.', 'number', min=0, max=100, default=2),
+    'devices.*.keep_awake': field('Keep awake', 'Keep the screen awake while Tutti holds the device.', 'switch', default=True),
+    'devices.*.resume_delay': field('Resume delay', 'Seconds to wait before resuming after a pause or call.',
+                                    'number', min=0, unit='seconds', default=30),
     'devices.*.serial': field('adb serial', 'Wireless: its mDNS name (adb-…._adb-tls-connect._tcp, set by `tutti devices pair`); '
                                 'USB: from `adb devices`.', 'text'),
     'devices.*.wireless': field('Wireless adb', 'host:port addresses tried after USB: LAN first, then the VPN.', 'list',
@@ -534,5 +547,7 @@ FIELDS = {
 }
 # a Termux machine's policy fields, like a device's
 FIELDS.update({f'machines.*.{k}': v for k, v in POLICY.items()})
+# hosts.* fields mirror machines.*
+FIELDS.update({f'hosts.*.{k[len("machines.*."):]}': v for k, v in list(FIELDS.items()) if k.startswith('machines.*.')})
 # the entry defaults that are not in config.DEFAULTS
-ENTRY_DEFAULTS = {'machines': config.MACHINE_DEFAULTS}
+ENTRY_DEFAULTS = {'machines': config.MACHINE_DEFAULTS, 'hosts': config.MACHINE_DEFAULTS}

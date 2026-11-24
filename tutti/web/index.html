@@ -71,6 +71,8 @@
         <nav class="tabs" aria-label="Views">
             <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
+            <a class="tabs__tab" href="#devices" data-view="devices">Devices</a>
+            <a class="tabs__tab" href="#hosts" data-view="hosts">Hosts</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
@@ -198,10 +200,10 @@
                 <div id="owner" class="owner"></div>
             </section>
 
-            <!-- Machines directly below Usage & pacing (the owner, 2026-11-14) -->
+            <!-- Hosts directly below Usage & pacing (the owner, 2026-11-16) -->
             <section class="card card--machines span-full" aria-labelledby="machines-h">
                 <header class="card__head">
-                    <h2 id="machines-h">Machines</h2>
+                    <h2 id="machines-h">Hosts</h2>
                     <p class="card__meta" id="machines-meta"></p>
                 </header>
                 <div id="machines-disk"></div>
@@ -487,6 +489,42 @@
                 </details>
             </section>
         </div>
+      </div>
+
+      <!-- Devices tab: every device card and every device setting (admin-only to change). -->
+      <div id="devices-view" class="devices-view" hidden>
+        <section class="card span-full" aria-labelledby="devices-tab-h">
+            <header class="card__head">
+                <h2 id="devices-tab-h">Devices</h2>
+                <p class="card__meta" id="devices-tab-meta"></p>
+            </header>
+            <ul id="devices-tab-list" class="list" aria-label="Android devices"></ul>
+        </section>
+        <section class="card span-full" aria-labelledby="devices-settings-h">
+            <header class="card__head">
+                <h2 id="devices-settings-h">Device settings</h2>
+                <p class="card__meta">Admin-only to change: brightness, volume, roles, keep-awake, resume delay, enabled, hours and night mode.</p>
+            </header>
+            <div id="devices-tab-settings" class="settings__body"></div>
+        </section>
+      </div>
+
+      <!-- Hosts tab: every host's data and settings (cards, roles, quiet hours, presence, sensors, local models, resume delay). -->
+      <div id="hosts-view" class="hosts-view" hidden>
+        <section class="card span-full" aria-labelledby="hosts-tab-h">
+            <header class="card__head">
+                <h2 id="hosts-tab-h">Hosts</h2>
+                <p class="card__meta" id="hosts-tab-meta"></p>
+            </header>
+            <ul id="hosts-tab-list" class="list list--grid" aria-label="Hosts"></ul>
+        </section>
+        <section class="card span-full" aria-labelledby="hosts-settings-h">
+            <header class="card__head">
+                <h2 id="hosts-settings-h">Host settings</h2>
+                <p class="card__meta">Roles, quiet hours, presence, sensors, local models, resume delay and limits.</p>
+            </header>
+            <div id="hosts-tab-settings" class="settings__body"></div>
+        </section>
       </div>
 
       <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->

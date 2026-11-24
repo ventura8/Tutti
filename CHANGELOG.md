@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- Dashboard: **Devices** tab holding every device card and device setting (admin-only to change: `enabled`, `brightness_pct`
+  default 30, `volume`, `roles`, `keep_awake`, `resume_delay`, hours, night mode) and **Hosts** tab holding every host's data
+  and settings (`roles`, `quiet_hours`, `presence`, `sensors`, `local_models`, `resume_delay`).
+- Config & CLI: `hosts:` preferred config key and `tutti hosts` command (keeping `machines:` and `tutti machines` as aliases).
+- Android dual-role badges: devices that are also configured as hosts show an `also a host` badge on Devices and `also a device`
+  on Hosts.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

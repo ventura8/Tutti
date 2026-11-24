@@ -725,3 +725,10 @@ reason: local model servers (nuc, laptop) were down and the ladder kept trying t
 cannot be a worker (research only, ~10 s CPU per cell): it drafts diffs and Tutti applies them. Lesson: a task that fails
 the same way ten times needs its cause read, not another retry.
 
+
+## Tests passed in CI and failed at a desk (2026-11-24)
+
+Four tests (three work-queue round tests, the dashboard's `/api/state`) failed whenever a person used the computer:
+`quietmode.status` held every `here` job, and `share.idle_seconds` cut the local machine's share so it read `busy`.
+CI has no keyboard, so it never saw them. Fix: those tests inject both readings. Lesson: a test that reaches
+`quietmode` or `share.idle_seconds` unmocked depends on who sits at the machine; inject them, as the plan tests do.

@@ -13,7 +13,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import cli, config, dashboard, pacing, routing, state, waiting
+from tutti import cli, config, dashboard, pacing, routing, share, state, waiting
 
 T = pacing.parse_time
 NOW = T('2026-01-06T02:00Z')
@@ -239,6 +239,8 @@ class ServerTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         folder = cls.tmp.name
+        cls.idle = mock.patch.object(share, 'idle_seconds', return_value=None)   # not whoever sits at this computer now
+        cls.idle.start()
         log = os.path.join(folder, 'usage.jsonl')
         now = pacing.parse_time(time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime()))
         pacing.append_log(log, 'claude', 97, now - timedelta(minutes=5))
@@ -254,6 +256,7 @@ class ServerTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.idle.stop()
         cls.httpd.shutdown()
         cls.httpd.server_close()
         cls.tmp.cleanup()

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Tests: the work-queue round tests and the dashboard's `/api/state` test no longer depend on whether a person is at the
+  computer running them (a person's presence held every `here` job and cut the machine's share, so they failed on a
+  desk and passed in CI).
+
 ## 0.31.18 (2026-11-24)
 
 ### Fixed

@@ -82,6 +82,7 @@
                 <span class="nav-menu__current" id="nav-menu-current">Chat</span>
             </button>
             <div class="nav-menu__panel" id="nav-menu-panel" hidden>
+                <a class="nav-menu__link" href="#needs" data-view="needs">Needs you <span class="badge" id="needs-count" hidden></span></a>
                 <a class="nav-menu__link" href="#chat" data-view="chat" aria-current="page">Chat</a>
                 <a class="nav-menu__link" href="#dashboard" data-view="dashboard">Dashboard</a>
                 <a class="nav-menu__link" href="#tasks" data-view="tasks">Tasks</a>
@@ -219,6 +220,12 @@
           <div id="chat-dialog-body"></div>
           <div class="chat__dialogacts" id="chat-dialog-actions"></div>
         </dialog>
+      </div>
+      <!-- Needs you (t-needs-view): what only a person can do, on its own view; the default while it has items. Its cards
+           live in the Dashboard grid and move here while this view is open (app.js, showNeedsView). -->
+      <div id="needs-view" class="needs-view" hidden>
+        <h2 class="sr-only">Needs you</h2>
+        <div class="grid" id="needs-grid"></div>
       </div>
       <div id="dashboard-view" hidden>
         <section class="tiles" aria-label="At a glance" id="tiles"></section>

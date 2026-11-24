@@ -69,7 +69,9 @@ had from the coordinator (`<state>/household/grants.json`), so the page never wa
 
 ## Chat
 
-The dashboard opens on **Chat** (`#chat`, the default). The hamburger menu in the app bar switches views (Chat,
+The dashboard opens on **Needs you** (`#needs`) while something waits for you (its count shows in the menu), else on
+**Chat** (`#chat`); an address that names a view always opens that view. Needs you holds the Needs you and My questions
+cards on a page of their own; they stay in the Dashboard too. The hamburger menu in the app bar switches views (Chat,
 Dashboard, Settings, Users for admins); the same hashes as before (`#dashboard`, `#settings`, `#users`).
 
 ### Custom layout (t447)

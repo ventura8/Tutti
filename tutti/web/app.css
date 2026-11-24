@@ -1031,3 +1031,7 @@ select { max-width: 100%; text-overflow: clip; }
 @media (prefers-reduced-motion: reduce) {
     .is-loading :empty::before, .skeleton { animation: none; }
 }
+/* Needs you view: its cards full width, one column */
+.needs-view .grid { grid-template-columns: 1fr; }
+.nav-menu__link .badge { margin-inline-start: 0.4em; padding: 0 0.45em; border-radius: 999px; background: var(--bad-c); color: var(--bad);
+    font-size: 0.8em; font-weight: 600; }

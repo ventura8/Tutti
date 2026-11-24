@@ -8,6 +8,9 @@ computers and Android devices for software work, without anyone stepping on anyo
 
 ## What Tutti does, in plain words
 
+- **It takes care of itself (core value).** Every reader, worker, lease, machine and job detects its own failure, retries,
+  falls back and repairs itself; it reports only what is truly impossible, with the reason, and never waits on the
+  owner to fix it ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#design-rules)).
 - **One main agent, many helpers.** A capable agent (Claude Code, or any other, [docs/CONDUCT.md](docs/CONDUCT.md))
   plans and reviews; bounded tasks go to cheaper workers (other CLI agents, local models), each in its own worktree,
   and every diff is reviewed and checked before it lands ([docs/WORKERS.md](docs/WORKERS.md)).

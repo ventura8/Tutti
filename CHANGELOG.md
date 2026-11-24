@@ -62,6 +62,9 @@
 
 ### Fixed
 
+- Config: `tutti config` warns about `lead_hours` only for the old example's 3; any other value (e.g. the owner's 2) is a
+  choice, not a mistake.
+
 ## 0.31.16 (2026-11-23)
 
 ### Changes

@@ -26,6 +26,12 @@ Start it in the background with
 
 Paused and disabled accounts remain visible in Usage with their status and reason. They stay excluded from routing and do not receive new work.
 
+## While it loads
+
+Until the first state arrives, every card shows skeleton placeholders: shimmering grey bars where its rows will be, as
+Material apps do, instead of a blank card. The first render swaps them for the content; screen readers still hear
+"Loading…", and with reduced motion the bars stay still.
+
 ## Install it as an app
 
 Open the page in Chrome or Edge and choose **Install app** (the button in the bar, or the browser's install icon). It

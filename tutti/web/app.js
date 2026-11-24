@@ -1430,6 +1430,8 @@ function renderAttention(s) {
 function render() {
     const s = ui.last;
     if (!s) return;
+    document.body.classList.remove('is-loading');   // the first state is in: the skeleton cards give way
+    document.body.removeAttribute('aria-busy');
     saveUi();   // the filters, the project, Show more and the open jobs, as this render shows them
     const now = Date.now();
     $('config-path').textContent = s.config;

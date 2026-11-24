@@ -207,6 +207,18 @@ class Autoland(unittest.TestCase):
     def test_new_test_files_join_the_allowlist_when_the_repo_has_one(self):
         self.assertEqual(grokpatch.allowlist_new(self.wt, ['tests/test_x.py']), [])   # no SDIST_ALLOWLIST: left alone
 
+    def test_only_a_diff_saved_in_the_patches_folder_is_opened(self):
+        from tutti import config
+        folder = os.path.join(config.state_dir(self.cfg), 'patches')
+        os.makedirs(folder, exist_ok=True)
+        good = os.path.join(folder, 't9.diff')
+        with open(good, 'w', encoding='utf8') as f:
+            f.write('')
+        self.assertEqual(grokpatch.patch_file(self.cfg, good), os.path.realpath(good))
+        self.assertIsNone(grokpatch.patch_file(self.cfg, os.path.join(folder, '..', 'backlog.json')))
+        self.assertIsNone(grokpatch.patch_file(self.cfg, '/etc/passwd'))
+        self.assertIsNone(grokpatch.patch_file(self.cfg, None))
+
     def test_a_diff_path_outside_the_worktree_is_never_trusted(self):
         root = os.path.realpath(self.wt)
         self.assertTrue(grokpatch._inside(root, 'tests/test_x.py'))

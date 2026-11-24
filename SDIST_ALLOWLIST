@@ -131,6 +131,7 @@ tests/test_decisional.py
 tests/test_decisions.py
 tests/test_delegate_fixrounds.py
 tests/test_delegate_fresh.py
+tests/test_delegate_track.py
 tests/test_depbots.py
 tests/test_deps.py
 tests/test_devclass.py

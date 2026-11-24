@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
+  full name no longer makes a new empty `<prefix><prefix><id>` worktree.
+
 ### Added
 
 - `tutti run auto` spreads work: every account with room takes a turn (the one picked longest ago first, accounts ahead
@@ -25,6 +30,8 @@
   (docs/TUI.md).
 - Agents tab (t252): each card shows its **track record** from every attempt in the backlog: runs, passed, the most common
   kind of failure and the top reasons (docs/DASHBOARD.md, *Agents*).
+
+### Fixed
 
 ## 0.31.16 (2026-11-23)
 

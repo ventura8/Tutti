@@ -11,6 +11,8 @@
 
 ### Added
 
+- Dashboard: Material-style skeleton cards. Until the first state arrives, each card shows shimmering placeholder bars
+  instead of a blank space or a bare "Loading…" (still read out to screen readers; no motion with reduced motion).
 - `tutti agents count`: the live Claude subagents of a session against `agents.max_claude_subagents` (default 3), read from the
   session's subagent transcripts; exit 1 at the limit (docs/CONDUCT.md, *Counting subagents*).
 - Delegate: base-broken detection. A check that fails on a run is run once on the run's base commit in a temporary clean

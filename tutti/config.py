@@ -48,7 +48,7 @@ DEFAULTS = {
     # delegate: `tutti run --repo`; checks default to ship.checks, worktrees go under project.worktrees/<prefix><id>
     # fix_rounds: how many times a failing check's errors go back to the same worker in the same worktree (0: never)
     # remote_track: base name for per-run remote copies (`<base>-<run-id>`); --remote-track / --track keep a shared folder
-    'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run', 'fix_rounds': 3},
+    'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run', 'fix_rounds': 3, 'base_check': True},
     # review: `tutti pr review`; who to ask, how long to wait for them, and which cheap workers review when none answers
     # coderabbit: wait (default; no merge until CodeRabbit reviewed), fallback, skip or skip-when-unavailable; repos.<owner/name>
     'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': [],

@@ -844,6 +844,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `delegate.prefix` | text | `tutti-run-` | Worktree prefix: Worktrees go under project.worktrees/<prefix><id>. | admin |
 | `delegate.remote_track` | text | `tutti-run` | Folder on the test machine: Base name for per-run remote copies (`<name>-<run-id>`); --remote-track keeps one shared folder. | admin |
 | `delegate.fix_rounds` | number | `3` | Fix rounds after a failed check: A failing check's errors go back to the same worker in the same worktree this many times before the run is reported FAILED (0: never). | admin |
+| `delegate.base_check` | switch | `True` | Compare failures with the base: A check that fails on a run is run once on its base commit; one that fails there too is marked base_broken and not blamed on the worker. | admin |
 | `test.prepare` | yaml |  | Steps first: When a test command matches `when`, `run` goes in front. | admin |
 | `test.no_coverage` | text |  | Coverage off looks like: A regex for a run with coverage turned off. | admin |
 | `translate.translator` | select |  | Translator: The worker that translates. | admin |

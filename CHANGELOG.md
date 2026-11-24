@@ -4,6 +4,10 @@
 
 ### Added
 
+- Delegate: base-broken detection. A check that fails on a run is run once on the run's base commit in a temporary clean
+  worktree (removed afterwards); one that fails there too is marked `base_broken: true` and the outcome reads "FAILED: N
+  check(s) fail on the base too (not this change): fix the base branch", so the worker's diff is not blamed
+  (`delegate.base_check`, default true; docs/WORKERS.md).
 - Tests: the work-queue round tests and the dashboard's `/api/state` test no longer depend on whether a person is at the
   computer running them (a person's presence held every `here` job and cut the machine's share, so they failed on a
   desk and passed in CI).

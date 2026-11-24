@@ -110,7 +110,8 @@ from a non-git cwd (MCP `delegate_task`, chat `/delegate`).
    without spaces as before;
 5. a report (`tutti runs show <id>`): the changed files, the diff's path, each check's verdict and log, **"coverage NOT
    checked"** when a check turns coverage off (seen in the command or the script it runs, or `coverage: false`), DENIED
-   tool calls, and the lines to review, apply or discard.
+   tool calls, and the lines to review, apply or discard. A run that stops on an error (a worktree that would not build, a
+   worker that could not start) still keeps a report: `rc` 1 and `FAILED: the run stopped before its checks: <reason>`.
 
 Exit 0 only when the worker finished, changed something, nothing was denied and every check passed. With `--bg` it
 prints the id at once; `tutti wait run <id> --timeout 1800` ends with one line (the verdict and the report's path), or

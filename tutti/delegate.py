@@ -334,6 +334,8 @@ def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chos
 
 def outcome(r):
     """The report's first line: PASSED, or FAILED and why, so a run that changed nothing never reads as a success."""
+    if r.get('error'):
+        return f'FAILED: the run stopped before its checks: {r["error"]}'
     if r['worker_rc'] != 0:
         return f'FAILED: the worker exited {r["worker_rc"]}'
     if r['denied']:
@@ -514,10 +516,34 @@ def accounts_of_run(cfg, name, extra=()):
     return given or found
 
 
+def failure_report(cfg, run_id, name, task, error, say=print):
+    """The report of a run that stopped on an error before it had its own (a worktree that would not build, a worker that
+    could not start): rc 1 and the reason, so `tutti runs show` and the dashboard never find a failed run with no report."""
+    p = paths(cfg, run_id)
+    r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': 1, 'worktree': (read_meta(cfg, run_id) or {}).get('worktree') or '(none)',
+         'created': False, 'diff': p['diff'], 'changed': [], 'stat': '', 'denied': [], 'checks': None, 'report': p['report'],
+         'error': error, 'rc': 1}
+    try:
+        write(p['report'], summary(r) + f'\n\nlog       {p["log"]}\n')
+        write(p['json'], json.dumps(r, indent=2) + '\n')
+    except OSError as e:
+        say(f'run: could not write the failure report for {run_id} ({e}); the reason is in {p["log"]}')
+    return r
+
+
 def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
     run_id = run_id or new_id(cfg)
+    try:
+        return _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
+    except Exception as e:   # the report is the record of a failed run: it keeps the reason, then the error goes on
+        if not os.path.exists(paths(cfg, run_id)['json']):
+            failure_report(cfg, run_id, name, task, f'{type(e).__name__}: {e}', say or print)
+        raise
+
+
+def _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
     p = paths(cfg, run_id)
     os.makedirs(p['dir'], exist_ok=True)
     write(p['cmd'], f'run {name}: {task.splitlines()[0][:150]}\n')

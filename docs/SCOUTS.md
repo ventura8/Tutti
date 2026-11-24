@@ -99,6 +99,12 @@ Grok agreed to ([ventura8/Tutti#2139](https://github.com/ventura8/Tutti/issues/2
 
 Until Tutti's check passes, a scout's diff is unverified. A few patch tasks a day suit Grok; it promises no turnaround.
 
+**Landing by itself** (`scouts.<name>.patch_autoland`, on by default). When a diff arrives, the scout round applies it at
+its base in a worktree of its own and runs the task's check, in the background. A pass is pushed as `grok/<task>` with a
+pull request for a person to review and merge (Tutti never merges a scout's diff), its new test and doc files added to the
+packaging allowlist. A first failure goes back to the scout once with its output; a second is left for a person. Each
+outcome is in the dashboard's log.
+
 ## Pacing: use the allowance, never on-demand
 
 The scout's `account` is paced like any other (docs/USAGE-PACING.md). The plan of a round:

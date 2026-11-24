@@ -584,6 +584,8 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
         events += spendrest.feed_seconds(cfg, answers)   # the backlog's lock: never inside the scouts' lock
         events += aiassist.feed(cfg, ai_answers, now)
         events += grokpatch.feed(cfg, patches)
+        if patches and sc.get('patch_autoland', True):   # apply, check, open the PR, off the dashboard's round
+            grokpatch.land_in_background(cfg, [a['task'] for a in patches], name)
         events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
     if problems:
         raise ScoutError('; '.join(problems))

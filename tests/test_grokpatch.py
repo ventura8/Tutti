@@ -158,5 +158,74 @@ class RoundTrip(unittest.TestCase):
             grokpatch.apply(self.cfg, 't1')
 
 
+
+class Autoland(unittest.TestCase):
+    """A kept diff lands without a person: pass -> pushed with a PR (never merged); first failure -> back to the scout once;
+    second failure -> left for a person. No real push or PR: run and git are faked."""
+
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.cfg = {'project': {'state': d.name}, 'scouts': {'grok': {}}, 'autopilot': {'repos': {'app': {'path': d.name}}}}
+        data = backlog.load(self.cfg)
+        backlog.add(data, backlog.new_task('app', 'Make x two', scope=['app.py', 'tests/test_x.py'], check='true'))
+        backlog.save(self.cfg, data)
+        self.diff = os.path.join(d.name, 'p.diff')
+        with open(self.diff, 'w') as f:
+            f.write(DIFF.replace('app.py', 'tests/test_x.py'))
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't1')['patch'] = {'diff': self.diff, 'request': 's9', 'failure': {'output': 'boom'}}
+        self.gits, self.asked = [], []
+        p = mock.patch.object(grokpatch, '_git', side_effect=lambda wt, *a, **k: self.gits.append(a[0]) or '')
+        p.start()
+        self.addCleanup(p.stop)
+        self.wt = d.name
+
+    def run_gh(self, cmd, **_kw):
+        self.assertEqual(cmd[:3], ['gh', 'pr', 'create'])
+        return mock.Mock(returncode=0, stdout='https://github.example/o/app/pull/7\n', stderr='')
+
+    def test_a_pass_is_pushed_with_a_pr_and_never_merged(self):
+        line = grokpatch.autoland(self.cfg, 't1', 'grok', run=self.run_gh, apply_fn=lambda c, t, r: (True, self.wt, 'ok'))
+        self.assertIn('pull request https://github.example/o/app/pull/7', line)
+        self.assertIn('push', self.gits)
+        self.assertNotIn('merge', self.gits)
+        self.assertEqual(backlog.find(backlog.load(self.cfg), 't1')['pr'], 'https://github.example/o/app/pull/7')
+
+    def test_a_first_failure_goes_back_once_and_a_second_stays_for_a_person(self):
+        def fail(c, t, r):
+            return False, self.wt, 'boom'
+        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=fail, ask_fn=lambda *a, **k: self.asked.append(k))
+        self.assertIn('sent back to grok', line)
+        self.assertEqual(self.asked[0]['failure'], {'output': 'boom'})
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't1')['patch']['second'] = True
+        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=fail, ask_fn=lambda *a, **k: self.asked.append(k))
+        self.assertIn('left for a person', line)
+        self.assertEqual(len(self.asked), 1)
+
+    def test_new_test_files_join_the_allowlist_when_the_repo_has_one(self):
+        self.assertEqual(grokpatch.allowlist_new(self.wt, ['tests/test_x.py']), [])   # no SDIST_ALLOWLIST: left alone
+
+    def test_only_a_diff_saved_in_the_patches_folder_is_opened(self):
+        from tutti import config
+        folder = os.path.join(config.state_dir(self.cfg), 'patches')
+        os.makedirs(folder, exist_ok=True)
+        good = os.path.join(folder, 't9.diff')
+        with open(good, 'w', encoding='utf8') as f:
+            f.write('')
+        self.assertEqual(grokpatch.patch_file(self.cfg, good), os.path.realpath(good))
+        self.assertIsNone(grokpatch.patch_file(self.cfg, os.path.join(folder, '..', 'backlog.json')))
+        self.assertIsNone(grokpatch.patch_file(self.cfg, '/etc/passwd'))
+        self.assertIsNone(grokpatch.patch_file(self.cfg, None))
+
+    def test_a_diff_path_outside_the_worktree_is_never_trusted(self):
+        root = os.path.realpath(self.wt)
+        self.assertTrue(grokpatch._inside(root, 'tests/test_x.py'))
+        self.assertFalse(grokpatch._inside(root, '../outside.txt'))
+        self.assertFalse(grokpatch._inside(root, 'tests/../../outside.txt'))
+        self.assertFalse(grokpatch._inside(root, '/etc/passwd'))
+
+
 if __name__ == '__main__':
     unittest.main()

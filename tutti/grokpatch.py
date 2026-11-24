@@ -11,6 +11,7 @@ check goes back once as a new task with the failing output and the first diff.
 
 Pure: brief, extract, paths, check_scope. I/O: gather (git), ask (the scout's webhook), feed (the backlog), apply (git and
 the check)."""
+import contextlib
 import os
 import re
 import subprocess
@@ -226,7 +227,8 @@ def apply(cfg, tid, run=subprocess.run):
     data = backlog.load(cfg)
     task = backlog.find(data, tid)
     p = task.get('patch') or {}
-    if not p.get('diff') or not os.path.isfile(p['diff']):
+    diff_path = patch_file(cfg, p.get('diff'))
+    if not diff_path:
         raise PatchError(f'patch: {tid} has no diff yet: `tutti scout patch {tid}` asks for one, '
                          f'`tutti scout answer {p.get("request")}` waits')
     path = repo_path(cfg, task)
@@ -236,7 +238,7 @@ def apply(cfg, tid, run=subprocess.run):
     if not re.fullmatch(r't\d+', str(tid)):
         raise PatchError(f'patch: "{tid}" is not a task id like t123')
     _git(path, 'worktree', 'add', '-B', f'grok/{tid}', '--', wt, safe_sha(p['base']))
-    with open(p['diff'], encoding='utf-8') as f:
+    with open(diff_path, encoding='utf-8') as f:
         diff = f.read()
     check_scope(diff, task.get('scope') or [])   # checked again here: the saved file is read, never passed to git as an argument
     # --recount: a model's hunk headers often miscount their lines (Grok said larger diffs risk it; t259's did): git counts
@@ -258,6 +260,99 @@ def apply(cfg, tid, run=subprocess.run):
         else:
             t['notes'] = [*t.get('notes', []), f'The scout\'s diff failed the check (exit {r.returncode}).'
                           + ('' if p.get('second') else f' `tutti scout patch {tid}` sends it back once with the output.')]
-            t['patch']['failure'] = {'diff': open(p['diff'], encoding='utf8').read(), 'output': out[-6000:]}
+            t['patch']['failure'] = {'diff': open(diff_path, encoding='utf8').read(), 'output': out[-6000:]}
             t['patch']['request'] = t['patch']['diff'] = None
     return ok, wt, out
+
+
+# ---- landing a diff without a person (owner, 2026-11-22: make Grok as useful as it can be, save the session's tokens)
+
+def allowlist_new(wt, new_files):
+    """Adds the diff's new test and doc files to SDIST_ALLOWLIST and MANIFEST.in when the repository has them (Tutti's own
+    packaging guard); a repository without them is left alone. Returns the files added."""
+    path = os.path.join(wt, 'SDIST_ALLOWLIST')
+    if not os.path.isfile(path) or not os.path.isfile(os.path.join(wt, 'MANIFEST.in')):
+        return []
+    names = open(path, encoding='ascii').read().splitlines()
+    root = os.path.realpath(wt)
+    add = [f for f in new_files if f not in names and _inside(root, f) and os.path.isfile(os.path.join(root, f))]
+    if not add:
+        return []
+    names = sorted(set(names) | set(add), key=lambda x: x.encode())
+    generated = []
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('build_guard', os.path.join(wt, 'build_guard.py'))
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        generated = list(guard.GENERATED)
+    except (OSError, ImportError, AttributeError):
+        return []
+    with open(path, 'w', encoding='ascii') as f:
+        f.write('\n'.join(names) + '\n')
+    with open(os.path.join(wt, 'MANIFEST.in'), 'w', encoding='ascii') as f:
+        f.write('global-exclude *\n' + ''.join(f'include {p}\n' for p in [*names, *generated]))
+    return add
+
+
+def _inside(root, rel):
+    """True when a diff's path stays inside the worktree: a scout's diff is not trusted to name only its own files."""
+    full = os.path.realpath(os.path.join(root, rel))
+    return not os.path.isabs(rel) and full.startswith(root + os.sep)
+
+
+def patch_file(cfg, path):
+    """The saved diff's path when it lies in <state>/patches (where scout patch saves it), else None: the backlog is a
+    file anyone with the state can edit, so its path is never opened blindly."""
+    root = os.path.realpath(os.path.join(config.state_dir(cfg), 'patches'))
+    full = os.path.realpath(path) if path else ''
+    return full if full.startswith(root + os.sep) and os.path.isfile(full) else None
+
+
+def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None):
+    """A kept diff applied and checked; a pass pushed as grok/<task> with a pull request for a person to review and merge (never
+    merged here); a first failure sent back to the scout once with its output. Returns one event line."""
+    ok, wt, out = (apply_fn or apply)(cfg, tid, run)
+    if not ok:
+        t = backlog.find(backlog.load(cfg), tid)
+        if (t.get('patch') or {}).get('second'):
+            return f'{tid}: the second diff failed its check too: left for a person (worktree {wt})'
+        (ask_fn or ask)(cfg, tid, via, failure=t['patch'].get('failure'))
+        return f'{tid}: the diff failed its check: sent back to {via} with the output (second try)'
+    saved = patch_file(cfg, (backlog.find(backlog.load(cfg), tid).get('patch') or {}).get('diff'))
+    with open(saved, encoding='utf8') if saved else contextlib.nullcontext(None) as f:
+        new = [p for p in paths(f.read() if f else '') if p.startswith(('tests/', 'docs/'))]
+    if allowlist_new(wt, new):
+        _git(wt, 'add', '-A')
+        _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-m',
+             f'chore: package the new files ({tid})')
+    _git(wt, 'push', '-q', '-u', 'origin', f'grok/{tid}')
+    t = backlog.find(backlog.load(cfg), tid)
+    body = (f'Drafted by the {via} scout ({t["patch"].get("request")}) as one diff, applied at its base and checked by Tutti '
+            f'(`{t.get("check") or "the repository check"}` passed). Review it and merge it; Tutti never merges a scout\'s diff.')
+    r = run(['gh', 'pr', 'create', '--head', f'grok/{tid}', '--title', f'{t["title"][:60]} ({tid}, drafted by {via})',
+             '--body', body], cwd=wt, capture_output=True, text=True, timeout=120)
+    url = (r.stdout or '').strip().splitlines()[-1] if r.returncode == 0 and r.stdout else ''
+    with backlog.locked(cfg) as data:
+        task = backlog.find(data, tid)
+        task['pr'] = url or task.get('pr')
+        task['notes'] = [*task.get('notes', []), f'Landed for review: {url or "push done, the PR could not be opened"}']
+    return f'{tid}: the diff passed its check: pull request {url or "not opened (" + (r.stderr or "").strip()[:120] + ")"}'
+
+
+def land_in_background(cfg, tids, via, thread=None):
+    """autoland for each task in a thread of its own (a check may take minutes); each outcome goes to the log."""
+    import sys
+    import threading
+
+    def work():
+        for tid in tids:
+            try:
+                line = autoland(cfg, tid, via)
+            except (PatchError, OSError, subprocess.SubprocessError, KeyError) as e:
+                line = f'{tid}: landing the diff failed ({e}); `tutti scout apply {tid}` tries by hand'
+            sys.stderr.write(f'tutti: scouts: {line}\n')
+    t = (thread or threading.Thread)(target=work, daemon=True, name='tutti-patch-land')
+    t.start()
+    return t
+

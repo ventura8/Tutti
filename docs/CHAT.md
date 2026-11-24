@@ -44,6 +44,11 @@ engines safe: answer ownership is still in memory, and an older process does not
 starting a new one. On other platforms Chat keeps its single-process behavior; cross-process safety is not provided. Undo
 still has only in-process execution protection and must not be run concurrently from multiple engines.
 
+Claude Code's stream-json is opt-in too: set `workers.<name>.chat_output_format: claude-stream-json` and include `-p
+--output-format stream-json --verbose` in that worker's command. Chat shows the final `result` as the answer, ignores the other
+events, and records the weekly usage the stream carries into the account's reading file (docs/USAGE-PACING.md, *Claude
+piggyback*); a stream that ends without a successful result fails the answer. Without it Chat reads plain text, as before.
+
 Cursor CLI JSON events are opt-in: set `workers.<name>.chat_output_format: cursor-stream-json` and include
 `--output-format stream-json --stream-partial-output` in that worker's command or Chat arguments. Chat shows generic tool
 start/completion notes without tool arguments or results, then displays the canonical final result when the CLI finishes;

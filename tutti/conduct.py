@@ -518,7 +518,7 @@ def run_cli(cfg, agent, text, run, watch, out=None, extra=()):
     out = out or sys.stdout
     log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
     argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
-    kept = []
+    kept, tap = [], readers.UsageTap()
     with inuse.using(config.state_dir(cfg), argv[0]), \
             subprocess.Popen(argv, cwd=run['cwd'], env=agent_env(cfg, run, agent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1, start_new_session=True) as p:
@@ -526,8 +526,10 @@ def run_cli(cfg, agent, text, run, watch, out=None, extra=()):
         for line in p.stdout:
             out.write(line)
             out.flush()
+            tap.feed(line)
             kept = [*kept[-(workers.KEEP_LINES - 1):], line.rstrip('\n')]
     watch.stop.set()
+    readers.note_usage(cfg, agent, tap)
     return p.returncode, kept
 
 

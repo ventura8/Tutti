@@ -791,8 +791,10 @@ def run_on_jobs_machine(cfg, a, extra):
     with open(p['log'], 'a', encoding='utf8') as log:
         out = Tee(sys.stdout, log)
         rc = bridge.exec_run(cfg, jobs, run_id, jobs_args(a, extra, run_id), out=out)
-    lines = ''.join(out.text).splitlines()[-workers.KEEP_LINES:]
+    everything = ''.join(out.text).splitlines()
+    lines = everything[-workers.KEEP_LINES:]
     if rc != clientmode.UNREACHABLE:
+        readers.note_usage(cfg, a.worker, readers.UsageTap().feed_all(everything), say)   # the jobs machine's claude printed it
         note_limits(cfg, a.worker, lines)
         delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), rc, run_id, lines)
     return rc
@@ -840,9 +842,8 @@ def run_delegated(cfg, a, extra):
     with open(delegate.paths(cfg, r['id'])['rc'], 'w', encoding='utf8') as f:
         f.write(f'{r["rc"]}\n')
     with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
-        everything = f.read().splitlines()
-    lines = everything[-workers.KEEP_LINES:]
-    note_limits(cfg, a.worker, lines, everything)
+        lines = f.read().splitlines()[-workers.KEEP_LINES:]
+    note_limits(cfg, a.worker, lines)   # the usage a claude worker printed was recorded as it streamed (workers.run)
     account = getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker)
     delegate.log_run(cfg, a.worker, account, r['rc'], r['id'], lines)
     telemetry.record('feature', 'run.delegated', worker_kind=telemetry.tool_of(a.worker), account=telemetry.tool_of(account),
@@ -853,16 +854,11 @@ def run_delegated(cfg, a, extra):
     return r['rc']
 
 
-def note_limits(cfg, worker, lines, full=None):
-    """A usage-limit message in the worker's output logs its account as spent (a CLI worker's; a local model has none); the usage
-    a headless claude's stream-json carries (`full`: every line of the output) refreshes its reading file."""
+def note_limits(cfg, worker, lines):
+    """A usage-limit message in the worker's output logs its account as spent (a CLI worker's; a local model has none)."""
     if 'command' not in cfg['workers'][worker]:
         return
     now = datetime.now(timezone.utc)
-    try:
-        readers.piggyback(cfg, worker, full or lines, now)
-    except OSError as e:
-        say(f'could not record the usage {worker} reported into its reading file ({e}); check accounts.<n>.reading_file')
     cmd_text = ' '.join(cfg['workers'][worker]['command'])
     hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'run-{worker}-{int(now.timestamp())}')
     if hits:

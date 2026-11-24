@@ -165,18 +165,24 @@ class CursorStreamUncertain(CliStreamUncertain):
     """A started Cursor stream failed; native tools may have acted, so do not retry automatically."""
 
 
+FORMATS = ('text', 'cursor-stream-json', 'claude-stream-json')
+
+
 def check_chat_format(worker, argv):
     fmt = worker.get('chat_output_format', 'text')
     if fmt == 'cursor-stream-json' and (not any(flag in argv for flag in ('-p', '--print')) or '--stream-partial-output' not in argv or
                                         workers.selector_value(argv, '--output-format') != 'stream-json'):
         raise ValueError('Chat cursor-stream-json needs --output-format stream-json and --stream-partial-output in the worker command')
-    if fmt not in ('text', 'cursor-stream-json'):
-        raise ValueError('Chat output format is unsupported: use text or cursor-stream-json')
+    if fmt == 'claude-stream-json' and (not any(flag in argv for flag in ('-p', '--print')) or '--verbose' not in argv or
+                                        workers.selector_value(argv, '--output-format') != 'stream-json'):
+        raise ValueError('Chat claude-stream-json needs -p, --output-format stream-json and --verbose in the worker command')
+    if fmt not in FORMATS:
+        raise ValueError('Chat output format is unsupported: use text, cursor-stream-json or claude-stream-json')
     return fmt
 
 
 def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=(),
-               cwd=None, selector=None, selector_value=None, system_flag=False):
+               cwd=None, selector=None, selector_value=None, system_flag=False, tap=None):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
     thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
     worker is stopped and an uncertain outcome prevents another model from repeating native tool actions."""
@@ -192,7 +198,7 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
     proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                  stdin=subprocess.DEVNULL, text=True, start_new_session=True, cwd=cwd)
     try:
-        yield from cli_process(proc, worker, cancel, timeout, clock, fmt)
+        yield from cli_process(proc, worker, cancel, timeout, clock, fmt, tap)
     except CliStreamUncertain:
         if not cancel.is_set():
             raise
@@ -202,11 +208,11 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
                                      'Inspect the work before retrying; no other model was tried.') from e
 
 
-def cli_process(proc, worker, cancel, timeout, clock, fmt):
+def cli_process(proc, worker, cancel, timeout, clock, fmt, tap=None):
     lines = queue.Queue()
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
     deadline, name = clock() + timeout, (worker.get('command') or ['the worker'])[0]
-    decoder = CursorEvents() if fmt == 'cursor-stream-json' else None
+    decoder = {'cursor-stream-json': CursorEvents, 'claude-stream-json': ClaudeEvents}.get(fmt, lambda: None)()
     try:
         while not cancel.is_set():
             if clock() > deadline:
@@ -219,6 +225,8 @@ def cli_process(proc, worker, cancel, timeout, clock, fmt):
                 break
             if line is None:
                 break
+            if tap:
+                tap.feed(line)
             yield from decoder.feed(line) if decoder else (line,)
     except OSError as e:
         if decoder:
@@ -235,26 +243,28 @@ def cli_process(proc, worker, cancel, timeout, clock, fmt):
 def finish_cli(proc, decoder, cancel, name):
     if proc.returncode and not cancel.is_set():
         if decoder:
-            raise CursorStreamUncertain('Cursor exited unsuccessfully after launch; its tool actions may have run. '
+            raise CursorStreamUncertain(f'{decoder.label} exited unsuccessfully after launch; its tool actions may have run. '
                                         'Check the work before retrying.')
         raise OSError(f'{name} ended with exit code {proc.returncode}')
     if decoder:
         try:
             decoder.finish(cancel.is_set())
         except OSError as e:
-            raise CursorStreamUncertain('Cursor stream ended after launch without a confirmed result; its tool actions may have run. '
-                                        'Check the work before retrying.') from e
+            raise CursorStreamUncertain(f'{decoder.label} stream ended after launch without a confirmed result; its tool actions '
+                                        'may have run. Check the work before retrying.') from e
 
 
 class CursorEvents:
+    label = 'Cursor'
+
     def __init__(self):
         self.terminal = False
         self.has_text = False
 
     def feed(self, line):
         if self.terminal:
-            raise OSError('Cursor stream continued after its terminal result: check the CLI version')
-        for piece in cursor_event(line):
+            raise OSError(f'{self.label} stream continued after its terminal result: check the CLI version')
+        for piece in self.events(line):
             if piece == {'cursor_terminal': True}:
                 self.terminal = True
             else:
@@ -262,11 +272,35 @@ class CursorEvents:
                     self.has_text = True
                 yield piece
 
+    @staticmethod
+    def events(line):
+        return cursor_event(line)
+
     def finish(self, cancelled):
         if not cancelled and not self.terminal:
-            raise OSError('Cursor stream ended without a successful result: retry or check the CLI output')
+            raise OSError(f'{self.label} stream ended without a successful result: retry or check the CLI output')
         if not cancelled and not self.has_text:
-            raise OSError('Cursor stream ended without assistant text: check the work before retrying')
+            raise OSError(f'{self.label} stream ended without assistant text: check the work before retrying')
+
+
+class ClaudeEvents(CursorEvents):
+    """Claude Code's `--output-format stream-json --verbose` (opt-in: chat_output_format claude-stream-json): the final `result`
+    is the answer, every other event (system, assistant, user, rate_limit_event) is ignored here; the usage tap reads the last."""
+    label = 'Claude Code'
+
+    @staticmethod
+    def events(line):
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError) as e:
+            raise OSError('Claude Code stream returned malformed JSON: check the configured output format') from e
+        if not isinstance(event, dict):
+            raise OSError('Claude Code stream returned a non-object event: check the configured output format')
+        if event.get('type') == 'result':
+            if event.get('subtype') != 'success' or event.get('is_error') or not isinstance(event.get('result'), str):
+                raise OSError('Claude Code stream did not report success: check the CLI output and account status')
+            yield event['result']
+            yield {'cursor_terminal': True}
 
 
 def cursor_event(line):
@@ -318,8 +352,19 @@ def stream_of(cand, cfg, messages, cancel):
         return ollama_stream(w, messages, cancel, tools=chat.ollama_tools() if cand.get('tools') else None, think=think, num_ctx=ctx)
     account = ((cfg.get('accounts') or {}).get(cand.get('account')) or {})
     extra = chatctl.cli_args(w, effort) + chatctl.chat_args(w) + list(account.get('args') or [])
-    return cli_stream(w, messages, cancel, extra=extra, cwd=chat_workdir(cfg), selector=cand.get('selector'),
-                      selector_value=cand.get('selector_value'), system_flag=chatctl.system_flag(w))
+    tap = readers.UsageTap()
+    return noting_usage(cfg, cand['worker'], tap, cli_stream(
+        w, messages, cancel, extra=extra, cwd=chat_workdir(cfg), selector=cand.get('selector'),
+        selector_value=cand.get('selector_value'), system_flag=chatctl.system_flag(w), tap=tap))
+
+
+def noting_usage(cfg, worker, tap, stream):
+    """A CLI answer's stream with the usage its claude stream-json carried (`tap`) recorded when it ends, finished or not (the
+    same reading every headless claude run feeds, readers.note_usage)."""
+    try:
+        yield from stream
+    finally:
+        readers.note_usage(cfg, worker, tap)
 
 
 # ---- the tools: the MCP server's own calls, after the chat's role check

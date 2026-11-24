@@ -26,6 +26,11 @@
 - Agents tab (t252): each card shows its **track record** from every attempt in the backlog: runs, passed, the most common
   kind of failure and the top reasons (docs/DASHBOARD.md, *Agents*).
 
+### Fixed
+
+- Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
+  full name no longer makes a new empty `<prefix><prefix><id>` worktree.
+
 ## 0.31.16 (2026-11-23)
 
 ### Changes
@@ -36,8 +41,6 @@
 
 ### Fixed
 
-- Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
-  full name no longer makes a new empty `<prefix><prefix><id>` worktree.
 
 - The repo fix step leaves deleted files out of `{changed}`; the hot-machine CPU cap never exceeds the runner's CPUs.
 - A run worktree with its own lockfile installs with that lockfile's tool (npm, pnpm or yarn), bounded at 15 minutes.

@@ -859,6 +859,15 @@ class CliTest(unittest.TestCase):
         rc, text = self.run_auth('users')
         self.assertIn('first sign-in becomes admin', text)
 
+    def test_users_reloads_when_rewritten_with_same_mtime(self):
+        users = auth.Users(config.state_dir(self.cfg))
+        users.sign_in({'sub': 'a', 'email': 'a@example.com', 'name': 'A'})
+        users.sign_in({'sub': 'b', 'email': 'b@example.com', 'name': 'B'})
+        before = os.stat(users.path).st_mtime_ns
+        self.assertEqual(self.run_auth('promote', email='b@example.com')[0], 0)
+        os.utime(users.path, ns=(before, before))
+        self.assertEqual(users.get('b')['role'], 'admin')
+
 
 if __name__ == '__main__':
     unittest.main()

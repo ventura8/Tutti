@@ -204,7 +204,8 @@ class LeaseTest(Base):
             t.start()
         for t in threads:
             t.join()
-        self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3])
+        self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3],
+                         {w: (r.returncode, r.stdout, r.stderr) for w, r in out.items()})
         for w in ('a', 'b'):
             if os.path.exists(self.claim(w)):
                 os.remove(self.claim(w))

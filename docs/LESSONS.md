@@ -2,6 +2,24 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Dashboard free/busy flipped when someone used the keyboard (2026-11-16, t145)
+
+**What happened.** The work-queue job `tutti-check` failed, then passed on the same commit (`aa57f53`):
+`test_dashboard.ServerTest.test_api_state_carries_the_real_data` expected machine `here` status `free` and sometimes saw
+`busy` (same flake also filed for `2712c98` as t134).
+
+**Why.** `ServerTest` builds a local machine (`host: local`). `machines_state` calls `share.idle_seconds()` for any local
+transport. When a person used the keyboard within `in_use_minutes` (default 5), `share.pct` drops to `in_use_pct` (default
+0), `cap_free` returns 0, and status becomes `busy`. Away from the keyboard (or idle unknown) it stays `free`.
+
+**Reproduce.** The server fixture forces an idle time of zero while collecting state. Changing its host back to `local`
+makes `test_api_state_carries_the_real_data` fail: it expects `free`, but receives `busy`. With a Probe of one free slot,
+`state.machine_state` also returns `busy` for `idle_s=10`, and `free` for `idle_s=3600` or `None`.
+
+**Rule.** A unit test that asserts machine status must not use a `host: local` machine (that reads real keyboard idle);
+use an `*.example` host so `idle_s` stays unknown, and add a direct unit test of the `idle_s` branch for the expected
+`busy`/`free` outcomes.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

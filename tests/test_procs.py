@@ -36,6 +36,10 @@ class ReaperTest(unittest.TestCase):
         self.addCleanup(self.p.tmp.cleanup)
         self.home = tempfile.TemporaryDirectory()
         self.addCleanup(self.home.cleanup)
+        # Fake /proc uses low PIDs (5..41); in a container or PID namespace the test runner can have one of them.
+        patcher = mock.patch('tutti.procs.os.getpid', return_value=999999)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_strays_are_stopped_by_exact_pid_and_logged_and_owned_helpers_stay(self):
         h = self.home.name
@@ -97,7 +101,7 @@ class ReaperTest(unittest.TestCase):
             s = prep.lease_script(dev, 'c', 5, 'me')
         self.assertIn('TUTTI_PROC=claim:pixel', s)
         self.assertIn('= "$$" ] || break', s)    # a loop awake.pid does not name ends
-        self.assertIn('|| break 2', s)           # and one whose folder is gone never spins
+        self.assertIn('users ] || break', s)     # and one whose folder is gone never spins
 
 
 class TunnelScriptTest(unittest.TestCase):

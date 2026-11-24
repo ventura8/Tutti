@@ -226,6 +226,17 @@ class Crashes(Base):
         telemetry.capture_exception(*self.crash_info())
         self.assertEqual(telemetry.status(self.folder)['queued'], 2)   # the event and its usage record
 
+    def test_set_consent_invalidates_the_sending_cache_even_with_same_mtime(self):
+        path = os.path.join(self.folder, telemetry.CONSENT)
+        self.assertFalse(telemetry.sending(self.folder))
+        before = os.stat(path)
+        telemetry.set_consent(self.folder, True)
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertTrue(telemetry.sending(self.folder))
+        telemetry.set_consent(self.folder, False)
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertFalse(telemetry.sending(self.folder))
+
     def crash_info(self):
         try:
             raise KeyError('x')

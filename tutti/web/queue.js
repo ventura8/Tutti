@@ -155,6 +155,7 @@ function boardNodes(b) {
         lane.items.length ? el('ul', {}, ...lane.items.map((t) => el('li', { 'data-board': t.id },
             el('span', { class: 'row__name', text: `${t.id} · ${t.title}` }),
             ...[t.why && `Waiting: ${t.why}`, t.depends_on.length && `Depends on ${t.depends_on.join(', ')}`,
+                (t.chain || []).join() !== t.depends_on.join() && (t.chain || []).length && `Whole chain first: ${t.chain.join(', ')} (about ${t.chain_hours} h)`,
                 t.needed_by.length && `Needed by ${t.needed_by.join(', ')}`, t.group.length && `Goes with ${t.group.join(', ')}`]
                 .filter(Boolean).map((line) => el('p', { class: 'row__note', text: line }))))) : el('p', { class: 'row__note', text: 'None.' })));
     return [el('p', { class: 'row__note', text: `${b.linked || 0} queued tasks have links.` }), ...lanes];

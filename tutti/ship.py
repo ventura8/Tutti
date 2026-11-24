@@ -176,7 +176,9 @@ def quiet_check(cfg, top, check, env, track, folder=None):
     """The same, with the output kept in a log (in `folder`, default the state folder); only the verdict line (check.verdict,
     a regex) reaches the screen."""
     # <time>-<pid>-<n>: two checks started in the same second by one ship each keep their own log, result and command.
-    log = os.path.join(folder or config.state_dir(cfg), f'ship-{int(time.time())}-{os.getpid()}-{next(_CHECK_NUMBER)}.log')
+    folder = folder or config.state_dir(cfg)
+    os.makedirs(folder, exist_ok=True)   # a run folder swept away while its checks start must not crash the run (t256)
+    log = os.path.join(folder, f'ship-{int(time.time())}-{os.getpid()}-{next(_CHECK_NUMBER)}.log')
     with open(log + '.cmd', 'w', encoding='utf8') as f:   # what ran, for the dashboard
         f.write(check['run'] + '\n')
     with open(log, 'w', encoding='utf8') as f:

@@ -1,7 +1,6 @@
 """The dashboard's state: usage and pacing, machines, workers and jobs, assembled as plain JSON-ready data.
 Pure assembly over what Tutti already keeps (the config, the usage log, the state folder); the probes are passed in."""
 import contextlib
-import fcntl
 import glob
 import json
 import os
@@ -11,6 +10,11 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+
+try:
+    import fcntl
+except ImportError:   # Windows: no lock, the pick still happens
+    fcntl = None
 
 from . import __version__, config, controls, devices, pacing, routing, waiting, workers
 
@@ -307,11 +311,13 @@ def picks_locked(cfg):
         yield
         return
     with f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        if fcntl:
+            fcntl.flock(f, fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+            if fcntl:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def note_pick(cfg, account, at):

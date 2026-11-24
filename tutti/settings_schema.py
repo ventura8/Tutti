@@ -128,6 +128,7 @@ FIELDS = {
     'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server.', 'select', choices=['cli', 'ollama']),
     'workers.*.command': field('Command', 'The command line; {prompt} is the brief, {log} a log file per run.', **CMD),
     'workers.*.chat_account_selector': field('Chat account selector', 'The CLI flag an admin asserts selects an account or model.', 'text'),
+    'workers.*.provider': field('Provider', 'The heading the Chat model picker lists this worker under (default: its account).', 'text'),
     'workers.*.chat_output_format': field('Chat output format', 'Use text, cursor-stream-json (Cursor) or claude-stream-json (Claude Code, '
                                          'which also feeds its usage reading).', 'text'),
     'workers.*.denied': field('Denied marker', 'Text in its log that means a headless permission was refused.', 'text'),

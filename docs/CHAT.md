@@ -228,6 +228,8 @@ are the confirmation.
 Under the message box, as in a chat IDE, each starting at Auto:
 
 - **Model**: Auto (local first, then online), Local models only, Online agents only, or one model (*Which model answers*).
+  Related models sit together under one heading: local models by machine (`Local: nuc`), online agents by
+  `workers.<name>.provider` (so several workers of one vendor group), else by the account that pays for them.
 - **Effort**: Auto, low, medium, high or max, mapped to each model's own setting:
 
   | Effort | A local model (Ollama) | Claude Code | Tool rounds |

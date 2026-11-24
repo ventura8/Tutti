@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
+  full name no longer makes a new empty `<prefix><prefix><id>` worktree.
+
 ### Added
 
 - `tutti run auto` spreads work: every account with room takes a turn (the one picked longest ago first, accounts ahead
@@ -28,9 +33,6 @@
 
 ### Fixed
 
-- Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
-  full name no longer makes a new empty `<prefix><prefix><id>` worktree.
-
 ## 0.31.16 (2026-11-23)
 
 ### Changes
@@ -40,7 +42,6 @@
 ## 0.31.15 (2026-11-23)
 
 ### Fixed
-
 
 - The repo fix step leaves deleted files out of `{changed}`; the hot-machine CPU cap never exceeds the runner's CPUs.
 - A run worktree with its own lockfile installs with that lockfile's tool (npm, pnpm or yarn), bounded at 15 minutes.

@@ -132,6 +132,12 @@ class Plan(WqBase):
 
 
 class Round(WqBase):
+    def setUp(self):
+        super().setUp()
+        quiet = unittest.mock.patch.object(quietmode, 'status', return_value={'person': False, 'low_memory': False})
+        quiet.start()   # a person at this computer holds every `here` job: a test must not depend on who sits here
+        self.addCleanup(quiet.stop)
+
     def repo(self):
         path = os.path.join(self.tmp.name, 'repo')
         os.makedirs(path)

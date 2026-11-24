@@ -176,6 +176,14 @@ def denials(worker, lines, log_path):
     return list(dict.fromkeys(t.strip()[:200] for t in texts if pattern.search(t)))   # a line in the output and the log counts once
 
 
+READ_DENIED = re.compile(r'read_?file', re.I)
+
+
+def read_denied(found):
+    """True when a refused tool call (from denials()) was a file read, the one refusal that is safe to grant and retry."""
+    return any(READ_DENIED.search(t) for t in found)
+
+
 def run_checks(cfg, wt, checks, env, track, say=print, folder=None):
     """Every check, never stopping at the first failure (the report needs them all). [{run, rc, where, verdict, log, coverage}]."""
     out = []
@@ -353,11 +361,11 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
         return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
 
 
-def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
+def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list, reads=()):
     """(exit code, last lines) of the worker in the worktree. A local model (kind ollama) works through `tutti agent`'s loop on
     the given files with the first check as its own check."""
     if cfg['workers'][name]['kind'] != 'ollama':
-        return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
+        return run_compacting(cfg, name, task, files, wt, log, extra, worker_log, reads=reads)
     from . import fleet, local
     from . import workers as workers_mod
     check = (check_list or [{}])[0].get('run') or 'true'
@@ -380,11 +388,25 @@ def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
     return (0 if ok else 1), []
 
 
-def run_compacting(cfg, name, task, files, wt, log, extra, worker_log, run=workers.run):
+def run_worker_retrying(cfg, name, task, files, wt, log, extra, worker_log, check_list, say):
+    """run_worker; when the CLI refused a file read, once more in the same worktree with Tutti's runs folder (logs and diffs of
+    runs, nothing else) readable: the brief's own paths are not always the ones the grant found. A refused command is never
+    retried wider; it stays a DENIED result."""
+    rc, lines = run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list)
+    found = denials(cfg['workers'][name], lines, worker_log)
+    if not read_denied(found):
+        return rc, lines
+    say(f'run: the worker\'s CLI was refused a file read ({found[0][:100]}); running it once more with {runs_dir(cfg)} readable')
+    write(worker_log, '')   # the retry's own log, so a refusal that is gone is not reported again
+    return run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list, reads=[runs_dir(cfg)])
+
+
+def run_compacting(cfg, name, task, files, wt, log, extra, worker_log, run=workers.run, reads=()):
     """The worker's run; when it is stopped at the autocompact threshold, started again in the same worktree with a handoff
     note (the changes, its last output) instead of its grown context, at most autocompact.RESTARTS times."""
     from . import autocompact, conduct  # conduct imports this module
-    rc, lines = run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=worker_log)
+    rc, lines = run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=worker_log,
+              **({'reads': reads} if reads else {}))
     for n in range(autocompact.RESTARTS):
         if rc != workers.COMPACT_RC:
             break
@@ -392,7 +414,8 @@ def run_compacting(cfg, name, task, files, wt, log, extra, worker_log, run=worke
         last = compact.compact('\n'.join(lines), 2000).splitlines()
         note = conduct.handoff_note(task, name, name, why, '', conduct.tree_changes(wt), last)
         log.write(f'tutti: run: compacted: {why}\n')
-        rc, lines = run(cfg, name, autocompact.restart_task(task, note), files, cwd=wt, out=log, extra=extra, log=worker_log)
+        rc, lines = run(cfg, name, autocompact.restart_task(task, note), files, cwd=wt, out=log, extra=extra, log=worker_log,
+              **({'reads': reads} if reads else {}))
     return rc, lines
 
 
@@ -465,7 +488,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         # what the run works on, for the dashboard's projects while it runs
         write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)
-        rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list)
+        rc, lines = run_worker_retrying(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list, say)
         changed, stat = diff_after_fix(cfg, repo, wt, p['diff'], checks, say)
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],

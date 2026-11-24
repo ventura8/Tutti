@@ -111,9 +111,10 @@ class RoundTrip(unittest.TestCase):
         self.assertIn('t1', grokpatch.holds(backlog.load(self.cfg)['tasks']))
         events = self.answer(r, answer())
         self.assertIn('diff from', events[0])
-        self.assertEqual(grokpatch.holds(backlog.load(self.cfg)['tasks']), {})
+        self.assertIn('kept', grokpatch.holds(backlog.load(self.cfg)['tasks'])['t1'])   # a kept diff holds the task too
         ok, wt, _out = grokpatch.apply(self.cfg, 't1')
         self.assertTrue(ok)
+        self.assertEqual(grokpatch.holds(backlog.load(self.cfg)['tasks']), {})
         t = self.task()
         self.assertEqual((t['status'], t['branch']), ('review', 'grok/t1'))
         with open(os.path.join(wt, 'app.py')) as f:
@@ -195,14 +196,24 @@ class Autoland(unittest.TestCase):
     def test_a_first_failure_goes_back_once_and_a_second_stays_for_a_person(self):
         def fail(c, t, r):
             return False, self.wt, 'boom'
-        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=fail, ask_fn=lambda *a, **k: self.asked.append(k))
+        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=fail, ask_fn=lambda *a, **k: self.asked.append(k),
+                                  guard_fn=lambda c, v: None)
         self.assertIn('sent back to grok', line)
         self.assertEqual(self.asked[0]['failure'], {'output': 'boom'})
         with backlog.locked(self.cfg) as data:
             backlog.find(data, 't1')['patch']['second'] = True
-        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=fail, ask_fn=lambda *a, **k: self.asked.append(k))
+        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=fail, ask_fn=lambda *a, **k: self.asked.append(k),
+                                  guard_fn=lambda c, v: None)
         self.assertIn('left for a person', line)
         self.assertEqual(len(self.asked), 1)
+
+    def test_a_send_back_waits_while_the_scouts_allowance_is_used(self):
+        def used(cfg, via):
+            raise scouts.ScoutError('scout grok sends nothing now: its allowance is used')
+        line = grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=lambda c, t, r: (False, self.wt, 'boom'),
+                                  ask_fn=lambda *a, **k: self.fail('no send'), guard_fn=used)
+        self.assertIn('not sent back to grok yet', line)
+        self.assertEqual(backlog.find(backlog.load(self.cfg), 't1')['patch']['failure'], {'output': 'boom'})   # kept for a later round
 
     def test_new_test_files_join_the_allowlist_when_the_repo_has_one(self):
         self.assertEqual(grokpatch.allowlist_new(self.wt, ['tests/test_x.py']), [])   # no SDIST_ALLOWLIST: left alone
@@ -262,9 +273,9 @@ class AutoRound(RoundTrip):
 
     SC = {'name': 'grok', 'skills': ['drafting'], 'reply': {'github_repo': 'o/app'}}
 
-    def run_auto(self, acc=None, sc=None, spawn=None):
+    def run_auto(self, acc=None, sc=None, spawn=None, now=1000.0):
         with mock.patch.object(scouts, 'send', side_effect=self.send):
-            return grokpatch.auto(self.cfg, sc or self.SC, acc, now=1000.0, spawn=spawn or mock.Mock())
+            return grokpatch.auto(self.cfg, sc or self.SC, acc, now=now, spawn=spawn or mock.Mock())
 
     def test_a_fitting_task_is_sent_and_a_kept_diff_is_applied_in_the_background(self):
         events = self.run_auto()
@@ -273,14 +284,76 @@ class AutoRound(RoundTrip):
         self.assertEqual(self.run_auto(), [])   # one at a time: the first still waits
         r = scouts.load(self.cfg)['requests'][0]
         self.answer(r, answer())
+        grokpatch.mark_applying(self.cfg, 't1', 1000.0)   # autoland on (the default): scouts.tick is landing it, never twice
         landing = mock.Mock()
-        self.assertEqual(self.run_auto(spawn=landing), [])   # autoland on (the default): scouts.tick lands it, never twice
+        self.assertEqual(self.run_auto(spawn=landing), [])
         landing.assert_not_called()
+        with backlog.locked(self.cfg) as data:   # the dashboard restarted mid-check: the mark is old, the diff is orphaned
+            backlog.find(data, 't1')['patch']['applying'] = 1000.0 - 8000
+        self.assertIn('being applied', self.run_auto(spawn=landing)[0])   # recovered even with autoland on
+        self.assertEqual(landing.call_args[0][0][-3:], ['scout', 'apply', 't1'])
+        grokpatch.clear_applying(self.cfg, 't1')
         spawn = mock.Mock()
         events = self.run_auto(sc={**self.SC, 'patch_autoland': False}, spawn=spawn)
         self.assertIn('being applied', events[0])
         self.assertEqual(spawn.call_args[0][0][-3:], ['scout', 'apply', 't1'])
         self.assertEqual(grokpatch.to_apply(backlog.load(self.cfg)['tasks'], 1000.0), [])
+
+    def test_a_spawn_that_fails_clears_the_mark_and_the_round_goes_on(self):
+        self.ask()
+        self.answer(scouts.load(self.cfg)['requests'][0], answer())
+        events = self.run_auto(spawn=mock.Mock(side_effect=OSError('no fork')))
+        self.assertIn('could not be applied by itself (no fork)', events[0])
+        self.assertNotIn('applying', self.task()['patch'])   # free for the next round
+
+    def test_a_task_gone_from_the_backlog_is_skipped_not_fatal(self):
+        with mock.patch.object(grokpatch, 'pick', return_value='t77'):
+            self.assertIn('gone from the backlog', self.run_auto()[0])
+        with mock.patch.object(grokpatch, 'to_apply', return_value=['t77']):
+            self.assertIn('vanished', self.run_auto()[0])
+
+    def test_an_unreachable_scout_is_retried_later_and_a_real_rejection_is_not(self):
+        with mock.patch.object(grokpatch, 'ask', side_effect=grokpatch.NotReached('patch: grok was not reached: timeout')):
+            self.assertIn('tried again in 1 h', self.run_auto()[0])
+        p = self.task()['patch']
+        self.assertEqual((p.get('error'), p['retry_after']), (None, 1000.0 + grokpatch.RETRY_AFTER))
+        self.assertFalse(grokpatch.eligible(self.task(), 1000.0 + 60)[0])
+        self.assertTrue(grokpatch.eligible(self.task(), 1000.0 + grokpatch.RETRY_AFTER + 1)[0])
+        with mock.patch.object(grokpatch, 'ask', side_effect=scouts.ScoutError('scout grok is not set up')):
+            self.assertIn('tried again', self.run_auto(now=3e6)[0])
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't1')['patch'] = {}
+        with mock.patch.object(grokpatch, 'ask', side_effect=grokpatch.PatchError('patch: scope refused')):
+            self.run_auto()
+        self.assertIn('scope refused', self.task()['patch']['error'])
+        self.assertFalse(grokpatch.eligible(self.task(), 9e9)[0])   # permanent
+
+    def test_other_errors_while_sending_only_make_an_event(self):
+        with mock.patch.object(grokpatch, 'ask', side_effect=OSError('git is gone')):
+            self.assertIn('git is gone', self.run_auto()[0])
+        self.assertNotIn('error', self.task().get('patch') or {})
+
+    def test_autoland_marks_the_task_and_clears_it_at_the_end_even_after_a_crash(self):
+        seen = []
+
+        def apply_fn(cfg, tid, run):
+            seen.append(self.task()['patch'].get('applying'))
+            raise OSError('boom')
+        self.ask()
+        self.answer(scouts.load(self.cfg)['requests'][0], answer())
+        with self.assertRaises(OSError):
+            grokpatch.autoland(self.cfg, 't1', 'grok', apply_fn=apply_fn)
+        self.assertTrue(seen[0])
+        self.assertNotIn('applying', self.task()['patch'])
+        self.assertIn('t1', grokpatch.holds(backlog.load(self.cfg)['tasks']))   # still held while its diff is kept
+
+    def test_land_in_background_marks_before_its_thread_runs(self):
+        self.ask()
+        self.answer(scouts.load(self.cfg)['requests'][0], answer())
+        thread = mock.Mock()
+        grokpatch.land_in_background(self.cfg, ['t1'], 'grok', thread=lambda **k: thread)
+        self.assertTrue(self.task()['patch']['applying'])
+        self.assertEqual(grokpatch.to_apply(backlog.load(self.cfg)['tasks'], self.task()['patch']['applying'] + 5), [])
 
     def test_nothing_is_sent_while_the_allowance_is_used_or_drafting_is_off(self):
         events = self.run_auto(acc={'panic': True, 'reset': 'Mon'})

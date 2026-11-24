@@ -168,7 +168,8 @@ def main_marks(snap, name):
     m = snap.get('main') or {}
     now = bool(m.get('agent')) and m['agent'] == name
     return {'main_now': now, 'main_preferred': bool(m.get('preferred')) and m['preferred'] == name,
-            'main_by': ('auto' if m.get('auto') else m.get('chosen_by') or 'config') if now else ''}
+            'main_by': ('preferred' if m.get('chosen_by') == 'preferred' else 'auto' if m.get('auto') else m.get('chosen_by') or 'config')
+            if now else ''}
 
 
 def cards(cfg, snap):

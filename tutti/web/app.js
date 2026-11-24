@@ -986,7 +986,7 @@ function renderMain(s) {
     const m = s.main;
     if (!m) return;
     const standIn = m.chosen && m.chosen_by === 'auto' && m.preferred && m.preferred !== m.agent;
-    const src = standIn ? `stand-in chosen by Tutti, returns to ${m.preferred}` : (m.auto ? 'auto' : (m.chosen ? 'pinned by the owner' : 'from the config'));
+    const src = standIn ? `stand-in chosen by Tutti, returns to ${m.preferred}` : (m.chosen && m.chosen_by === 'preferred' ? 'preferred, back by itself' : m.auto ? 'auto' : (m.chosen ? 'pinned by the owner' : 'from the config'));
     $('main-meta').textContent = m.preferred && m.preferred !== m.agent && !standIn
         ? `Main now: ${m.agent} · ${src} · preferred ${m.preferred}` : `Main now: ${m.agent} · ${src}`;
     const pick = $('main-pick');

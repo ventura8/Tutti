@@ -1,10 +1,13 @@
 """The dashboard's state: usage and pacing, machines, workers and jobs, assembled as plain JSON-ready data.
 Pure assembly over what Tutti already keeps (the config, the usage log, the state folder); the probes are passed in."""
+import contextlib
+import fcntl
 import glob
 import json
 import os
 import re
 import shutil
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -293,21 +296,53 @@ def last_picks(cfg):
         return {}
 
 
+@contextlib.contextmanager
+def picks_locked(cfg):
+    """Holds <state>/auto-picks.lock while `run auto` reads the last picks, chooses and writes its own, so two calls at once
+    never choose the same account. Best effort: when the folder cannot be written the pick still happens, unlocked."""
+    try:
+        os.makedirs(config.state_dir(cfg), exist_ok=True)
+        f = open(os.path.join(config.state_dir(cfg), AUTO_PICKS + '.lock'), 'a')
+    except OSError:
+        yield
+        return
+    with f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def note_pick(cfg, account, at):
     """Remember the account run auto chose, so the next call spreads the work to another with room."""
     data = {**last_picks(cfg), account: at}
     try:
-        os.makedirs(config.state_dir(cfg), exist_ok=True)
-        tmp = os.path.join(config.state_dir(cfg), AUTO_PICKS + '.tmp')
-        with open(tmp, 'w', encoding='utf8') as f:
-            json.dump(data, f)
-        os.replace(tmp, os.path.join(config.state_dir(cfg), AUTO_PICKS))
+        folder = config.state_dir(cfg)
+        os.makedirs(folder, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix=AUTO_PICKS + '.', suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf8') as f:
+                json.dump(data, f)
+            os.replace(tmp, os.path.join(folder, AUTO_PICKS))
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
     except OSError:
         pass   # spreading is best effort: a pick still happens
 
 
 def next_worker(cfg, accounts, machines=None, now=None, spread=False):
-    """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
+    """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room.
+    `spread` (run auto) takes the picks lock around the read, the choice and the write, and records the pick."""
+    if spread:
+        with picks_locked(cfg):
+            return _next_worker(cfg, accounts, machines, now, True)
+    return _next_worker(cfg, accounts, machines, now, False)
+
+
+def _next_worker(cfg, accounts, machines, now, spread):
     by_name = {a['name']: a for a in accounts}
     states = [{**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}
               for n in worker_accounts(cfg) if n in by_name]

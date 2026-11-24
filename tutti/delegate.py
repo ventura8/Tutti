@@ -327,27 +327,56 @@ def fix_task(task, failed, round_no, rounds, tail=_tail):
     return '\n'.join(parts)
 
 
+NOT_CODE = re.compile(r'timed? ?out|timeout|unreachable|not reached|no machine|connection (?:refused|timed out)', re.I)
+NOT_CODE_RC = (124, 255)   # `timeout`'s exit and ssh's own failure: the check did not judge the code
+
+
+def code_failure(c):
+    """True when a failed check judged the code. A check that timed out, or that never ran because its machine was not
+    reached (where 'none', ssh's 255, a verdict saying so), says nothing about the change: no fix round for it."""
+    if c['rc'] == 0:
+        return False
+    return not (c.get('where') == 'none' or c['rc'] in NOT_CODE_RC or NOT_CODE.search(c.get('verdict') or ''))
+
+
 def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chosen, env, remote_track, r, say,
                work=None, check=None):
     """Up to delegate.fix_rounds times: a failing check's errors go back to the same worker in the same worktree, then the
     checks run again; the run is reported FAILED only when the last round still fails (a local model checks itself). A check
     that also fails on the base (`base_broken`, marked before the rounds) is not sent back: the change is not to blame, so
-    when every failing check is base-broken no round runs."""
+    when every failing check is base-broken no round runs.
+    The diff before round 1 is kept as <diff>.round0 (and moved on after each good round): a round whose worker fails, or
+    leaves nothing, never loses it. A check that failed for a reason other than the code (timeout, machine unreachable) is
+    not sent back."""
     work, check = work or run_worker, check or run_checks
     rounds = int(cfg['delegate'].get('fix_rounds') or 0) if cfg['workers'][name]['kind'] != 'ollama' else 0
     r['fix_rounds'] = 0
     on_base = {i: c['base_rc'] for i, c in enumerate(r['checks']) if c.get('base_broken')}
+    good = p['diff'] + '.round0'
     for n in range(1, rounds + 1):
         failed = [c for c in r['checks'] if c['rc'] != 0 and not c.get('base_broken')]
         if not failed:
             return
+        failed = [c for c in failed if code_failure(c)]
+        if not failed:
+            say(f'run: fix round {n}: the failing check(s) timed out or could not reach their machine, not a code failure; '
+                'no fix round (run the checks again)')
+            return
         say(f'run: fix round {n} of {rounds}: {len(failed)} check(s) failed; their errors go back to {name}')
+        if os.path.isfile(p['diff']):
+            shutil.copyfile(p['diff'], good)
         rc, _ = work(cfg, name, fix_task(task, failed, n, rounds), files, wt, log, extra, p['worker_log'], check_list)
         r['fix_rounds'] = n
-        if rc != 0:
-            say(f'run: fix round {n}: {name} exited {rc}; the last checks stand')
+        changed, stat = diff_after_fix(cfg, repo, wt, p['diff'], True, say)   # the diff file matches the worktree again
+        if not changed:
+            if os.path.isfile(good):
+                shutil.copyfile(good, p['diff'])
+            say(f'run: fix round {n}: {name} exited {rc} and left no change; the last good diff and checks stand')
             return
-        r['changed'], r['stat'] = diff_after_fix(cfg, repo, wt, p['diff'], True, say)
+        r['changed'], r['stat'] = changed, stat
+        if rc != 0:
+            say(f'run: fix round {n}: {name} exited {rc}; the diff is the worktree\'s, the last checks stand')
+            return
         env['TUTTI_CHANGED'] = ship.join_changed(r['changed'])
         r['checks'] = mark_base_broken(check(cfg, wt, chosen, env, remote_track, say, p['dir']), on_base)
 
@@ -436,6 +465,7 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
     configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into."""
     if track and not remote.valid_track(track):
         raise ship.ShipError(f'refused: --track "{track}" must be one folder name (letters, digits, . _ -), nothing was changed')
+    track = track_name(cfg['delegate']['prefix'], track) or None   # the full worktree name is the same track: lock, job, copy
     if checks:
         effective_track = remote_track or track or cfg['delegate']['remote_track']
         if not remote.valid_remote_track(effective_track):

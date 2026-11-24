@@ -693,18 +693,18 @@ def cmd_workers(cfg, a):
     return 0
 
 
-def choose_worker(cfg, now):
+def choose_worker(cfg, now, spread=True):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
     machines = state.machines_state(cfg, remote.probe) if any((w or {}).get('machine') for w in cfg['workers'].values()) else None
-    return state.next_worker(cfg, accounts, machines, now, spread=True)
+    return state.next_worker(cfg, accounts, machines, now, spread=spread)
 
 
 def cmd_run(cfg, a):
     extra = []
     if a.worker == 'auto':
-        pick = choose_worker(cfg, datetime.now(timezone.utc))
+        pick = choose_worker(cfg, datetime.now(timezone.utc), spread=not a.show)   # --show only prints: it records no pick
         if not pick['worker']:
             say(f'run auto: {pick["reason"]}')
             return 3

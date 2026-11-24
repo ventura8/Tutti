@@ -1,7 +1,7 @@
 // Tutti dashboard: the Agents tab (#agents, t252, tutti/agentsview.py). One card per agent from /api/state's `agents`: its
 // roles (from the config, each with why), what it can do, its limits and what it does now. Uses app.js's el() and chip().
 
-const MAIN_WHY = { owner: 'pinned by the owner', auto: 'chosen by Tutti', config: 'from the config' };
+const MAIN_WHY = { owner: 'pinned by the owner', auto: 'chosen by Tutti', preferred: 'preferred, back by itself', config: 'from the config' };
 
 const AGENT_TONE = { ready: 'ok', 'not ready': 'bad', checking: 'idle', paced: 'idle' };
 

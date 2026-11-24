@@ -1009,3 +1009,25 @@ select { max-width: 100%; text-overflow: clip; }
     /* a phone's chat has no room beside or above the messages: the panels are for wider screens */
     .chat__paneltoggles, .chat__panels { display: none; }
 }
+
+/* Skeleton cards (Material-style loading placeholders): until the first state arrives, each empty card body shows
+   shimmering bars in place of its content, and every "Loading…" note becomes one; render() drops body.is-loading. */
+.is-loading :is(.list, .jobs, .accounts, .autopilot, .scouts, .agents__grid, #main-run, #security, #aiassist,
+    #work-browser, #pausable, #task-board-body):empty::before,
+.skeleton {
+    content: '';
+    display: block;
+    min-height: 4.5rem;
+    border-radius: 12px;
+    color: transparent;
+    background:
+        linear-gradient(90deg, transparent 0, color-mix(in srgb, var(--surface-1) 60%, transparent) 50%, transparent 100%) 0 0 / 200% 100%,
+        repeating-linear-gradient(to bottom, var(--surface-3) 0 0.9rem, transparent 0.9rem 1.5rem);
+    animation: skeleton-shimmer 1.4s linear infinite;
+    list-style: none;
+    user-select: none;
+}
+@keyframes skeleton-shimmer { to { background-position: -200% 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .is-loading :empty::before, .skeleton { animation: none; }
+}

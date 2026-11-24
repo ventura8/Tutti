@@ -238,5 +238,24 @@ class VpnPost(unittest.TestCase):
             self.assertIn('JSON object', answer['error'])
 
 
+class SkeletonCards(unittest.TestCase):
+    """Cards show Material-style skeleton placeholders until the first state, then the real content."""
+    def read(self, name):
+        with open(os.path.join(dashboard.WEB, name), encoding='utf8') as f:
+            return f.read()
+
+    def test_the_page_starts_loading_and_the_first_render_ends_it(self):
+        self.assertIn('<body class="is-loading" aria-busy="true">', self.read('index.html'))
+        js = self.read('app.js')
+        render = js[js.index('function render()'):]
+        self.assertLess(render.index("classList.remove('is-loading')"), render.index('saveUi()'))
+        self.assertIn('.skeleton', self.read('app.css'))
+
+    def test_no_plain_loading_note_is_left_without_a_skeleton(self):
+        html = self.read('index.html')
+        self.assertEqual(re.findall(r'class="row__note">Loading', html), [])
+        self.assertGreater(html.count('row__note skeleton'), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

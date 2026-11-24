@@ -48,7 +48,7 @@
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
 </head>
-<body>
+<body class="is-loading" aria-busy="true">
     <a class="skip" href="#main">Skip to the content</a>
     <header class="appbar">
         <img class="appbar__logo" src="icons/icon.svg" alt="" width="40" height="40">
@@ -559,7 +559,7 @@
         <h2 id="tasks-title">Tasks</h2>
         <p class="agents__lead">Every backlog task by status, P0 first. A task opens to everything it has.</p>
         <div class="tasks__tabs" role="tablist" aria-label="Task status" id="tasks-tabs"></div>
-        <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-title"><p class="row__note">Loading…</p></div>
+        <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-title"><p class="row__note skeleton">Loading…</p></div>
       </section>
       <section id="schedule-view" class="agents" aria-labelledby="schedule-title" hidden>
         <h2 id="schedule-title">Schedule</h2>
@@ -589,7 +589,7 @@
         <p class="agents__lead">Every device and its settings: brightness, volume, roles, keep-awake, resume delay, enabled. Admins change them here; the change is saved into the config. <a class="link view-ok" href="#dashboard">Live state on the Dashboard</a></p>
         <p class="row__note view-ok" data-viewer-only>Only an admin sees and changes these settings.</p>
         <section class="card" aria-labelledby="device-list-h"><h3 id="device-list-h" class="card__sub">Every device Tutti knows</h3>
-            <ul id="device-list" class="list" aria-live="polite"><li class="row__note">Loading…</li></ul>
+            <ul id="device-list" class="list" aria-live="polite"><li class="row__note skeleton">Loading…</li></ul>
             <p class="row__note">Not listed (a watch, a new phone)? Pair it once from this computer: <code>tutti devices pair --watch</code>
                 (a Wear OS watch), <code>tutti devices pair --tv</code> (a TV) or <code>tutti devices pair</code> (a phone or tablet). It then shows here.</p></section>
         <div id="devices-settings" class="settings__body" data-admin></div>
@@ -599,9 +599,9 @@
         <p class="agents__lead">Every machine and its settings: roles, quiet hours, presence, sensors, local models, resume delay. Admins change them here; the change is saved into the config. <a class="link view-ok" href="#dashboard">Live state on the Dashboard</a></p>
         <p class="row__note view-ok" data-viewer-only>Only an admin sees and changes these settings.</p>
         <section class="card" aria-labelledby="ha-h"><h3 id="ha-h" class="card__sub">Home Assistant</h3>
-            <div id="ha-card" aria-live="polite"><p class="row__note">Loading…</p></div></section>
+            <div id="ha-card" aria-live="polite"><p class="row__note skeleton">Loading…</p></div></section>
         <section class="card" aria-labelledby="matrix-h"><h3 id="matrix-h" class="card__sub">Roles: what each machine does and could do</h3>
-            <div id="role-matrix" aria-live="polite"><p class="row__note">Loading…</p></div></section>
+            <div id="role-matrix" aria-live="polite"><p class="row__note skeleton">Loading…</p></div></section>
         <div id="machines-settings" class="settings__body" data-admin></div>
       </section>
       <section id="discovered-view" class="agents" aria-labelledby="discovered-title" hidden>
@@ -614,7 +614,7 @@
       <section id="agents-view" class="agents" aria-labelledby="agents-title" hidden>
         <h2 id="agents-title">Agents</h2>
         <p class="agents__lead">Every agent Tutti can use: the roles the config gives it and why, what it can do, its limits and what it does now.</p>
-        <div class="agents__grid" id="agents-grid"><p class="row__note">Loading…</p></div>
+        <div class="agents__grid" id="agents-grid"><p class="row__note skeleton">Loading…</p></div>
       </section>
       <div id="settings-view" class="settings" hidden>
         <header class="settings__head">

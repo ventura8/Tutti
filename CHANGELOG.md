@@ -4,6 +4,8 @@
 
 ### Added
 
+- Backlog: a blocked task shows the whole chain that must land first, with a rough size-based estimate, in
+  `tutti backlog deps` and on the dashboard's Board (t243).
 - Scouts: a scout's diff lands by itself: applied and checked in its own worktree when it arrives, a pass pushed as
   `grok/<task>` with a pull request (never merged by Tutti), a first failure sent back once with its output; a path in the diff that leaves the worktree is ignored
   (`scouts.<name>.patch_autoland`, on by default; docs/SCOUTS.md, *Patches*).

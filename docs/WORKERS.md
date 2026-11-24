@@ -54,6 +54,10 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
   `--settings '{"permissions":{"allow":["command(*)"]}}'`, which replaces the worker's list for those runs only; an
   account's `args` replace a flag the worker command already has (`--model`, `--settings`) instead of doubling it. The
   limits are then Tutti's: the run's own worktree, the brief's "do not commit or push", ship's guard and the review.
+  **File reads outside the worktree**: Tutti adds `read_file(<tree>)`, `write_file(<tree>)` and a read of each `.tutti-state`
+  log, diff or note the brief names (`~/` paths included) to the list. When agy still soft-denies a read, the run is
+  started once more in the same worktree with `<state>/runs` readable (never writable); a refused command is not retried
+  and stays `DENIED`.
 - **GitHub Copilot CLI**: `copilot -p "<brief>" --allow-all-tools --no-ask-user -s`. Its premium requests are paid per
   use, so the example marks it `costs_money: true`.
 

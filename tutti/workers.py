@@ -156,7 +156,7 @@ TERM_WAIT = 10   # seconds a CLI stopped at the threshold gets to exit before it
 COMPACT_RC = 76   # the run was stopped at the context threshold, to be started again with a handoff (tutti/autocompact.py)
 
 
-GUIDE_FILE = re.compile(r'(/[^\s\'"`,;()]+/\.tutti-state/[^\s\'"`,;()]+\.(?:patch|diff|log|md|txt))')
+GUIDE_FILE = re.compile(r'((?:~|/)[^\s\'"`,;()]*/\.tutti-state/[^\s\'"`,;()]+\.(?:patch|diff|log|md|txt))')
 
 
 def guide_files(task):
@@ -165,6 +165,7 @@ def guide_files(task):
     with these suffixes; never a config or credential file."""
     out = set()
     for m in GUIDE_FILE.findall(str(task or '')):
+        m = os.path.expanduser(m)   # `~/...` in a brief (2026-11-24: a tilde path was cut to `/Projects/...` and never granted)
         real = os.path.realpath(m)   # `..` and symlinks resolved: the real file must itself sit under a .tutti-state folder
         if '..' not in m.split('/') and '.tutti-state' in real.split(os.sep) and os.path.isfile(real):
             out.add(real)
@@ -210,7 +211,7 @@ def stop_tree(p):
         pass
 
 
-def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
+def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None, reads=()):
     """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
     the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines); COMPACT_RC when it
     was stopped at the autocompact threshold (a CLI without native compaction whose output shows its context use)."""
@@ -218,7 +219,7 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
-    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd, guide_files(task))
+    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd, [*guide_files(task), *reads])
     env = {**worker_env(cfg), **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)

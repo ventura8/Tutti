@@ -5,7 +5,7 @@
 ### Added
 
 - Scouts: a scout's diff lands by itself: applied and checked in its own worktree when it arrives, a pass pushed as
-  `grok/<task>` with a pull request (never merged by Tutti), a first failure sent back once with its output
+  `grok/<task>` with a pull request (never merged by Tutti), a first failure sent back once with its output; a path in the diff that leaves the worktree is ignored
   (`scouts.<name>.patch_autoland`, on by default; docs/SCOUTS.md, *Patches*).
 - TUI (t201): `tutti tui`, the dashboard's Overview, Tasks, Needs you, Hosts and Agents in a terminal: the keys in a footer on
   every screen, `?` for help, arrow and vim keys, readable at 80x24 and on resize, status as an icon and a word (never

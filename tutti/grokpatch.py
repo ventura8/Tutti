@@ -272,7 +272,8 @@ def allowlist_new(wt, new_files):
     if not os.path.isfile(path) or not os.path.isfile(os.path.join(wt, 'MANIFEST.in')):
         return []
     names = open(path, encoding='ascii').read().splitlines()
-    add = [f for f in new_files if f not in names and os.path.isfile(os.path.join(wt, f))]
+    root = os.path.realpath(wt)
+    add = [f for f in new_files if f not in names and _inside(root, f) and os.path.isfile(os.path.join(root, f))]
     if not add:
         return []
     names = sorted(set(names) | set(add), key=lambda x: x.encode())
@@ -290,6 +291,12 @@ def allowlist_new(wt, new_files):
     with open(os.path.join(wt, 'MANIFEST.in'), 'w', encoding='ascii') as f:
         f.write('global-exclude *\n' + ''.join(f'include {p}\n' for p in [*names, *generated]))
     return add
+
+
+def _inside(root, rel):
+    """True when a diff's path stays inside the worktree: a scout's diff is not trusted to name only its own files."""
+    full = os.path.realpath(os.path.join(root, rel))
+    return not os.path.isabs(rel) and full.startswith(root + os.sep)
 
 
 def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None):

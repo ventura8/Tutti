@@ -207,6 +207,13 @@ class Autoland(unittest.TestCase):
     def test_new_test_files_join_the_allowlist_when_the_repo_has_one(self):
         self.assertEqual(grokpatch.allowlist_new(self.wt, ['tests/test_x.py']), [])   # no SDIST_ALLOWLIST: left alone
 
+    def test_a_diff_path_outside_the_worktree_is_never_trusted(self):
+        root = os.path.realpath(self.wt)
+        self.assertTrue(grokpatch._inside(root, 'tests/test_x.py'))
+        self.assertFalse(grokpatch._inside(root, '../outside.txt'))
+        self.assertFalse(grokpatch._inside(root, 'tests/../../outside.txt'))
+        self.assertFalse(grokpatch._inside(root, '/etc/passwd'))
+
 
 if __name__ == '__main__':
     unittest.main()

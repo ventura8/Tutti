@@ -6,8 +6,10 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 import yaml
@@ -196,6 +198,44 @@ def run_checks(cfg, wt, checks, env, track, say=print, folder=None):
     return out
 
 
+def mark_base_broken(checks, base_results):
+    """Pure: a check that failed on the run and failed the same way on the base is `base_broken` (the change is not to blame).
+    `base_results` maps a check's index to the rc it had on the base; a failed check with no entry there is left unmarked."""
+    for i, c in enumerate(checks):
+        if c['rc'] != 0 and base_results.get(i, 0) != 0:
+            c['base_broken'] = True
+            c['base_rc'] = base_results[i]
+    return checks
+
+
+def base_checks(cfg, wt, chosen, results, env, track, say=print, folder=None):
+    """The checks of `results` that failed, run once more on the run's base commit (HEAD of the worktree: the worker's edits
+    are uncommitted) in a temporary clean detached worktree with the shared dependency folders, removed afterwards. Marks the
+    ones that fail there too `base_broken`. A base that cannot be prepared marks nothing (the log says so)."""
+    failed = [i for i, c in enumerate(results) if c['rc'] != 0]
+    if not failed or not cfg['delegate'].get('base_check', True):
+        return results
+    tmp = tempfile.mkdtemp(prefix='tutti-base-')
+    added = False
+    try:
+        base = ship.git(wt, 'rev-parse', 'HEAD').strip()
+        ship.git(wt, 'worktree', 'add', '-q', '--detach', tmp, base)
+        added = True
+        worktree.share(tmp, cfg['ship'].get('share', []), say)
+        say(f'run: {len(failed)} check(s) failed; running them on the base {base[:10]} to see whether the change is to blame')
+        base_env = {**env, 'TUTTI_TREE': tmp, 'TUTTI_GIT_MOUNT': worktree.docker_mount(tmp)}
+        on_base = run_checks(cfg, tmp, [chosen[i] for i in failed], base_env, track, say, folder)
+        mark_base_broken(results, {i: b['rc'] for i, b in zip(failed, on_base, strict=True)})
+    except (ship.ShipError, OSError, subprocess.SubprocessError) as e:
+        say(f'run: could not check the base commit ({e}); the failed checks are not compared with it (delegate.base_check: false '
+            'turns this off)')
+    finally:
+        if added:
+            subprocess.run([worktree.git_bin(), '-C', wt, 'worktree', 'remove', '--force', tmp], capture_output=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+    return results
+
+
 def default_checks(cfg):
     """The config's own checks and their key: delegate.checks, else ship.checks."""
     if cfg['delegate']['checks'] is not None:
@@ -270,12 +310,15 @@ def fix_task(task, failed, round_no, rounds, tail=_tail):
 def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chosen, env, remote_track, r, say,
                work=None, check=None):
     """Up to delegate.fix_rounds times: a failing check's errors go back to the same worker in the same worktree, then the
-    checks run again; the run is reported FAILED only when the last round still fails (a local model checks itself)."""
+    checks run again; the run is reported FAILED only when the last round still fails (a local model checks itself). A check
+    that also fails on the base (`base_broken`, marked before the rounds) is not sent back: the change is not to blame, so
+    when every failing check is base-broken no round runs."""
     work, check = work or run_worker, check or run_checks
     rounds = int(cfg['delegate'].get('fix_rounds') or 0) if cfg['workers'][name]['kind'] != 'ollama' else 0
     r['fix_rounds'] = 0
+    on_base = {i: c['base_rc'] for i, c in enumerate(r['checks']) if c.get('base_broken')}
     for n in range(1, rounds + 1):
-        failed = [c for c in r['checks'] if c['rc'] != 0]
+        failed = [c for c in r['checks'] if c['rc'] != 0 and not c.get('base_broken')]
         if not failed:
             return
         say(f'run: fix round {n} of {rounds}: {len(failed)} check(s) failed; their errors go back to {name}')
@@ -286,7 +329,7 @@ def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chos
             return
         r['changed'], r['stat'] = diff_after_fix(cfg, repo, wt, p['diff'], True, say)
         env['TUTTI_CHANGED'] = ship.join_changed(r['changed'])
-        r['checks'] = check(cfg, wt, chosen, env, remote_track, say, p['dir'])
+        r['checks'] = mark_base_broken(check(cfg, wt, chosen, env, remote_track, say, p['dir']), on_base)
 
 
 def outcome(r):
@@ -298,8 +341,11 @@ def outcome(r):
     if not r['changed']:
         return 'FAILED: the worker changed nothing (exit 0 is not a fix); run it again or give it to another worker'
     bad = [c for c in r['checks'] or [] if c['rc'] != 0]
+    broken = [c for c in bad if c.get('base_broken')]
+    if bad and len(broken) == len(bad):
+        return f'FAILED: {len(bad)} check(s) fail on the base too (not this change): fix the base branch'
     if bad:
-        return f'FAILED: {len(bad)} check(s) failed'
+        return f'FAILED: {len(bad)} check(s) failed' + (f' ({len(broken)} of them fail on the base too)' if broken else '')
     return 'PASSED' if r['checks'] else 'CHANGED, NOT TESTED: no check ran; review the diff before using it'
 
 
@@ -322,6 +368,8 @@ def summary(r):
         lines.append(f'fixes     {r["fix_rounds"]} round(s): the failing checks\' errors went back to the worker')
     for c in r['checks'] or []:
         lines.append(f'check     [{c["where"]}] rc={c["rc"]} {c["verdict"] or ""} (log {c["log"]})'.rstrip())
+        if c.get('base_broken'):
+            lines.append('          base_broken: it fails on the base commit too; the worker\'s diff is not blamed')
         if c['coverage']:
             lines.append(f'          {c["coverage"]}')
     lines += ['', 'next      review: git -C ' + r['worktree'] + ' diff (or less ' + r['diff'] + ')',
@@ -511,6 +559,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
                 else contextlib.nullcontext()
             with lock:
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])
+                base_checks(cfg, wt, chosen, r['checks'], env, remote_track, say, p['dir'])
                 fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chosen, env, remote_track, r, say)
             if isolated:
                 used = {c['where'] for c in r['checks'] if c.get('where') not in (None, 'local', 'none')}

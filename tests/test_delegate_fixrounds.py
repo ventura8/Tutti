@@ -46,6 +46,34 @@ class FixRounds(unittest.TestCase):
             r, tasks = self.go(c, [])
             self.assertEqual((r['fix_rounds'], tasks), (0, []))
 
+    def base_go(self, results):
+        r = {'checks': results}
+        tasks = []
+
+        def work(*a):
+            tasks.append(a[2])
+            return 0, []
+        with mock.patch.object(delegate, 'diff_after_fix', return_value=(['a.ts'], '1 file')):
+            delegate.fix_rounds(cfg(), 'w', 'do it', [], '/repo', '/wt', None, (), {'worker_log': '', 'diff': '', 'dir': ''}, None,
+                                [], {}, 't', r, lambda m: None, work=work,
+                                check=lambda *a: [check(0), {**check(1), 'run': 'make base'}])
+        return r, tasks
+
+    def test_only_the_changes_own_failure_goes_back(self):
+        own = {**check(1), 'run': 'npm test'}
+        base = {**check(1), 'run': 'make base', 'base_broken': True, 'base_rc': 1}
+        r, tasks = self.base_go([own, base])
+        self.assertEqual(r['fix_rounds'], 1)
+        self.assertIn('npm test', tasks[0])
+        self.assertNotIn('make base', tasks[0])
+        self.assertTrue(r['checks'][1]['base_broken'])   # still marked after the re-run
+        self.assertEqual(r['checks'][0]['rc'], 0)
+
+    def test_all_base_broken_runs_no_round(self):
+        base = {**check(1), 'base_broken': True, 'base_rc': 1}
+        r, tasks = self.base_go([base])
+        self.assertEqual((r['fix_rounds'], tasks), (0, []))
+
 
 if __name__ == '__main__':
     unittest.main()

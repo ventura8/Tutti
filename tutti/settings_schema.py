@@ -528,6 +528,8 @@ FIELDS = {
     'delegate.fix_rounds': field('Fix rounds after a failed check',
                                  'A failing check\'s errors go back to the same worker in the same worktree this many times '
                                  'before the run is reported FAILED (0: never).', 'number', default=3),
+    'delegate.base_check': field('Compare failures with the base', 'A check that fails on a run is run once on its base commit; one '
+                                 'that fails there too is marked base_broken and not blamed on the worker.', 'switch', default=True),
     'test.prepare': field('Steps first', 'When a test command matches `when`, `run` goes in front.', **YAML),
     'test.no_coverage': field('Coverage off looks like', 'A regex for a run with coverage turned off.', 'text'),
     'translate.translator': field('Translator', 'The worker that translates.', 'select', choices_from='workers'),

@@ -97,7 +97,13 @@ from a non-git cwd (MCP `delegate_task`, chat `/delegate`).
    for a remote-copy lock; a mixed set still holds the lock for that copy. Track names are one folder of at most 64
    letters, digits, dots, underscores or dashes, starting with a letter or digit; `repo.git` and `tutti-slot.sh` are
    reserved for shared files. An unsafe name is refused before a lock or remote copy is touched. Cleanup does not prove
-   remote writers stopped (t309). Each check gets the list through `{changed}` or
+   remote writers stopped (t309). **Base-broken checks:** each check that fails is run once more on the run's base commit
+   (the worktree's HEAD) in a temporary clean `git worktree add --detach` with `ship.share` folders shared, removed
+   afterwards (a routed check goes through the same route). One that fails there too is marked `base_broken: true` in the
+   report, and when every failure is one the outcome reads "FAILED: N check(s) fail on the base too (not this change): fix
+   the base branch": the worker's diff is not blamed, and the fix rounds skip those checks (the base check runs before them;
+   when every failure is base-broken no round runs). `delegate.base_check: false`
+   turns it off; if the base worktree cannot be made the log says so and nothing is marked. Each check gets the list through `{changed}` or
    `{changed:ts,js}` in its command. Both hold one path per line (git's
    names are read with `-z`), so a path with a space stays whole: `F={changed:ts}; [ -z "$F" ] || printf '%s\n' "$F" |
    xargs -d '\n' npx eslint`, or `mapfile -t F <<< "$TUTTI_CHANGED"`; a plain `$TUTTI_CHANGED` still word-splits names
@@ -150,7 +156,9 @@ dashboard's *Settings* row changes it without editing the config). Each kind use
 A worker's diff that fails a check is not thrown away. Its errors (the command and the last 40 lines of its output) go back to the
 same worker, in the same worktree, with the original task. The worker fixes only what the check reports, then the checks
 run again, up to `delegate.fix_rounds` times (default 3; 0 turns this off). The run is reported FAILED only when the last
-round still fails, and its report says how many rounds ran (`fixes`). A local model checks itself step by step, so it has
+round still fails, and its report says how many rounds ran (`fixes`). A check that also fails on the base (`base_broken`)
+is not sent back, since the change is not to blame: the base check runs before the rounds, and when every failing check is
+base-broken no round runs. A local model checks itself step by step, so it has
 no fix rounds.
 
 ## Review the diff, then gate

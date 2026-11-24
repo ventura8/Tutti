@@ -246,6 +246,7 @@ tests/test_unreported_hold.py
 tests/test_update.py
 tests/test_users.py
 tests/test_users_tab.py
+tests/test_versionwatch.py
 tests/test_vpn.py
 tests/test_waitlist.py
 tests/test_watch.py

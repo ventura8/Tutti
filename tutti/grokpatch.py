@@ -427,6 +427,10 @@ def auto(cfg, sc, acc, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None,
     data = backlog.load(cfg)
     # with autoland on (the default), scouts.tick already applies, checks and opens the PR for each kept diff: never twice
     for tid in ([] if sc.get('patch_autoland', True) else to_apply(data['tasks'], now)):
+        if not re.fullmatch(r't\d+', str(tid)):   # the id names a log file: never a path from the backlog
+            events.append(f'patch: skipped a task id that is not like t123 ({tid!r})')
+            continue
+        tid = f't{int(str(tid)[1:])}'
         with backlog.locked(cfg) as d:
             t = backlog.find(d, tid)
             t['patch']['applying'] = now

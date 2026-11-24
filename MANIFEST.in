@@ -121,6 +121,7 @@ include tests/test_chat_restart_guard.py
 include tests/test_check_browser_install.py
 include tests/test_cli_argv.py
 include tests/test_codewatch.py
+include tests/test_computer_use.py
 include tests/test_conduct.py
 include tests/test_config.py
 include tests/test_configone.py

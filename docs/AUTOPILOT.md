@@ -364,3 +364,12 @@ still need separate ownership controls.
 `autopilot.repos.<repo>.fix` is a shell line run in the run's worktree after the worker and before the check, with the same
 `{changed:ts,js}` placeholders as `check`: formatters (`npx prettier --write`) and generators (a regenerated scenario list).
 A run whose only failure was style then passes; a failing fix step is logged and the check says what is left.
+
+## Strengths: computer use
+
+A task that drives a computer (its `kind: computer-use`, or a title about a browser, a website, forms, clicking, logging in
+to a site, a desktop UI or screenshots) tries first the accounts whose `accounts.<name>.strengths` lists `computer-use`,
+when they have room; the rest of its ladder follows in its own order. Every other task keeps the ladder's order. The
+household marks its ChatGPT plan (`codex`) so: the newest ChatGPT models lead at computer use (OpenAI's GPT-5.4 scored
+75 % on OSWorld-Verified against a 72.4 % human baseline; GPT-6 Astra, September 2026, was announced as better still).
+

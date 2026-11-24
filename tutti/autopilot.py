@@ -446,10 +446,28 @@ def is_local(cfg, name):
     return w.get('kind') == 'ollama' and name not in (cfg.get('accounts') or {}) and not w.get('costs_money')
 
 
+CU_WORDS = re.compile(r'\b(browser|web ?page|website|click|form|fill(ing)? (in|out)|log ?in to|sign ?in to|desktop ui|'
+                      r'computer[- ]use|navigate|screenshot|gui test)\b', re.I)
+
+
+def computer_use(t):
+    """True for a task that drives a computer (a browser, forms, a desktop UI): its kind says so, or its title does."""
+    return t.get('kind') == 'computer-use' or bool(CU_WORDS.search(str(t.get('title') or '')))
+
+
+def by_strength(cfg, t, steps):
+    """`steps` with the accounts strong at what the task needs first (`accounts.<n>.strengths: [computer-use]`; owner,
+    2026-11-22: the newest ChatGPT models lead at computer use), in their own order; the rest keep theirs."""
+    if not computer_use(t):
+        return steps
+    strong = [n for n in steps if 'computer-use' in ((cfg.get('accounts') or {}).get(n) or {}).get('strengths', [])]
+    return strong + [n for n in steps if n not in strong]
+
+
 def candidates(cfg, t, over='', machines=()):
     """The steps a task may go to now (below), with the step the dashboard's Move to picked first when it is one of them."""
     worn = worn_out(t['attempts'])   # the same failure twice there: it is not sent there again
-    out = [n for n in _candidates(cfg, t, over, machines) if n not in worn]
+    out = by_strength(cfg, t, [n for n in _candidates(cfg, t, over, machines) if n not in worn])
     want = t.get('prefer')
     return [want, *[n for n in out if n != want]] if want in out else out
 

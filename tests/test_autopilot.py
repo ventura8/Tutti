@@ -1388,6 +1388,7 @@ class RoundTest(Base):
         self.assertEqual(second['dispatch'], [('t1', 'fake-b')], second)
 
     def test_a_failing_task_retries_from_its_worktree_one_step_up_then_is_ready_for_review(self):
+        self.c['delegate']['fix_rounds'] = 0   # this test is about the ladder's step up; fix rounds are tested on their own
         with backlog.locked(self.c) as data:
             backlog.add(data, backlog.new_task('app', 'Mark a.txt fixed', ['a.txt'], ''))
         p, events = self.tick()

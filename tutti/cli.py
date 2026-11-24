@@ -694,7 +694,7 @@ def choose_worker(cfg, now):
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
     machines = state.machines_state(cfg, remote.probe) if any((w or {}).get('machine') for w in cfg['workers'].values()) else None
-    return state.next_worker(cfg, accounts, machines, now)
+    return state.next_worker(cfg, accounts, machines, now, spread=True)
 
 
 def cmd_run(cfg, a):

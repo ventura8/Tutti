@@ -280,7 +280,33 @@ def worker_accounts(cfg):
     return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], len(pos)))
 
 
-def next_worker(cfg, accounts, machines=None, now=None):
+AUTO_PICKS = 'auto-picks.json'
+
+
+def last_picks(cfg):
+    """{account: when run auto last chose it} (<state>/auto-picks.json); {} when there is none yet or it cannot be read."""
+    try:
+        with open(os.path.join(config.state_dir(cfg), AUTO_PICKS), encoding='utf8') as f:
+            data = json.load(f)
+        return {k: float(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def note_pick(cfg, account, at):
+    """Remember the account run auto chose, so the next call spreads the work to another with room."""
+    data = {**last_picks(cfg), account: at}
+    try:
+        os.makedirs(config.state_dir(cfg), exist_ok=True)
+        tmp = os.path.join(config.state_dir(cfg), AUTO_PICKS + '.tmp')
+        with open(tmp, 'w', encoding='utf8') as f:
+            json.dump(data, f)
+        os.replace(tmp, os.path.join(config.state_dir(cfg), AUTO_PICKS))
+    except OSError:
+        pass   # spreading is best effort: a pick still happens
+
+
+def next_worker(cfg, accounts, machines=None, now=None, spread=False):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
     states = [{**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}
@@ -293,10 +319,12 @@ def next_worker(cfg, accounts, machines=None, now=None):
     from . import autopilot
     takeover = autopilot.main_in_panic(cfg, by_name)
     best, reason = routing.pick_account([s for s in states if s['name'] not in autopilot.main_accounts(cfg)] if takeover
-                                        else states, takeover=takeover)
+                                        else states, takeover=takeover, last_pick=last_picks(cfg) if spread else None)
     if not best:
         return {'worker': None, 'account': None, 'args': [], 'reason': reason}
     acc = cfg['accounts'][best['name']]
+    if spread:
+        note_pick(cfg, best['name'], (now or datetime.now(timezone.utc)).timestamp())
     from . import tiers
     choice = tiers.choose(cfg, best['name'], best, accounts)   # stronger while behind its binding limit, cheaper while ahead
     return {'worker': acc['worker'], 'account': best['name'], 'args': choice['args'], 'reason': f'{reason}; {choice["label"]}'}

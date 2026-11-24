@@ -326,7 +326,13 @@ def unknown_quota(s):
     return s.get('used') is None or invalid_usage(s) or any(unknown_quota(x) for x in s.get('limits') or [])
 
 
-def pick_account(states, takeover=False):
+def spread_order(last_pick):
+    """The order when work is spread (`tutti run auto`): accounts ahead of their pace last; among the rest, the one picked
+    longest ago first, so every account with room takes work in turn instead of the soonest-expiring one taking it all."""
+    return lambda s: (s.get('verdict') == 'ahead', (last_pick or {}).get(s['name'], 0), expiry(s), rank(s))
+
+
+def pick_account(states, takeover=False, last_pick=None):
     """(the account state to use, why) from states in preference order: never one in panic or spent; first the ones that
     would lose quota at the reset (late, behind), then on pace or unread, then ahead. (None, why) when none has room."""
     skipped = []
@@ -344,6 +350,10 @@ def pick_account(states, takeover=False):
     if not usable:
         why = '; '.join(skipped) or 'no account names a worker (accounts.<name>.worker)'
         return None, f'no agent account has room ({why}): use a local model or wait for a reset'
-    best = min(usable, key=order)   # min keeps the first of equal rank: the configured order breaks ties
+    # min keeps the first of equal rank: the configured order breaks ties
+    best = min(usable, key=order if last_pick is None else spread_order(last_pick))
     note = f'{best["name"]} is {best["verdict"]}'
+    others = [s['name'] for s in usable if s is not best]
+    if others:
+        note += f'; also has room: {", ".join(others)}'
     return best, note + (f'; skipped {"; ".join(skipped)}' if skipped else '')

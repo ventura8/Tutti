@@ -760,6 +760,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `pacing.away_after_hours` | number (hours) | `3` | Away after: Your hours with no rise after which auto says away. | each user (own value) or an admin |
 | `pacing.stop_after_minutes` | number (minutes) |  | Stopped after: Minutes with no rise in your hours after which today's reserve is released. | each user (own value) or an admin |
 | `pacing.accounts` | list |  | Your accounts: Empty: the main agent's. | each user (own value) or an admin |
+| `agents.max_claude_subagents` | number | `3` | Most subagents: The most live Claude subagents a session may have at once. | admin |
+| `agents.subagent_active_seconds` | number (seconds) | `900` | Live while written within: A subagent whose transcript is quieter than this stops counting. | admin |
 | `autocompact.enabled` | switch | `True` | Autocompact: Compact a worker's context before its window is full. | admin |
 | `autocompact.threshold_pct` | number (%) | `60` | Compact at: The share of the window at which the context is compacted. | admin |
 | `autocompact.context_tokens` | number (tokens) | `200000` | Window: When workers.<name>.context_tokens does not say. | admin |
@@ -1420,6 +1422,23 @@ usage: tutti agent [-h] [--rounds ROUNDS] [--dir DIR] worker task check files [f
 | `files` |  |  |
 | `--rounds` |  | `4` |
 | `--dir` |  | `.` |
+
+### `tutti agents`
+
+count the live Claude subagents of a session against agents.max_claude_subagents (exit 1 at the limit)
+
+```text
+usage: tutti agents [-h] [--session SESSION] [--cwd CWD] [--projects PROJECTS] [--max MAX] [--seconds SECONDS] {count}
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {count}` |  |  |
+| `--session` | the session id (default: the newest session of this directory's project) |  |
+| `--cwd` | the project directory (default: here) |  |
+| `--projects` | Claude Code's projects folder (default ~/.claude/projects) |  |
+| `--max` | the limit (default agents.max_claude_subagents, 3) |  |
+| `--seconds` | a subagent quieter than this stops counting (default agents.subagent_active_seconds) |  |
 
 ### `tutti yield`
 

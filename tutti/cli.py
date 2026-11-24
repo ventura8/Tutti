@@ -939,6 +939,30 @@ def cmd_agent(cfg, a):
     return 0 if ok else 1
 
 
+def cmd_agents(cfg, a):
+    """`tutti agents count`: the live Claude subagents of a session against agents.max_claude_subagents (exit 1 at or over it)."""
+    from . import subagents
+    conf = cfg['agents']
+    limit = int(a.max if a.max is not None else conf['max_claude_subagents'])
+    seconds = float(a.seconds if a.seconds is not None else conf['subagent_active_seconds'])
+    base = os.path.expanduser(a.projects or '~/.claude/projects')
+    folder = subagents.session_folder(base, a.cwd or os.getcwd(), a.session)
+    if not folder:
+        say(f'no Claude Code session found under {base} for {a.session or a.cwd or os.getcwd()}: pass --session <id> '
+            '(the folder name under ~/.claude/projects/<project>/) or run it from the session\'s directory')
+        return 2
+    live = subagents.count(folder, seconds_now(), seconds)
+    status, advice = subagents.verdict(len(live), limit)
+    for x in live:
+        print(f'  {x["id"]}  quiet {x["age"]} s  {x["description"]}'.rstrip())
+    print(f'{len(live)} live Claude subagent(s) of {os.path.basename(folder)}; limit {limit}: {status}: {advice}')
+    return 0 if status == 'ok' else 1
+
+
+def seconds_now():
+    return time.time()
+
+
 def cmd_yield(cfg, a):
     """A flag carries its owner, reason, pid and expiry (docs/SELFHEAL.md): `renew` moves the expiry; an expired one is lowered."""
     names = [a.machine] if a.machine else list(cfg['machines'])
@@ -2142,6 +2166,13 @@ def parser():
     s.add_argument('files', nargs='+')
     s.add_argument('--rounds', type=int, default=4)
     s.add_argument('--dir', default='.')
+    s = add('agents', cmd_agents, 'count the live Claude subagents of a session against agents.max_claude_subagents (exit 1 at the limit)')
+    s.add_argument('action', choices=['count'])
+    s.add_argument('--session', help='the session id (default: the newest session of this directory\'s project)')
+    s.add_argument('--cwd', help='the project directory (default: here)')
+    s.add_argument('--projects', help='Claude Code\'s projects folder (default ~/.claude/projects)')
+    s.add_argument('--max', type=int, help='the limit (default agents.max_claude_subagents, 3)')
+    s.add_argument('--seconds', type=float, help='a subagent quieter than this stops counting (default agents.subagent_active_seconds)')
     s = add('yield', cmd_yield, 'raise or lower a machine\'s yield flag: while it is up, tutti sends that machine nothing new')
     s.add_argument('action', choices=['on', 'off', 'renew', 'status'])
     s.add_argument('--machine')

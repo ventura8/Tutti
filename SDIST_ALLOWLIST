@@ -229,6 +229,7 @@ tests/test_ship.py
 tests/test_slot.py
 tests/test_slot_holders.py
 tests/test_strangers.py
+tests/test_subagents.py
 tests/test_taskdeps.py
 tests/test_taskdetail.py
 tests/test_tasketa.py
@@ -414,6 +415,7 @@ tutti/spendrest.py
 tutti/state.py
 tutti/statebudget.py
 tutti/stuck.py
+tutti/subagents.py
 tutti/target.py
 tutti/taskdeps.py
 tutti/taskdetail.py

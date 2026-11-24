@@ -230,6 +230,7 @@ include tests/test_ship.py
 include tests/test_slot.py
 include tests/test_slot_holders.py
 include tests/test_strangers.py
+include tests/test_subagents.py
 include tests/test_taskdeps.py
 include tests/test_taskdetail.py
 include tests/test_tasketa.py
@@ -415,6 +416,7 @@ include tutti/spendrest.py
 include tutti/state.py
 include tutti/statebudget.py
 include tutti/stuck.py
+include tutti/subagents.py
 include tutti/target.py
 include tutti/taskdeps.py
 include tutti/taskdetail.py

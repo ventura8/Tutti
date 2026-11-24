@@ -140,3 +140,13 @@ main:
 | GitHub Copilot CLI (`copilot --allow-all-tools`) | Works end to end, the same small goal, ended with `DONE:`. |
 | Local model (Ollama, a 9B model) | Works through Tutti's loop: continued from agy's handoff note, ran `tutti wait`, `tutti handoff` and `tutti usage`, ended with `DONE:`. It may not call `tutti test`, `tutti agent`, `tutti files` (other than `list`) or `tutti runs discard`: they run shell lines it would write, or delete. A machine whose yield flag is up keeps its model out. |
 | Claude Code | Not run as main agent here (it is the usual orchestrator); give it `--allowedTools 'Bash(tutti:*)'` in `main.commands.claude`. |
+
+## Counting subagents
+
+`tutti agents count` tells a Claude session how many subagents it has live against the owner's limit
+(`agents.max_claude_subagents`, default 3). Claude Code has no command for this, so Tutti reads what it keeps: one transcript per
+subagent in `~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`. A subagent is live while its transcript has not
+ended (no final answer, no delivered report) and was written to within `agents.subagent_active_seconds` (default 900, so one that
+waits on background work still counts, and a crashed one stops counting after a quarter of an hour). It is a heuristic from files,
+not an API. Without `--session` it takes the newest session of the current directory's project. It prints each live subagent and
+a verdict, and exits 0 under the limit, 1 at or over it, 2 when no session is found. Start a new subagent only on exit 0.

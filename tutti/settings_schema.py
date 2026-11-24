@@ -525,6 +525,9 @@ FIELDS = {
     'delegate.remote_track': field('Folder on the test machine',
                                    'Base name for per-run remote copies (`<name>-<run-id>`); --remote-track keeps one shared folder.',
                                    'text'),
+    'delegate.fix_rounds': field('Fix rounds after a failed check',
+                                 'A failing check\'s errors go back to the same worker in the same worktree this many times '
+                                 'before the run is reported FAILED (0: never).', 'number', default=3),
     'test.prepare': field('Steps first', 'When a test command matches `when`, `run` goes in front.', **YAML),
     'test.no_coverage': field('Coverage off looks like', 'A regex for a run with coverage turned off.', 'text'),
     'translate.translator': field('Translator', 'The worker that translates.', 'select', choices_from='workers'),

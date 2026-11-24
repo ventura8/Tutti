@@ -843,6 +843,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `delegate.checks` | yaml |  | Checks of a worker's diff: Default: ship.checks. | admin |
 | `delegate.prefix` | text | `tutti-run-` | Worktree prefix: Worktrees go under project.worktrees/<prefix><id>. | admin |
 | `delegate.remote_track` | text | `tutti-run` | Folder on the test machine: Base name for per-run remote copies (`<name>-<run-id>`); --remote-track keeps one shared folder. | admin |
+| `delegate.fix_rounds` | number | `3` | Fix rounds after a failed check: A failing check's errors go back to the same worker in the same worktree this many times before the run is reported FAILED (0: never). | admin |
 | `test.prepare` | yaml |  | Steps first: When a test command matches `when`, `run` goes in front. | admin |
 | `test.no_coverage` | text |  | Coverage off looks like: A regex for a run with coverage turned off. | admin |
 | `translate.translator` | select |  | Translator: The worker that translates. | admin |

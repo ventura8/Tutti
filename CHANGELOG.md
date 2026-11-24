@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Runs: **fix rounds** (`delegate.fix_rounds`, default 3). A check that fails on a worker's diff sends its errors back to the
+  same worker in the same worktree, and the checks run again; FAILED only after the last round (docs/WORKERS.md).
+
 ## 0.31.17 (2026-11-24)
 
 ### Added

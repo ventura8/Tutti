@@ -141,6 +141,14 @@ dashboard's *Settings* row changes it without editing the config). Each kind use
 `workers.<name>.context_tokens` is a worker's window (default `autocompact.context_tokens`, 200000);
 `autocompact.enabled: false` turns it off. The dashboard shows `context N %` on a running job when it is known.
 
+## Fix rounds: a failing check goes back to the worker
+
+A worker's diff that fails a check is not thrown away. Its errors (the command and the last 40 lines of its output) go back to the
+same worker, in the same worktree, with the original task. The worker fixes only what the check reports, then the checks
+run again, up to `delegate.fix_rounds` times (default 3; 0 turns this off). The run is reported FAILED only when the last
+round still fails, and its report says how many rounds ran (`fixes`). A local model checks itself step by step, so it has
+no fix rounds.
+
 ## Review the diff, then gate
 
 A worker's output is a proposal, whoever wrote it.

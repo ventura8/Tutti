@@ -225,6 +225,52 @@ def checks_note(chosen, source):
     return f'none configured ({source})'
 
 
+FEEDBACK_LINES = 40
+
+
+def _tail(path, n=FEEDBACK_LINES):
+    try:
+        with open(path, encoding='utf8', errors='replace') as f:
+            return f.read().splitlines()[-n:]
+    except (OSError, TypeError):
+        return []
+
+
+def fix_task(task, failed, round_no, rounds, tail=_tail):
+    """The task for a fix round: the original task, then each failing check's command and the end of its output, so the
+    same worker fixes what the check found in the worktree it already changed (self-care: a small check error should not
+    lose a good diff)."""
+    parts = [task, '', f'--- Fix round {round_no} of {rounds} ---',
+             'Your change is in this worktree, but these checks fail on it. Fix only what they report; keep the rest of your '
+             'change, do not revert it, and do not weaken or skip a check.']
+    for c in failed:
+        lines = tail(c.get('log')) or [c.get('verdict') or '']
+        parts += ['', f'$ {c["run"]}  (exit {c["rc"]})', *lines]
+    return '\n'.join(parts)
+
+
+def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chosen, env, remote_track, r, say,
+               work=None, check=None):
+    """Up to delegate.fix_rounds times: a failing check's errors go back to the same worker in the same worktree, then the
+    checks run again; the run is reported FAILED only when the last round still fails (a local model checks itself)."""
+    work, check = work or run_worker, check or run_checks
+    rounds = int(cfg['delegate'].get('fix_rounds') or 0) if cfg['workers'][name]['kind'] != 'ollama' else 0
+    r['fix_rounds'] = 0
+    for n in range(1, rounds + 1):
+        failed = [c for c in r['checks'] if c['rc'] != 0]
+        if not failed:
+            return
+        say(f'run: fix round {n} of {rounds}: {len(failed)} check(s) failed; their errors go back to {name}')
+        rc, _ = work(cfg, name, fix_task(task, failed, n, rounds), files, wt, log, extra, p['worker_log'], check_list)
+        r['fix_rounds'] = n
+        if rc != 0:
+            say(f'run: fix round {n}: {name} exited {rc}; the last checks stand')
+            return
+        r['changed'], r['stat'] = diff_after_fix(cfg, repo, wt, p['diff'], True, say)
+        env['TUTTI_CHANGED'] = ship.join_changed(r['changed'])
+        r['checks'] = check(cfg, wt, chosen, env, remote_track, say, p['dir'])
+
+
 def outcome(r):
     """The report's first line: PASSED, or FAILED and why, so a run that changed nothing never reads as a success."""
     if r['worker_rc'] != 0:
@@ -254,6 +300,8 @@ def summary(r):
         lines += ['', 'checks    skipped (--no-checks): nothing was tested']
     elif not r['checks']:
         lines += ['', f'checks    {r.get("checks_from") or "none configured (delegate.checks or ship.checks)"}: nothing was tested']
+    if r.get('fix_rounds'):
+        lines.append(f'fixes     {r["fix_rounds"]} round(s): the failing checks\' errors went back to the worker')
     for c in r['checks'] or []:
         lines.append(f'check     [{c["where"]}] rc={c["rc"]} {c["verdict"] or ""} (log {c["log"]})'.rstrip())
         if c['coverage']:
@@ -430,6 +478,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
                 else contextlib.nullcontext()
             with lock:
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])
+                fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chosen, env, remote_track, r, say)
             if isolated:
                 used = {c['where'] for c in r['checks'] if c.get('where') not in (None, 'local', 'none')}
                 for machine_name in sorted(used):

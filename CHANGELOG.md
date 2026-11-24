@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Config: `tutti config` warns about `lead_hours` only for the old example's 3; any other value (e.g. the owner's 2) is a
+  choice, not a mistake.
 - A delegated run that stops on an error keeps a report (rc 1 and the reason) instead of leaving only a log, so `tutti runs show`
   and `job_status` say why it failed (docs/WORKERS.md).
 

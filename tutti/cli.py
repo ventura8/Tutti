@@ -91,12 +91,16 @@ def worker_of(cfg, name, kind):
     return w
 
 
+OLD_EXAMPLE_LEAD = 3
+
+
 def lead_hours_warnings(cfg):
-    """One line per account whose lead_hours is not the default 1 (the old example said 3), with the exact fix."""
+    """One line per account still on the old example's lead_hours: 3, with the exact fix. Any other value is the owner's
+    choice (e.g. 2: spend every quota up to 2 h before its reset) and is not questioned."""
     out = []
     for name, acc in cfg['accounts'].items():
         lead = (acc or {}).get('lead_hours', 1)
-        if lead != 1:
+        if lead == OLD_EXAMPLE_LEAD:
             out.append(f'account "{name}" has lead_hours: {lead} (the old example\'s value; the default is 1 hour before the reset): '
                        f'set lead_hours: 1 for "{name}" in {cfg["_path"]}, or remove the key')
     return out

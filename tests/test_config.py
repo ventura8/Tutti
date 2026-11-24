@@ -122,6 +122,10 @@ class LeadHoursWarningTest(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn('set lead_hours: 1 for "a" in /c.yaml', lines[0])
 
+    def test_an_owner_chosen_lead_hours_is_not_questioned(self):
+        from tutti import cli
+        self.assertEqual(cli.lead_hours_warnings({'_path': '/c.yaml', 'accounts': {'a': {'lead_hours': 2}, 'b': {'lead_hours': 0.5}}}), [])
+
 
 class OptInTest(unittest.TestCase):
     RAW = {'machines': {'a': {'host': 'a.example'}},

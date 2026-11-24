@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Delegated agy runs no longer end "FAILED: the worker's CLI refused tool calls" when the brief names a log or diff as
+  `~/.../.tutti-state/...`: the tilde is expanded before the read grant is made. A run whose CLI still refused a file read
+  is run once more in the same worktree with Tutti's runs folder readable (reads only); a refused command is never
+  widened and stays a DENIED result (docs/WORKERS.md, *Google Antigravity*).
 - Runs: `--track` takes a run id, a track name or the worktree's full name or path, and resolves them to one worktree; a
   full name no longer makes a new empty `<prefix><prefix><id>` worktree.
 

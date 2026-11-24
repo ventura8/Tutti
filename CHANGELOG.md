@@ -45,6 +45,10 @@
 
 ### Fixed
 
+- agy's read grant for a guide file named in a brief (`workers.guide_files`) also takes `$HOME/...` and paths relative to the
+  repo (`.tutti-state/runs/x.log`, tried against the worktree and the checkout it belongs to), with the same safety: the real
+  path under a `.tutti-state` folder, no `..`, an existing file, an allowed suffix, read only.
+
 - Delegated agy runs no longer end "FAILED: the worker's CLI refused tool calls" when the brief names a log or diff as
   `~/.../.tutti-state/...`: the tilde is expanded before the read grant is made. A run whose CLI still refused a file read
   is run once more in the same worktree with Tutti's runs folder readable (reads only); a refused command is never

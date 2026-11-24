@@ -156,20 +156,55 @@ TERM_WAIT = 10   # seconds a CLI stopped at the threshold gets to exit before it
 COMPACT_RC = 76   # the run was stopped at the context threshold, to be started again with a handoff (tutti/autocompact.py)
 
 
-GUIDE_FILE = re.compile(r'((?:~|/)[^\s\'"`,;()]*/\.tutti-state/[^\s\'"`,;()]+\.(?:patch|diff|log|md|txt))')
+# A path in a brief that names a file under a .tutti-state folder: absolute, `~/...`, `$HOME/...`, or relative to the repo.
+GUIDE_SUFFIX = r'\.(?:patch|diff|log|md|txt)'
+GUIDE_FILE = re.compile(r'(?<![^\s\'"`,;(=:])((?:[^\s\'"`,;()]*/)?\.tutti-state/[^\s\'"`,;()]+' + GUIDE_SUFFIX + ')')
+HOME_PREFIX = re.compile(r'^(?:\$HOME|\$\{HOME\})(?=/)')
 
 
-def guide_files(task):
+def repo_roots(cwd):
+    """The folders a relative guide path in a brief is tried against: the worktree, and the checkout it belongs to (a linked
+    worktree's `.git` file names `<checkout>/.git/worktrees/<n>`), where the repo's own .tutti-state folder lives."""
+    if not cwd:
+        return []
+    roots = [os.path.abspath(cwd)]
+    try:
+        with open(os.path.join(cwd, '.git'), encoding='utf8') as f:
+            gitdir = f.read().strip()
+    except OSError:
+        return roots
+    if gitdir.startswith('gitdir:'):
+        parts = os.path.realpath(os.path.join(cwd, gitdir[7:].strip())).split(os.sep)
+        if len(parts) > 3 and parts[-3] == '.git' and parts[-2] == 'worktrees':
+            roots.append(os.sep.join(parts[:-3]) or os.sep)
+    return roots
+
+
+def guide_path(m, bases=()):
+    """The real file a brief's path names, or None. `~/x` and `$HOME/x` are the home folder's, a relative path is tried against
+    each of `bases` (the repo); the result must be an existing file with an allowed suffix whose real path (`..` and symlinks
+    resolved) sits under a .tutti-state folder. `..` in the path as written, or `~user`, is refused."""
+    home = os.path.expanduser('~')
+    if m.startswith('~/'):
+        m = home + m[1:]
+    elif HOME_PREFIX.match(m):
+        m = home + HOME_PREFIX.sub('', m)
+    if '..' in m.split('/') or m.startswith('~'):
+        return None
+    for base in [None] if os.path.isabs(m) else bases:
+        real = os.path.realpath(m if base is None else os.path.join(base, m))
+        if '.tutti-state' in real.split(os.sep) and re.search(GUIDE_SUFFIX + '$', real) and os.path.isfile(real):
+            return real
+    return None
+
+
+def guide_files(task, bases=()):
     """Files the brief points to as guides (an earlier attempt's diff, a run log) under a .tutti-state folder: read-only
-    grants, so agy can open them (2026-11-22: a redo task stopped on "read_file ... auto-denied"). Only existing files
-    with these suffixes; never a config or credential file."""
-    out = set()
-    for m in GUIDE_FILE.findall(str(task or '')):
-        m = os.path.expanduser(m)   # `~/...` in a brief (2026-11-24: a tilde path was cut to `/Projects/...` and never granted)
-        real = os.path.realpath(m)   # `..` and symlinks resolved: the real file must itself sit under a .tutti-state folder
-        if '..' not in m.split('/') and '.tutti-state' in real.split(os.sep) and os.path.isfile(real):
-            out.add(real)
-    return sorted(out)
+    grants, so agy can open them (2026-11-22: a redo task stopped on "read_file ... auto-denied"). Written as an absolute
+    path, `~/...`, `$HOME/...` or relative to the repo (`bases`, see repo_roots). Only existing files with these suffixes;
+    never a config or credential file."""
+    found = (guide_path(m, bases) for m in GUIDE_FILE.findall(str(task or '')))
+    return sorted({f for f in found if f})
 
 
 def grant_tree(argv, cwd, reads=()):
@@ -219,7 +254,7 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None, reads
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
-    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd, [*guide_files(task), *reads])
+    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd, [*guide_files(task, repo_roots(cwd)), *reads])
     env = {**worker_env(cfg), **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
     tap = readers.UsageTap()   # a claude worker whose command prints stream-json reports the weekly usage as it works

@@ -48,6 +48,53 @@ class GuideReads(unittest.TestCase):
                 self.assertEqual(workers.guide_files('see ~/hcm/.tutti-state/runs/ship-1.log and ~/hcm/.tutti-state/runs/no.log'), [log])
                 self.assertEqual(workers.guide_files('see ~/../etc/.tutti-state/x.log'), [])
 
+    def test_home_and_repo_relative_paths_are_granted_like_absolute_ones(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, 'hcm')
+            runs = os.path.join(repo, '.tutti-state', 'runs')
+            os.makedirs(runs)
+            log = os.path.join(runs, 'ship-1.log')
+            open(log, 'w').close()
+            with mock.patch.dict(os.environ, {'HOME': d}):
+                for text in ('see $HOME/hcm/.tutti-state/runs/ship-1.log', 'see ${HOME}/hcm/.tutti-state/runs/ship-1.log'):
+                    self.assertEqual(workers.guide_files(text), [log], text)
+                self.assertEqual(workers.guide_files('read .tutti-state/runs/ship-1.log now', [repo]), [log])
+                self.assertEqual(workers.guide_files('read ./.tutti-state/runs/ship-1.log now', [d + '/other', repo]), [log])
+                self.assertEqual(workers.guide_files('read hcm/.tutti-state/runs/ship-1.log', [d]), [log])
+
+    def test_relative_and_home_paths_keep_every_refusal(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, 'hcm')
+            runs = os.path.join(repo, '.tutti-state', 'runs')
+            os.makedirs(runs)
+            for name in ('ok.log', 'secret.env', 'a.txt'):
+                open(os.path.join(runs, name), 'w').close()
+            outside = os.path.join(d, 'notes.txt')
+            open(outside, 'w').close()
+            os.symlink(outside, os.path.join(runs, 'link.txt'))
+            with mock.patch.dict(os.environ, {'HOME': d}):
+                for text, bases in (('.tutti-state/runs/missing.log', [repo]),            # no such file
+                                    ('.tutti-state/runs/secret.env', [repo]),             # a suffix that is not allowed
+                                    ('.tutti-state/runs/../../notes.txt', [repo]),        # `..`
+                                    ('.tutti-state/runs/link.txt', [repo]),               # a symlink out of .tutti-state
+                                    ('$HOME/hcm/.tutti-state/../notes.txt', [repo]),      # `..` after $HOME
+                                    ('~root/.tutti-state/x.log', [repo]),                 # another user's home
+                                    ('.tutti-state/runs/ok.log', []),                     # a relative path with no repo to ask
+                                    ('.tutti-state/runs/ok.log', [d]),                    # not under that base
+                                    ('hcm/runs/ok.log', [d])):                            # not under a .tutti-state folder
+                    self.assertEqual(workers.guide_files(text, bases), [], text)
+
+    def test_a_linked_worktree_finds_its_checkout_for_relative_paths(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo, wt = os.path.join(d, 'repo'), os.path.join(d, 'wt')
+            os.makedirs(os.path.join(repo, '.git', 'worktrees', 'wt'))
+            os.makedirs(wt)
+            with open(os.path.join(wt, '.git'), 'w', encoding='utf8') as f:
+                f.write(f'gitdir: {repo}/.git/worktrees/wt\n')
+            self.assertEqual(workers.repo_roots(wt), [wt, os.path.realpath(repo)])
+            self.assertEqual(workers.repo_roots(repo), [repo])
+            self.assertEqual(workers.repo_roots(None), [])
+
     def test_extra_reads_are_added_to_the_allow_list_as_reads_only(self):
         argv = workers.grant_tree(['agy', '{"permissions":{"allow":["command(git)"]}}'], '/w/t', ['/s/runs'])
         allow = json.loads(argv[1])['permissions']['allow']

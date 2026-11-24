@@ -291,6 +291,13 @@ computer while a person is here or the gate is heavy. Settings: `quiet.reserve_g
 
 ## Design rules
 
+- **Takes care of itself (core value, owner 2026-11-24).** Every part (usage reader, worker, lease, machine, job) must
+  detect its own failure and then, in order: retry, fall back (another reader, such as the usage carried on normal
+  agent messages; another worker, machine or account), repair itself (a stale lease released, a reader's bucket matched
+  to what the answer offers when it truly belongs to that account), and only then report, with what was tried and why
+  it cannot work. It never stops to wait for the owner to fix config or run a command when Tutti can do it. A part that
+  cannot be read or used is marked so (`unreadable`, `off` with the reason) and left out of pacing and routing, so the
+  rest goes on. New code is reviewed against this rule.
 - **Config, not code.** No host, path, account or model name is built in.
 - **No secrets.** Tutti never reads, stores or sends a credential; workers sign in by themselves, once, by a person.
 - **No secret in an environment** (`tutti/secretenv.py`, t116). The few secrets Tutti uses (the Grok scout's webhook key)

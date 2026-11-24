@@ -37,6 +37,7 @@ SECTIONS = [
     ('time', 'Time zone', 'What local time means for your hours, quiet hours and tariffs; auto is this computer\'s.', ['time']),
     ('presence', 'Presence', 'Devices and machines that come and go: away, asleep, moving work and Wake-on-LAN (docs/PRESENCE.md).',
      ['presence']),
+    ('agents', 'Subagents', 'How many Claude subagents a session may have live (`tutti agents count`).', ['agents']),
     ('autocompact', 'Autocompact', 'When a worker\'s context is compacted.', ['autocompact']),
     ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review', 'review.repos']),
     ('scouts', 'Scouts', 'Helpers that are not workers (Grok Bot): questions, watches and reviews.', ['scouts']),
@@ -401,6 +402,11 @@ FIELDS = {
     'pacing.stop_after_minutes': field('Stopped after', 'Minutes with no rise in your hours after which today\'s reserve is released.',
                                        **MIN),
     'pacing.accounts': field('Your accounts', 'Empty: the main agent\'s.', 'list', choices_from='accounts'),
+    # agents
+    'agents.max_claude_subagents': field('Most subagents', 'The most live Claude subagents a session may have at once.', 'number',
+                                         min=1),
+    'agents.subagent_active_seconds': field('Live while written within', 'A subagent whose transcript is quieter than this stops counting.',
+                                            **SEC),
     # autocompact
     'autocompact.enabled': field('Autocompact', 'Compact a worker\'s context before its window is full.', 'switch'),
     'autocompact.threshold_pct': field('Compact at', 'The share of the window at which the context is compacted.', 'number', unit='%',

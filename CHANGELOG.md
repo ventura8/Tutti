@@ -50,6 +50,9 @@
 - Scouts: a scout's diff lands by itself: applied and checked in its own worktree when it arrives, a pass pushed as
   `grok/<task>` with a pull request (never merged by Tutti), a first failure sent back once with its output; a path in the diff that leaves the worktree is ignored
   (`scouts.<name>.patch_autoland`, on by default; docs/SCOUTS.md, *Patches*).
+- `tutti agents count`: the live Claude subagents of a session against `agents.max_claude_subagents` (default 3), read from the
+  session's subagent transcripts; exit 1 at the limit (docs/CONDUCT.md, *Counting subagents*).
+
 - TUI (t201): `tutti tui`, the dashboard's Overview, Tasks, Needs you, Hosts and Agents in a terminal: the keys in a footer on
   every screen, `?` for help, arrow and vim keys, readable at 80x24 and on resize, status as an icon and a word (never
   colour alone), NO_COLOR, a plain mode for screen readers; it reads the dashboard's last round so it fills at once

@@ -102,6 +102,9 @@ DEFAULTS = {
     # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the
     # dashboard can change the percentage; context_tokens is the window when workers.<w>.context_tokens does not say
     'autocompact': {'enabled': True, 'threshold_pct': 60, 'context_tokens': 200000},
+    # agents: `tutti agents count` (tutti/subagents.py): the most live Claude subagents a session may have, and how long a quiet
+    # transcript still counts as live
+    'agents': {'max_claude_subagents': 3, 'subagent_active_seconds': 900},
     # user: who this Tutti works for (docs/HOUSEHOLD.md): the name (default: the login's) and the weight of its share of the
     # household's machines. household: the coordinator's port and bind address, how long a task's lease lasts without a
     # heartbeat, when a member with no slot counts as starved, how long before a reset an account's spare room may be shared

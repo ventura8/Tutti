@@ -204,6 +204,11 @@ class ExternalLockTest(Base):
             os.killpg(child.pid, 9)
             child.wait()
             raise
+        finally:
+            try:
+                os.killpg(child.pid, 9)
+            except ProcessLookupError:
+                pass
         with open(out, encoding='utf8') as f:
             return SimpleNamespace(returncode=rc, stdout=f.read())
 

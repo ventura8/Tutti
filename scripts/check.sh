@@ -12,7 +12,7 @@ if ! python3 -c 'import playwright, axe_playwright_python' 2> /dev/null || ! com
 	[ -x "$venv/bin/python3" ] || python3 -m venv "$venv"
 	stamp="$venv/.requirements-dev.sha256"   # pip runs only when requirements-dev.txt changed
 	want="$(sha256sum requirements-dev.txt | cut -d' ' -f1)"
-	if [ "$(cat "$stamp" 2> /dev/null)" != "$want" ]; then
+	if [ "$(cat "$stamp" 2> /dev/null)" != "$want" ] || ! "$venv/bin/python3" -c 'import playwright, axe_playwright_python' 2> /dev/null; then
 		"$venv/bin/python3" -m pip install -q --require-hashes -r requirements-dev.txt
 		echo "$want" > "$stamp"
 	fi
@@ -29,6 +29,9 @@ XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.e
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
 echo "check: installing Playwright's headless Chromium and system dependencies when needed"
+if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && { ! mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" 2> /dev/null || [ ! -w "$PLAYWRIGHT_BROWSERS_PATH" ]; }; then
+	export PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
+fi
 bash scripts/check-browser-install.sh
 echo "check: running dashboard browser tests"
 XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e

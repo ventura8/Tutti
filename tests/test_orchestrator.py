@@ -375,10 +375,10 @@ class StallTest(unittest.TestCase):
 
 
 class StaleReadingTest(unittest.TestCase):
-    def test_a_hand_read_account_is_reminded_after_two_hours(self):
+    def test_a_hand_read_account_is_reminded_after_six_hours(self):
         a = {'window': '7d', 'resets': '2026-11-21T00:00Z'}
         fresh = [{'at': (NOW - timedelta(hours=1)).isoformat(), 'account': 'claude', 'used': 10}]
-        old = [{'at': (NOW - timedelta(hours=3)).isoformat(), 'account': 'claude', 'used': 10}]
+        old = [{'at': (NOW - timedelta(hours=8)).isoformat(), 'account': 'claude', 'used': 10}]
         self.assertFalse(pacing.account_state('claude', a, fresh, NOW)['stale'])
         s = pacing.account_state('claude', a, old, NOW)
         self.assertTrue(s['stale'])

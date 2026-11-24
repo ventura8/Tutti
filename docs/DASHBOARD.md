@@ -378,7 +378,7 @@ becomes a symlink to the one file, kept first as `<copy>.bak-merge-<time>`.
 ## Add a reading
 
 An account card has **Add a reading** only where a reading is needed: nothing reads the account on its own (no
-`reader` command and no `reading_file`; Cursor), or its newest reading is older than `stale_hours` (default 2) or
+`reader` command and no `reading_file`; Cursor), or its newest reading is older than `stale_hours` (default 6) or
 missing. An account read automatically and recently (Antigravity) has none. An account's `note` is a warning callout
 (an icon and the word "Note", not colour alone) right above the button. One tap opens the provider's usage page (`usage_url`, in a new tab) and a
 short form on the card: a slider for the percent used and the reset time, prefilled from the window rule, plus an
@@ -483,7 +483,7 @@ own working days, hours and away mode (the server changes only their own).
 ## Reminders and nudges
 
 A card whose account is read by hand shows **Reminder: ... tutti usage log <account> <percent>** once its reading is
-older than `stale_hours` (default 2), and the Usage header counts such accounts. A card read automatically says how and
+older than `stale_hours` (default 6), and the Usage header counts such accounts. A card read automatically says how and
 when ("read automatically · 3 minutes ago", "written by the orchestrator", "read by the helper"). An account behind its
 line has room, and its card says what happens to it. With the autopilot and `fill_room` on, a trigger account
 (`autopilot.accounts`) shows **Autopilot: filling N slots — R running here, Q queued** and what the last fill did; otherwise

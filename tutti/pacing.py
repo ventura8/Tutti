@@ -127,7 +127,7 @@ def latest(entries, account, since=None):
     return best
 
 
-STALE_HOURS = 2   # a reading typed or written by hand is old after this; the dashboard and `tutti usage` remind
+STALE_HOURS = 6   # a reading older than this is stale (accounts.<n>.stale_hours changes it): no verdict, a reminder
 NO_READING = 'no reading'
 PANIC_AT = 95  # percent of the whole quota: at or over it before the target time, the account is in panic mode
 
@@ -289,6 +289,10 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
     action = account_action(name, a, p, used, is_panic, out['room_tasks'])
     from tutti import owner as owner_mod  # owner imports pacing
     out['projected_end'] = owner_mod.projection(out['readings'], used, now, reset)
+    if out['stale']:   # an old reading says nothing about where the quota stands now: never "on pace" or "ahead" from it
+        p = {**p, 'verdict': 'stale'}
+        action = out['remind'] or 'the reading is stale: refresh it'
+        out['room_tasks'] = None
     return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'tolerance': round(p['tolerance'], 1),
             'verdict': p['verdict'], 'action': action,
             'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat(), 'selected_source': e.get('source')}

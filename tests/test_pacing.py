@@ -63,7 +63,7 @@ class PacingTest(unittest.TestCase):
         self.assertEqual(p['target'], T('2026-01-09T23:00Z'))
 
     def test_log_and_report(self):
-        accounts = {'claude': {'window': '7d', 'resets': '2026-01-03T02:00Z', 'source': 'the usage page', 'share': 0.5},
+        accounts = {'claude': {'window': '7d', 'resets': '2026-01-03T02:00Z', 'source': 'the usage page', 'share': 0.5, 'stale_hours': 0},
                     'agy': {'source': 'the account page'}}
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, 'usage.jsonl')
@@ -123,13 +123,32 @@ class NeedsReadingTest(unittest.TestCase):
         self.assertFalse(pacing.needs_reading({'reading_file': '/r.json', 'stale_hours': 4}, old, now))
 
 
+class StaleVerdictTest(unittest.TestCase):
+    now = pacing.parse_time('2026-01-06T12:00Z')
+    acc = {'window': '7d', 'resets': '2026-01-10T02:00Z', 'reading_file': '/r.json'}
+
+    def state(self, hours):
+        at = (self.now - timedelta(hours=hours)).isoformat()
+        return pacing.account_state('a', self.acc, [{'at': at, 'account': 'a', 'used': 50.0, 'note': ''}], self.now)
+
+    def test_a_reading_over_six_hours_old_is_stale_never_on_pace(self):
+        s = self.state(34)
+        self.assertEqual((s['verdict'], s['stale']), ('stale', True))
+        self.assertNotIn('on pace', pacing.report({'a': self.acc}, [{'at': (self.now - timedelta(hours=34)).isoformat(),
+                                                                       'account': 'a', 'used': 50.0, 'note': ''}], self.now))
+
+    def test_a_recent_reading_keeps_its_verdict_and_the_default_is_six_hours(self):
+        self.assertEqual(pacing.STALE_HOURS, 6)
+        self.assertNotEqual(self.state(5)['verdict'], 'stale')
+
+
 class AutomaticFreshnessTest(unittest.TestCase):
     def setUp(self):
         self.now = pacing.parse_time('2026-01-06T12:00Z')
         self.account = {'reader': {'command': ['example-reader']}, 'window': '7d', 'resets': '2026-01-10T02:00Z'}
 
     def test_missing_and_old_automatic_readings_are_stale_without_manual_prompt(self):
-        for entries in ([], [{'account': 'api', 'at': '2026-01-06T09:00Z', 'used': 20, 'source': 'reader'}]):
+        for entries in ([], [{'account': 'api', 'at': '2026-01-05T09:00Z', 'used': 20, 'source': 'reader'}]):
             state = pacing.account_state('api', self.account, entries, self.now)
             self.assertTrue(state['stale'])
             self.assertTrue(state['auto'])
@@ -144,7 +163,7 @@ class AutomaticFreshnessTest(unittest.TestCase):
         self.assertFalse(state['stale'])
         self.assertTrue(state['auto'])
         self.assertFalse(state['needs_reading'])
-        entry['at'] = '2026-01-06T08:00Z'
+        entry['at'] = '2026-01-05T08:00Z'
         self.assertTrue(pacing.account_state('codex', {'window': '7d', 'resets': '2026-01-10T02:00Z'}, [entry], self.now)['stale'])
 
     def test_automatic_missing_reading_is_visible_even_without_reset_configuration(self):
@@ -159,7 +178,7 @@ class AutomaticFreshnessTest(unittest.TestCase):
         result = pacing.account_state('api', self.account, [future], self.now)
         self.assertTrue(result['stale'])
         self.assertIn('future', result['remind'])
-        old = {'account': 'api', 'at': '2026-01-06T08:00Z', 'used': 10, 'source': 'reader'}
+        old = {'account': 'api', 'at': '2026-01-05T08:00Z', 'used': 10, 'source': 'reader'}
         estimate = {'account': 'api', 'at': '2026-01-06T11:59Z', 'used': 11, 'source': 'estimate'}
         result = pacing.account_state('api', self.account, [old, estimate], self.now)
         self.assertTrue(result['stale'])
@@ -174,7 +193,7 @@ class AutomaticFreshnessTest(unittest.TestCase):
                                                     'local': {'kind': 'ollama'}},
                '_main_worker': 'local', '_now': now, '_account_limits': {'cursor': ['weekly']}, 'autopilot': {}}
         own_entry = {'account': 'cursor', 'at': (now - timedelta(minutes=10)).isoformat(), 'used': 96, 'source': 'reader'}
-        for offset, expected in ((timedelta(hours=-3), False), (timedelta(minutes=10), False),
+        for offset, expected in ((timedelta(hours=-8), False), (timedelta(minutes=10), False),
                                  (timedelta(minutes=-10), True)):
             with self.subTest(offset=offset):
                 limit_entry = {'account': 'weekly', 'at': (now + offset).isoformat(), 'used': 40, 'source': 'reader'}

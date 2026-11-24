@@ -311,15 +311,25 @@ def next_worker(cfg, accounts, machines=None, now=None, spread=False):
     by_name = {a['name']: a for a in accounts}
     states = [{**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}
               for n in worker_accounts(cfg) if n in by_name]
+    held = []   # accounts whose worker's machine may not run now: named in the reason, never dropped silently
     if machines is not None:
         from . import fleet
-        states = [s for s in states if not (cfg['workers'].get(cfg['accounts'][s['name']]['worker']) or {}).get('machine')
-                  or not fleet.governor(cfg, cfg['accounts'][s['name']]['worker'], machines, now)]
+        kept = []
+        for s in states:
+            worker = cfg['accounts'][s['name']]['worker']
+            why = fleet.governor(cfg, worker, machines, now) if (cfg['workers'].get(worker) or {}).get('machine') else ''
+            if why:
+                held.append(f'{s["name"]}: {why}')
+            else:
+                kept.append(s)
+        states = kept
     # owner, 2026-11-17: Chat's delegate_task (run auto) also takes over while the main agent panics
     from . import autopilot
     takeover = autopilot.main_in_panic(cfg, by_name)
     best, reason = routing.pick_account([s for s in states if s['name'] not in autopilot.main_accounts(cfg)] if takeover
                                         else states, takeover=takeover, last_pick=last_picks(cfg) if spread else None)
+    if held:
+        reason += f'; held by its machine: {"; ".join(held)}'
     if not best:
         return {'worker': None, 'account': None, 'args': [], 'reason': reason}
     acc = cfg['accounts'][best['name']]

@@ -11,6 +11,8 @@
 
 ### Added
 
+- Docs: **takes care of itself** is a core value (README, docs/ARCHITECTURE.md *Design rules*): every part retries,
+  falls back and repairs itself, and reports only what is truly impossible.
 - Dashboard: Material-style skeleton cards. Until the first state arrives, each card shows shimmering placeholder bars
   instead of a blank space or a bare "Loading…" (still read out to screen readers; no motion with reduced motion).
 - `tutti agents count`: the live Claude subagents of a session against `agents.max_claude_subagents` (default 3), read from the

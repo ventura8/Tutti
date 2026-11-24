@@ -15,6 +15,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -114,18 +115,47 @@ def match_account(accounts, cmd_text, around):
     return fallback[0] if fallback else None
 
 
-def agy_usage(data, bucket):
-    """(used %, reset) of one bucket of `agy -p /usage --output-format json`, or a ValueError naming what is missing."""
+RETRIES = 2   # extra asks of a reader command that failed, in one reading
+GENERIC_PARTS = {'wtu', 'weekly', '5h', 'daily', 'monthly', 'hourly'}
+
+
+class Unreadable(ValueError):
+    """The account has no quota bucket of its own in the answer: it is left out of pacing, not read from another account's."""
+
+
+def heal_bucket(bucket, offered, taken=()):
+    """The offered bucket id that clearly belongs to the same model as the configured `bucket`, or None: same window kind
+    (weekly, 5h) and every model word of the configured name (`gemini-argon-wtu-weekly`: gemini, argon). A bucket another
+    account already reads (`taken`) is never borrowed: it would count one quota twice."""
+    parts = str(bucket).lower().split('-')
+    kind = [x for x in parts if x in GENERIC_PARTS - {'wtu'}]
+    words = [x for x in parts if x not in GENERIC_PARTS]
+    found = [o for o in offered if o not in taken and o != bucket and words
+             and all(w in str(o).lower().split('-') for w in words)
+             and all(k in str(o).lower().split('-') for k in kind)]
+    return found[0] if len(found) == 1 else None
+
+
+def agy_usage(data, bucket, taken=(), note=None):
+    """(used %, reset) of one bucket of `agy -p /usage --output-format json`, or a ValueError naming what is missing. A configured
+    bucket the answer lacks is replaced by the one that clearly belongs to the same model (heal_bucket), said through `note`;
+    with none of its own the account is Unreadable."""
     groups = (((data or {}).get('command') or {}).get('data') or {}).get('groups')
     if not isinstance(groups, list):
         raise ValueError('no command.data.groups in the answer: is this `agy -p /usage --output-format json`?')
-    seen = []
+    found = {}
     for g in groups:
         for b in (g or {}).get('buckets') or []:
-            seen.append(str(b.get('id')))
-            if b.get('id') == bucket:
-                return bucket_usage(g, b)
-    raise ValueError(f'no bucket "{bucket}" in the answer; the buckets are {", ".join(seen) or "(none)"}')
+            found.setdefault(str(b.get('id')), (g, b))
+    if bucket in found:
+        return bucket_usage(*found[bucket])
+    use = heal_bucket(bucket, list(found), taken)
+    if use:
+        if note:
+            note(f'reader: bucket "{bucket}" is not in the answer; reading "{use}" instead (same model, no other account reads it)')
+        return bucket_usage(*found[use])
+    raise Unreadable(f'no bucket "{bucket}" in the answer and none of the buckets ({", ".join(found) or "none"}) is this '
+                     'account\'s own: it is left out of pacing until agy offers one')
 
 
 def bucket_usage(group, b):
@@ -339,11 +369,23 @@ class Readers:
                 data, problem = None, str(e)
         else:
             data, problem = self.run(list(spec['command']))
+            tries = 0
+            while problem and tries < RETRIES:   # a reader that failed is asked again at once before the account is given up
+                tries += 1
+                data, problem = self.run(list(spec['command']))
         self.runs += 1
         same = hit is not None and not force and problem is None and data is not None and data == hit[1]
         self.backoff[key] = min(BACKOFF_MAX, self.backoff.get(key, 1) * 2) if same else 1
         self.cache[key] = (self.clock(), data, problem, observed_at.isoformat())
         return data, problem
+
+    @staticmethod
+    def note(text):
+        sys.stderr.write(f'tutti: {text}\n')
+
+    def buckets_read_by_others(self, name):
+        """The agy buckets other accounts read: never borrowed by this one."""
+        return {(automatic_reader(n, a or {}) or {}).get('bucket') for n, a in self.cfg['accounts'].items() if n != name} - {None}
 
     def interval_minutes(self, spec):
         """The interval a reader is asked at now: its own, times the back-off while its answer stays the same."""
@@ -410,15 +452,17 @@ class Readers:
                         resets = pacing.parse_time(value['resets']) if value.get('resets') else None
                         out['used'], out['resets'] = used, resets
                     else:
-                        out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
+                        out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc),
+                                                                self.buckets_read_by_others(name), self.note)
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
+                    out['unreadable'] = isinstance(e, Unreadable)
                     self.backoff[key_of(spec)] = 1   # an answer it cannot read is asked again at its own interval
             out['problem'] = problem or out['problem']
         return out
 
     @staticmethod
-    def parse(r, a, data, now):
+    def parse(r, a, data, now, taken=(), note=None):
         """(used %, reset) from a reader's answer: GitHub's premium-request report, else agy's /usage buckets."""
         if r.get('format') == 'codex-app-server':
             used, resets = codexusage.parse(data, a, r)
@@ -429,7 +473,7 @@ class Readers:
             if resets is None:
                 return used, None
         else:
-            used, resets = agy_usage(data, r['bucket'])
+            used, resets = agy_usage(data, r['bucket'], taken, note)
         if resets is None:
             return used, None
         return used, not_started(resets, a.get('window'), now)
@@ -590,6 +634,60 @@ def record(path, readings, hits, now, hit_now=None):
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
         written.append(pacing.append_log(path, name, 100, at, note, resets=reset, source='limit message', ref=ref))
     return written
+
+
+def rate_limit_used(lines):
+    """(used %, reset or None) from the last `rate_limit_event` of a headless claude's stream-json output
+    (`unifiedWindows.seven_day.utilization`, a fraction of the weekly quota), or None. Claude reports it on its normal messages."""
+    found = None
+    for line in lines:
+        if 'rate_limit_event' not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        windows = ((event.get('rate_limit_info') or event) if isinstance(event, dict) else {}).get('unifiedWindows') \
+            or (event.get('unifiedWindows') if isinstance(event, dict) else None) or {}
+        week = windows.get('seven_day') if isinstance(windows, dict) else None
+        util = (week or {}).get('utilization') if isinstance(week, dict) else None
+        if isinstance(util, bool) or not isinstance(util, (int, float)) or not 0 <= util <= 1:
+            continue
+        reset = week.get('resetsAt') or week.get('resets_at')
+        try:
+            when = datetime.fromtimestamp(float(reset), timezone.utc) if isinstance(reset, (int, float)) else \
+                (pacing.parse_time(reset) if reset else None)
+        except (ValueError, OverflowError, OSError):
+            when = None
+        found = (round(100.0 * util, 1), when)
+    return found
+
+
+def piggyback(cfg, worker, lines, now):
+    """The usage a headless claude run carried on its own messages, written into the reading file of the account that runs the
+    worker (accounts.<n>.reading_file): the reader's fallback, so a quota that only an interactive statusline fed keeps a
+    fresh reading. Returns the account's name, or None when the output carried none or no account has a reading file."""
+    got = rate_limit_used(lines)
+    if not got:
+        return None
+    for name, a in cfg['accounts'].items():
+        a = a or {}
+        if a.get('worker') != worker and name != worker or not a.get('reading_file') or a.get('reading_from'):
+            continue
+        f = config.expand(a['reading_file'])
+        try:
+            with open(f, encoding='utf8') as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            data = {}
+        data = data if isinstance(data, dict) and 'used' not in data else {}
+        data[name] = {'used': got[0], 'at': now.isoformat(), **({'resets': got[1].isoformat()} if got[1] else {})}
+        tmp = f + '.tmp'
+        with open(tmp, 'w', encoding='utf8') as fh:
+            json.dump(data, fh)
+        os.replace(tmp, f)
+        return name
+    return None
 
 
 def parse_reading_file(text, account=None):

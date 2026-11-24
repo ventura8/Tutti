@@ -107,7 +107,7 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   active state by a pause. Ordinary dispatch and direct auto routing also refuse an account when a configured linked
   window is missing. Nested limits must all be observed; pacing currently supplies only direct linked limits, so such
   accounts wait until their nested limits are included. Rescue independently checks every window's reading age against
-  `stale_hours` (two hours when unset or zero), including automatic readers, and rejects future timestamps and selected
+  `stale_hours` (six hours when unset or zero), including automatic readers, and rejects future timestamps and selected
   estimates. It respects quiet windows and never uses a spent or
   explicitly paused account. It does not pause accounts.
   An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker

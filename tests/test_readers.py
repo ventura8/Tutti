@@ -309,6 +309,67 @@ class ParseTest(unittest.TestCase):
             readers.json_field({}, 'subscriptionTier')
 
 
+class HealBucketTest(unittest.TestCase):
+    def test_a_renamed_bucket_of_the_same_model_is_used_and_said(self):
+        said = []
+        used, _ = readers.agy_usage(AGY, 'gemini-wtu-weekly', note=said.append)
+        self.assertEqual(used, readers.agy_usage(AGY, 'gemini-weekly')[0])
+        self.assertIn('reading "gemini-weekly" instead', said[0])
+
+    def test_a_bucket_another_account_reads_is_never_borrowed(self):
+        with self.assertRaises(readers.Unreadable) as e:
+            readers.agy_usage(AGY, 'gemini-wtu-weekly', taken={'gemini-weekly'})
+        self.assertIn('gemini-5h', str(e.exception))
+
+    def test_no_bucket_of_its_own_is_unreadable_not_a_copy_of_the_gemini_one(self):
+        with self.assertRaises(readers.Unreadable):
+            readers.agy_usage(AGY, 'gemini-argon-wtu-weekly')
+
+
+class RetryAndPiggybackTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_a_failing_reader_is_asked_again_and_the_second_answer_counts(self):
+        answers = [(None, 'exited 1'), ({'ok': 1}, None)]
+        r = readers.Readers(cfg_of(self.tmp.name), run=lambda cmd: answers.pop(0), clock=lambda: NOW.timestamp())
+        self.assertEqual(r._answer({'command': ['x']}), ({'ok': 1}, None))
+
+    def test_a_reader_that_keeps_failing_gives_its_problem_after_the_retries(self):
+        calls = []
+        r = readers.Readers(cfg_of(self.tmp.name), run=lambda cmd: (calls.append(1), (None, 'exited 1'))[1], clock=lambda: NOW.timestamp())
+        self.assertEqual(r._answer({'command': ['x']}), (None, 'exited 1'))
+        self.assertEqual(len(calls), 1 + readers.RETRIES)
+
+    def event(self, util):
+        return json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'unifiedWindows': {'seven_day': {'utilization': util}}}})
+
+    def test_the_weekly_utilization_of_a_stream_json_run_is_read(self):
+        self.assertEqual(readers.rate_limit_used(['{"type":"x"}', self.event(0.2), self.event(0.376)]), (37.6, None))
+
+    def test_output_without_usage_or_with_nonsense_reads_nothing(self):
+        self.assertIsNone(readers.rate_limit_used(['plain text', '{"type":"rate_limit_event"}', self.event(7), 'rate_limit_event {']))
+
+    def test_the_piggyback_writes_the_accounts_reading_file_and_keeps_others(self):
+        f = os.path.join(self.tmp.name, 'u.json')
+        with open(f, 'w', encoding='utf8') as fh:
+            json.dump({'other': {'used': 5}}, fh)
+        cfg = {'accounts': {'claude': {'worker': 'claude', 'reading_file': f}, 'nofile': {'worker': 'claude'}}}
+        self.assertEqual(readers.piggyback(cfg, 'claude', [self.event(0.5)], NOW), 'claude')
+        with open(f, encoding='utf8') as fh:
+            data = json.load(fh)
+        self.assertEqual((data['claude']['used'], data['other']['used']), (50.0, 5))
+        self.assertEqual(readers.parse_reading_file(json.dumps(data), 'claude')[0], 50.0)
+
+    def test_no_reading_file_or_no_usage_writes_nothing(self):
+        cfg = {'accounts': {'claude': {'worker': 'claude'}}}
+        self.assertIsNone(readers.piggyback(cfg, 'claude', [self.event(0.5)], NOW))
+        f = os.path.join(self.tmp.name, 'u.json')
+        self.assertIsNone(readers.piggyback({'accounts': {'claude': {'worker': 'claude', 'reading_file': f}}}, 'claude', ['x'], NOW))
+        self.assertFalse(os.path.exists(f))
+
+
 class ReadersTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -461,7 +522,7 @@ class ReadersTest(unittest.TestCase):
         cfg['_main_worker'], cfg['_now'] = 'local', NOW
         cfg['workers']['local'] = {'kind': 'ollama'}
         path = cfg['usage']['log']
-        pacing.append_log(path, 'codex', 96, NOW - timedelta(hours=3), source='reader')
+        pacing.append_log(path, 'codex', 96, NOW - timedelta(hours=8), source='reader')
         remote = {'used': 96, 'resets': None, 'problem': None, 'observation_version': 1,
                   'observed_at': (NOW + timedelta(minutes=5)).isoformat()}
         with mock.patch('tutti.bridge.call', return_value=(0, remote)):
@@ -739,7 +800,7 @@ class ReadersTest(unittest.TestCase):
         for _ in range(3):
             r.read_all()
             self.t[0] += float(r.every_minutes(spec)) * 60
-        self.assertEqual(self.calls.count('agy'), 3)
+        self.assertEqual(self.calls.count('agy'), 3 * (1 + readers.RETRIES))
 
     def test_problems_are_named_per_account(self):
         r = self.fake({'agy': (None, 'agy is not on PATH: install it and sign in once'), 'cursor-agent': ({}, None)})

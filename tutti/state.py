@@ -338,7 +338,7 @@ def with_readers(usage, readers):
         if account.get('auto') and (reading is None or (reading.get('used') is None and not problem)):
             problem = 'automatic reader status is unavailable: refresh the reader before panic rescue'
         account.update(plan=(reading or {}).get('plan'), auto_every_minutes=(reading or {}).get('every_minutes'),
-                       reader_problem=problem)
+                       reader_problem=problem, unreadable=bool((reading or {}).get('unreadable')))
         for limit in account.get('limits') or []:
             if isinstance(limit, dict):
                 annotate(limit)

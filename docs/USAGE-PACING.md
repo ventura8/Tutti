@@ -126,8 +126,8 @@ the reading's tooltip. The graph selects an actual observation, not an interpola
 **Stale readings.** Missing, future-dated or old automatic measurements are marked stale instead of looking current.
 The dashboard and `tutti usage` identify the account and suggest checking the reader or producer and retrying
 `tutti usage refresh`; they do not ask for manual entry for an automatic account. This includes configured readers,
-implicit Codex/browser readers and reading files. The default freshness limit is two hours; `stale_hours` changes it.
-For automatic accounts `stale_hours: 0` keeps the two-hour failure indicator, so a broken reader is never silently
+implicit Codex/browser readers and reading files. The default freshness limit is six hours; `stale_hours` changes it. A reading older than that shows the verdict `stale` (never "on pace" or "ahead") and no tasks are offered on it.
+For automatic accounts `stale_hours: 0` keeps the failure indicator, so a broken reader is never silently
 shown as current. For manual accounts, `stale_hours: 0` still turns off the reminder; otherwise the dashboard offers
 manual entry and `tutti usage` suggests `tutti usage log`. An estimate or synthetic post-reset value does not refresh
 the last actual measurement. Normal pacing continues to use the account state; cautious panic rescue refuses stale or future readings until every
@@ -313,3 +313,18 @@ points an hour. Its usual hours, and every hour outside the window, are free for
 ends before the day (`vacation-until-2026-11-16`) hands over to it at midnight. A day's window ends by 24; hours past
 midnight are the next day's own window (`00-02`). Taking back a day the config sets keeps a null in `owner.json`. The dashboard's edits live in `owner.json`
 and win over the config's.
+
+## Readings that heal themselves
+
+- **Retry.** A reader command that fails is asked again (twice) in the same reading before the account is given up.
+- **Bucket healing.** When an agy reader's configured `bucket` is not in the answer, Tutti uses the offered bucket of the same
+  window kind that holds every model word of the configured name (`gemini-wtu-weekly` reads `gemini-weekly`) and says so on
+  stderr. It never borrows a bucket another account's reader already reads (that would count one quota twice). With no bucket of
+  its own the account is `unreadable`: the error lists the buckets the answer has, the account is left out of pacing
+  (`reader_problem`), and the other accounts go on.
+- **Claude piggyback.** A headless `claude` run whose output is stream-json (`--output-format stream-json --verbose`) carries
+  `rate_limit_event` messages with `unifiedWindows.seven_day.utilization` (a fraction of the weekly quota). After `tutti run`,
+  Tutti writes it into the `reading_file` of the account that runs the worker (other accounts in the file are kept), so the
+  reading stays fresh without an interactive terminal's statusline.
+- **Spend-by lead.** Every account's `lead_hours` (default 1) already sets the spend-by time to the reset minus that many
+  hours: `lead_hours: 2` finishes a quota two hours before its reset.

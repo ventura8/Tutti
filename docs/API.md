@@ -591,6 +591,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `main.command_timeout` | number (seconds) | `3600` | One round may take: A round that takes longer is stopped. | admin |
 | `machines.*.host` | text |  | Host: An ssh alias from ~/.ssh/config, or local for this computer. | admin |
 | `accounts.*.max_effort` | select , low, medium, high, xhigh, max |  | Highest effort: The highest effort its plan should run at (low, medium, high, xhigh, max): Tutti never runs it above, whatever its pace asks (docs/USAGE-PACING.md, Model and effort). Empty: no cap. | admin |
+| `accounts.*.strengths` | list |  | Strong at: What its models do best, e.g. [computer-use]: such tasks try it first when it has room (docs/AUTOPILOT.md). | admin |
 | `machines.*.mac` | text |  | Wake-on-LAN address: Its network card's MAC (aa:bb:cc:dd:ee:ff): when it stops answering, Tutti wakes it (docs/NETWORK.md, Link repair). Empty: never woken. | admin |
 | `machines.*.physical_machine` | text |  | Physical machine: Name the main machine entry for another environment on the same computer (dashboard card only; different connection addresses). | admin |
 | `machines.*.transport` | select local, ssh, wsl, android, household | `ssh` | Reached by: ssh, local, wsl (a Windows machine's WSL) or android (Termux). | admin |

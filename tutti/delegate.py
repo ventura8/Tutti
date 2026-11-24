@@ -114,11 +114,21 @@ def fresh_base(top, say=print):
     return 'HEAD'
 
 
+def track_name(prefix, name):
+    """--track as given: a run id, a track name, or the worktree's full name or path (<prefix><id>), which resolves to the
+    same worktree instead of a new empty <prefix><prefix><id>."""
+    name = os.path.basename(str(name).rstrip('/')) if name else name
+    while name and prefix and name.startswith(prefix) and len(name) > len(prefix):
+        name = name[len(prefix):]
+    return name
+
+
 def tree_for(cfg, repo, run_id, name=None, say=print):
     """The worktree the worker edits: <project.worktrees>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
     or reused when it already is a worktree of the same repository. Returns (path, created)."""
     top = ship.toplevel(resolve_repo(cfg, repo))
     root = config.expand(cfg['project']['worktrees'])
+    name = track_name(cfg['delegate']['prefix'], name)
     wt = os.path.join(root, f'{cfg["delegate"]["prefix"]}{name or run_id}')
     if os.path.exists(os.path.join(wt, '.git')):
         if os.path.realpath(worktree.main_checkout(wt) or wt) != os.path.realpath(worktree.main_checkout(top) or top):

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- A delegated run that stops on an error keeps a report (rc 1 and the reason) instead of leaving only a log, so `tutti runs show`
+  and `job_status` say why it failed (docs/WORKERS.md).
+
 ### Added
 
 - Delegate: base-broken detection. A check that fails on a run is run once on the run's base commit in a temporary clean

@@ -301,6 +301,21 @@ class DelegateTest(unittest.TestCase):
         with self.assertRaises(ship.ShipError):
             self.run_task(cfg, track='stray')
 
+    def test_a_run_that_stops_on_an_error_keeps_a_report_with_the_reason(self):
+        cfg = self.cfg([])
+        with mock.patch.object(delegate, 'tree_for', side_effect=ship.ShipError('no worktree: disk full')):
+            with self.assertRaises(ship.ShipError):
+                self.run_task(cfg, run_id='1700000000-1')
+        r = delegate.load_report(cfg, '1700000000-1')
+        self.assertEqual(r['rc'], 1)
+        self.assertIn('disk full', r['error'])
+        with open(delegate.paths(cfg, '1700000000-1')['report'], encoding='utf8') as f:
+            self.assertIn('FAILED: the run stopped before its checks: ShipError: no worktree: disk full', f.read())
+
+    def test_a_run_that_finishes_has_no_error_in_its_report(self):
+        r = self.run_task(self.cfg([]), checks=False)
+        self.assertNotIn('error', delegate.load_report(self.cfg([]), r['id']))
+
     def test_repo_name_under_autopilot_resolves_outside_a_git_cwd(self):
         """`--repo app` uses autopilot.repos.app.path even when cwd is not a git tree (the MCP / chat hand-off case)."""
         cfg = self.cfg([])

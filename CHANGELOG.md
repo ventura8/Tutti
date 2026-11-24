@@ -4,6 +4,9 @@
 
 ### Added
 
+- `tutti run auto` spreads work: every account with room takes a turn (the one picked longest ago first, accounts ahead
+  of pace still last), so Codex gets work next to agy-gemini; the reason line names the others with room
+  (`<state>/auto-picks.json`, docs/USAGE-PACING.md).
 - Runs: **fix rounds** (`delegate.fix_rounds`, default 3). A check that fails on a worker's diff sends its errors back to the
   same worker in the same worktree, and the checks run again; FAILED only after the last round (docs/WORKERS.md).
 

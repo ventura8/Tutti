@@ -109,6 +109,7 @@ tests/test_architecture_doc.py
 tests/test_artifact.py
 tests/test_audit_lows.py
 tests/test_auth.py
+tests/test_auto_spread.py
 tests/test_autopilot.py
 tests/test_backup.py
 tests/test_brain.py

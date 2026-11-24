@@ -27,6 +27,14 @@ tutti usage                        # every account against its pace
 tutti usage read                   # run the automatic readers now (the dashboard runs them by itself)
 ```
 
+
+## `run auto` spreads the work
+
+`tutti run auto` (and Chat's delegate_task) chooses among every account with room. Accounts ahead of their pace come last.
+Among the rest, the account picked longest ago goes first (`<state>/auto-picks.json`), so the work alternates across
+the accounts that have room instead of all going to the soonest-expiring one. The reason line lists the others that have
+room (`also has room: …`).
+
 ## The target, and straight on after the reset
 
 The even line runs from the window's start to `target_pct` at its spend-by time, and the planner's budget is the target (not

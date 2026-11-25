@@ -861,7 +861,8 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
     """Choose a configured account whose quota can safely be bound to this worker's command."""
     from . import routing, workers
     linked = [n for n, worker in configured.items() if worker == name]
-    selector = w.get('chat_account_selector') if len(linked) > 1 else None
+    selector = (w.get('chat_account_selector') or workers.derive_selector({n: account_args.get(n) or [] for n in linked})) \
+        if len(linked) > 1 else None
     values = {n: workers.selector_value(account_args.get(n) or [], selector) for n in linked} if selector else {}
     binding_ok = bool(selector and len(values) == len(linked) and all(values.values()) and len(set(values.values())) == len(linked))
     options = []

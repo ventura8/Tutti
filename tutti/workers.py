@@ -80,6 +80,23 @@ def selector_value(args, selector):
     return values[0] if len(values) == 1 and isinstance(values[0], str) and values[0] else None
 
 
+KNOWN_SELECTORS = ('--model', '-m', '--account', '--profile')   # flags that pick a model or account in the CLIs Tutti drives
+
+
+def derive_selector(args_by_account):
+    """The flag that tells a shared worker's accounts apart when the config names none: a well-known model or account flag
+    that every linked account passes once, with a different value each. None when there is no such flag (then the owner
+    names it: workers.<n>.chat_account_selector)."""
+    lists = list(args_by_account.values())
+    if len(lists) < 2:
+        return None
+    for flag in KNOWN_SELECTORS:
+        values = [selector_value(a or [], flag) for a in lists]
+        if all(values) and len(set(values)) == len(values):
+            return flag
+    return None
+
+
 def _tagged(name):
     """Ollama's own identity for a model: an untagged `llama3` is `llama3:latest`."""
     return name if ':' in name.rsplit('/', 1)[-1] else f'{name}:latest'

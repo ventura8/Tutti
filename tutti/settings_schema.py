@@ -127,7 +127,10 @@ FIELDS = {
     # workers
     'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server.', 'select', choices=['cli', 'ollama']),
     'workers.*.command': field('Command', 'The command line; {prompt} is the brief, {log} a log file per run.', **CMD),
-    'workers.*.chat_account_selector': field('Chat account selector', 'The CLI flag an admin asserts selects an account or model.', 'text'),
+    'workers.*.chat_account_selector': field('Chat account selector',
+                                             'The CLI flag that selects an account or model. Empty: Tutti derives --model '
+                                             '(or -m, --account, --profile) when every linked account sets it to its own value.',
+                                             'text'),
     'workers.*.provider': field('Provider', 'The heading the Chat model picker lists this worker under (default: its account).', 'text'),
     'workers.*.chat_output_format': field('Chat output format', 'Use text, cursor-stream-json (Cursor) or claude-stream-json (Claude Code, '
                                          'which also feeds its usage reading).', 'text'),

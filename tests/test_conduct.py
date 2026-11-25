@@ -822,5 +822,26 @@ class RoleHandOffTest(Folder):
         self.assertEqual(store.load('local')['conversations'], [])
 
 
+
+class DerivedSelector(unittest.TestCase):
+    """A shared worker's accounts that each pass their own --model need no hand-set selector (self-care)."""
+    def test_a_distinct_model_flag_is_derived(self):
+        from tutti import workers
+        args = {'agy-claude': ['--model', 'claude-x', '--settings', '{}'], 'agy-gemini': ['--model', 'gemini-y', '--settings', '{}']}
+        self.assertEqual(workers.derive_selector(args), '--model')
+        cfg = {'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']}},
+               'accounts': {'agy-claude': {'worker': 'agy', 'args': args['agy-claude']},
+                            'agy-gemini': {'worker': 'agy', 'args': args['agy-gemini']}}}
+        selector, values, why = conduct.conductor_binding(cfg, 'agy')
+        self.assertEqual((selector, why), ('--model', ''))
+        self.assertEqual(values, {'agy-claude': 'claude-x', 'agy-gemini': 'gemini-y'})
+
+    def test_no_flag_or_the_same_value_still_needs_the_owner(self):
+        from tutti import workers
+        self.assertIsNone(workers.derive_selector({'a': ['--model', 'm'], 'b': ['--model', 'm']}))
+        self.assertIsNone(workers.derive_selector({'a': ['--settings', '{}'], 'b': []}))
+        self.assertIsNone(workers.derive_selector({'a': ['--model', 'm']}))
+
+
 if __name__ == '__main__':
     unittest.main()

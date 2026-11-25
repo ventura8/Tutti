@@ -244,8 +244,10 @@ def conductor_binding(cfg, agent):
     linked = [n for n, worker in mapping.items() if n == agent or worker == agent]
     if len(linked) < 2:
         return None, {}, ''
-    selector = (cfg['workers'].get(agent) or {}).get('chat_account_selector')
     saved = cfg.get('_account_args') or {}
+    args = {n: ((cfg['accounts'][n] or {}).get('args') or []) if n in cfg['accounts'] else (saved.get(n) or []) for n in linked}
+    # the owner's selector, else one Tutti derives: a --model (or --account) every linked account sets to its own value
+    selector = (cfg['workers'].get(agent) or {}).get('chat_account_selector') or workers.derive_selector(args)
     values = {n: workers.selector_value(((cfg['accounts'][n] or {}).get('args') or []) if n in cfg['accounts']
                                         else (saved.get(n) or []), selector) for n in linked}
     if not selector or not all(values.values()) or len(set(values.values())) != len(linked):

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- An overspent main agent shifts its share to the cheap workers even when its reading is stale: an old reading already
+  above the pace still proves it ahead (use only grows within a window).
+
 ## 0.31.22 (2026-11-25)
 
 ### Added

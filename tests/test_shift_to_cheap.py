@@ -91,6 +91,14 @@ class ShiftWhenMainAhead(unittest.TestCase):
         other = {'routing': {}, 'autopilot': {'main_accounts': ['gpt']}}
         self.assertEqual(autopilot.main_overspent(other, ahead), '')
 
+    def test_a_stale_reading_already_above_the_pace_still_counts_as_ahead(self):
+        cfg = {'routing': {}, 'autopilot': {}}
+        stale = {'name': 'claude', 'state': 'ok', 'verdict': 'stale', 'used': 80.0, 'expected': 66.0, 'tolerance': 5.0,
+                 'panic_at': 95}
+        self.assertEqual(autopilot.main_overspent(cfg, [stale]), 'claude')   # use only grows: 80 then is at least 80 now
+        self.assertEqual(autopilot.main_overspent(cfg, [{**stale, 'used': 68.0}]), '')   # within the tolerance: unknown
+        self.assertEqual(autopilot.main_overspent(cfg, [{**stale, 'used': None}]), '')
+
     def test_an_ahead_account_gets_room_only_when_shifted(self):
         s = {'name': 'x', 'verdict': 'ahead', 'used': 20.0, 'panic_at': 95, 'limits': [], 'quota_plan': {'shifted': 'claude'}}
         cfg = {'accounts': {'x': {}}, 'autopilot': {}}

@@ -321,8 +321,19 @@ def main_accounts(cfg):
     return [names] if isinstance(names, str) else list(names)
 
 
+def stale_ahead(s):
+    """Pure: a stale reading still proves an account ahead when even that old use is above its pace now (use only grows
+    within a window, so the old figure is a floor): `used` over `expected` by more than the tolerance."""
+    used, expected = s.get('used'), s.get('expected')
+    numbers = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (used, expected))
+    if s.get('verdict') != 'stale' or not numbers:
+        return False
+    return used - expected > float(s.get('tolerance') or 0)
+
+
 def main_overspent(cfg, states):
-    """The name of a main account that is ahead of its pace (verdict `ahead`, read fresh), else ''. Then the cheap workers'
+    """The name of a main account that is ahead of its pace (verdict `ahead`, or a stale reading already above it), else ''.
+    Then the cheap workers'
     accounts may spend ahead of their even spread (planner.plan_limited `shift`), up to their own panic line and target.
     Off with routing.shift_when_main_ahead: false. `states`: a list of account states or {name: state}."""
     if not (cfg.get('routing') or {}).get('shift_when_main_ahead', True):
@@ -331,7 +342,7 @@ def main_overspent(cfg, states):
     by_name = {s.get('name'): s for s in rows}
     for name in main_accounts(cfg):
         s = by_name.get(name) or {}
-        if s.get('state') == 'ok' and s.get('verdict') == 'ahead' and not quota_panic(s):
+        if s.get('state') == 'ok' and not quota_panic(s) and (s.get('verdict') == 'ahead' or stale_ahead(s)):
             return name
     return ''
 

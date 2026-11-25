@@ -9,9 +9,16 @@ import os
 import re
 import unittest
 
-import axe_playwright_python
-from harness import Dashboard
-from playwright.sync_api import sync_playwright
+try:
+    import axe_playwright_python
+    from playwright.sync_api import sync_playwright
+except ImportError as exc:
+    raise unittest.SkipTest(f'browser e2e dependency missing: {exc}') from exc
+
+try:
+    from harness import Dashboard
+except ImportError:
+    from tests.e2e.harness import Dashboard
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 

@@ -418,10 +418,10 @@ tutti/setup.py
 tutti/setupcmd.py
 tutti/shards.py
 tutti/share.py
-tutti/slotcpus.py
 tutti/sharing.py
 tutti/ship.py
 tutti/sleepwatch.py
+tutti/slotcpus.py
 tutti/spendrest.py
 tutti/state.py
 tutti/statebudget.py

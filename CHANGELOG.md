@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.31.28 (2026-11-25)
+## Unreleased
 
 ### Added
 
@@ -11,6 +11,11 @@
   workers. `machines.<m>.slot_cpus` overrides it, `test.slot_cpu_env: false` turns it off (docs/FLEET.md, *Slot CPU budget*). The number is
   worked out by `slot.sh` once it holds its slot lock, from the heat and the limited-hours window at that moment, not when the
   run was queued.
+
+## 0.31.28 (2026-11-25)
+
+### Added
+
 - `tutti backlog show <id> [--json]` prints one task's full record (id, title, status, repo, size, priority, scope, check,
   depends_on, description, notes, and every attempt with its reason); an unknown id exits 2. `tutti run <worker> "<task>" --repo`
   now appends the full text (capped at 8000 characters each) of every backlog task the task text names (`t123`; ids that do not

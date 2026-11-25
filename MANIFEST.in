@@ -419,10 +419,10 @@ include tutti/setup.py
 include tutti/setupcmd.py
 include tutti/shards.py
 include tutti/share.py
-include tutti/slotcpus.py
 include tutti/sharing.py
 include tutti/ship.py
 include tutti/sleepwatch.py
+include tutti/slotcpus.py
 include tutti/spendrest.py
 include tutti/state.py
 include tutti/statebudget.py

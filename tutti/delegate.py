@@ -96,10 +96,13 @@ def resolve_repo(cfg, repo):
     return repo
 
 
-def fresh_base(top, say=print):
+def fresh_base(top, say=print, base=None):
     """The commit a new run starts from: the branch's upstream after a fetch when the local checkout is behind it (a stale
     checkout made workers redo old code and write broken tests), else HEAD (ahead or diverged: local commits are kept).
-    No remote, no upstream or no network: HEAD, said."""
+    No remote, no upstream or no network: HEAD, said. `base` (`tutti run --base origin/<branch>`): that ref after a fetch of
+    its remote, so a task that names its branch starts there whatever the checkout's own state."""
+    if base:
+        return named_base(top, base, say)
     if ship.git(top, 'remote', check=False) == '':
         return 'HEAD'
     upstream = ship.git(top, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}', check=False)
@@ -116,6 +119,23 @@ def fresh_base(top, say=print):
     return 'HEAD'
 
 
+def named_base(top, base, say=print):
+    """The commit `--base <ref>` names, after fetching its remote when it is a remote ref. A ref that cannot be resolved
+    stops the run with what to do: never a silent start from somewhere else."""
+    if not re.fullmatch(r'[A-Za-z0-9._/-]{1,200}', base) or base.startswith('-') or '..' in base:
+        raise ship.ShipError(f'refused: --base "{base}" is not a branch or ref name (nothing was changed)')
+    remote = base.split('/', 1)[0] if '/' in base else ''
+    if remote and remote in ship.git(top, 'remote', check=False).split():
+        if subprocess.run([worktree.git_bin(), '-C', top, 'fetch', '-q', remote], capture_output=True, timeout=120).returncode:
+            say(f'run: could not fetch {remote}; using the local copy of {base}')
+    sha = ship.git(top, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False)
+    if not sha:
+        raise ship.ShipError(f'refused: --base {base} is not a commit in {top}: check the name (`git -C {top} branch -a`) '
+                             '(nothing was changed)')
+    say(f'run: starting from {base} ({sha[:8]})')
+    return sha
+
+
 def track_name(prefix, name):
     """--track as given: a run id, a track name, or the worktree's full name or path (<prefix><id>), which resolves to the
     same worktree instead of a new empty <prefix><prefix><id>."""
@@ -125,7 +145,7 @@ def track_name(prefix, name):
     return name
 
 
-def tree_for(cfg, repo, run_id, name=None, say=print):
+def tree_for(cfg, repo, run_id, name=None, say=print, base=None):
     """The worktree the worker edits: <project.worktrees>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
     or reused when it already is a worktree of the same repository. Returns (path, created)."""
     top = ship.toplevel(resolve_repo(cfg, repo))
@@ -140,7 +160,7 @@ def tree_for(cfg, repo, run_id, name=None, say=print):
     if os.path.exists(wt):
         raise ship.ShipError(f'refused: {wt} exists and is not a git worktree; move it away or pick another --track name')
     os.makedirs(root, exist_ok=True)
-    base = fresh_base(top, say)
+    base = fresh_base(top, say, base)
     ship.git(top, 'worktree', 'add', '-q', '--detach', wt, base)
     say(f'run: new worktree {wt} at {ship.git(wt, "log", "--oneline", "-1")}')
     return wt, True
@@ -351,6 +371,20 @@ def outcome(r):
     return 'PASSED' if r['checks'] else 'CHANGED, NOT TESTED: no check ran; review the diff before using it'
 
 
+def last_words(lines, worker_log=None, n=8):
+    """The end of what the worker said (its final message): why a run that changed nothing stopped, e.g. "the worktree
+    is on the wrong commit" or "the file is already covered". From its last output lines, else its log."""
+    text = [x.rstrip() for x in (lines or []) if x and x.strip()]
+    if not text and worker_log:
+        try:
+            with open(worker_log, encoding='utf8', errors='replace') as f:
+                text = [x.rstrip() for x in f.read().splitlines()[-200:] if x.strip()]
+        except OSError:
+            text = []
+    text = [x for x in text if not x.startswith(('tutti:', 'run:', 'tokens used')) and not x.replace(',', '').isdigit()]
+    return [x[:300] for x in text[-n:]]
+
+
 def summary(r):
     """The reviewable report, plain text."""
     lines = [f'result    {outcome(r)}', f'run {r["id"]}: {r["worker"]} exit {r["worker_rc"]}; {len(r["changed"])} file(s) changed',
@@ -358,6 +392,8 @@ def summary(r):
              f'diff      {r["diff"]}' + (' (empty)' if not r['changed'] else '')]
     if r['stat']:
         lines += ['', r['stat']]
+    if not r['changed'] and r.get('worker_said'):   # why it stopped, in its own words: the reason a person needs
+        lines += ['', 'worker said (its last lines):', *[f'  {x}' for x in r['worker_said']]]
     if r['denied']:
         lines += ['', f'DENIED: the worker\'s CLI refused {len(r["denied"])} tool call(s); the task may be incomplete. Allow the commands '
                       'it needs in the worker\'s headless settings (docs/WORKERS.md), then run again:']
@@ -394,7 +430,7 @@ def write(p, text, mode='w'):
 
 
 def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), checks=True, discard=False, say=None, check_list=None,
-             remote_track=None):
+             remote_track=None, base=None):
     """The whole hand-off. Returns the report dict (also written to report.json and report.txt). Runs that name the same
     --track share one worktree, so they take turns: the second waits until the first has its report. `check_list` replaces the
     configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into."""
@@ -408,7 +444,7 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
                                  'tutti-slot.sh; choose another and retry')
     lock = track_lock(cfg, f'tree-{track}', say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))) if track else contextlib.nullcontext()
     with lock:
-        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
+        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track, base)
 
 
 def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list, reads=()):
@@ -531,19 +567,19 @@ def failure_report(cfg, run_id, name, task, error, say=print):
     return r
 
 
-def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
+def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None, base=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
     run_id = run_id or new_id(cfg)
     try:
-        return _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
+        return _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track, base)
     except Exception as e:   # the report is the record of a failed run: it keeps the reason, then the error goes on
         if not os.path.exists(paths(cfg, run_id)['json']):
             failure_report(cfg, run_id, name, task, f'{type(e).__name__}: {e}', say or print)
         raise
 
 
-def _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
+def _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None, base=None):
     p = paths(cfg, run_id)
     os.makedirs(p['dir'], exist_ok=True)
     write(p['cmd'], f'run {name}: {task.splitlines()[0][:150]}\n')
@@ -554,7 +590,7 @@ def _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, di
     say = say or (lambda m: (sys.stderr.write(f'tutti: {m}\n'), log.write(m + '\n'), log.flush()))
     try:
         repo = resolve_repo(cfg, repo)
-        wt, created = tree_for(cfg, repo, run_id, track, say)
+        wt, created = tree_for(cfg, repo, run_id, track, say, base)
         # how a "pause, stop now" hands this run over (tutti/handover.py): the same task, worktree and checks
         write(p['log'] + '.job', json.dumps({'kind': 'run', 'worker': name, 'task': task, 'repo': os.path.abspath(repo),
                                              'track': track or run_id, 'run_id': run_id, 'files': list(files or []),
@@ -567,6 +603,7 @@ def _delegate_run(cfg, name, task, files, repo, run_id, track, extra, checks, di
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
+        r['worker_said'] = last_words(lines, p['worker_log'])
         chosen, source = chosen_checks(cfg, repo, check_list)
         from . import remote
         identity = os.environ.get('TUTTI_RUN_IDENTITY')

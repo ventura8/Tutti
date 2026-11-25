@@ -817,6 +817,7 @@ def run_in_background(cfg, a, extra):
     argv += [f'--extra={x}' for x in extra]
     argv += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
     argv += ['--track', a.track] if a.track else []
+    argv += ['--base', a.base] if getattr(a, 'base', None) else []
     argv += ['--remote-track', a.remote_track] if a.remote_track else []
     argv += ['--account', a.account] if getattr(a, 'account', None) else []
     for c in a.check or []:
@@ -838,7 +839,8 @@ def run_delegated(cfg, a, extra):
         return run_in_background(cfg, a, extra)
     check_list = [{'run': c, 'where': a.check_where} for c in a.check] if a.check else None
     r = delegate.delegate(cfg, a.worker, a.task, a.files, a.repo, run_id=a.id, track=a.track, extra=extra,
-                          checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track)
+                          checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track,
+                          base=getattr(a, 'base', None))
     with open(delegate.paths(cfg, r['id'])['rc'], 'w', encoding='utf8') as f:
         f.write(f'{r["rc"]}\n')
     with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
@@ -2115,6 +2117,8 @@ def parser():
     s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo (a folder, or a name under '
                                   'autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>)')
     s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
+    s.add_argument('--base', help='with --repo: start a new worktree from this ref (e.g. origin/feat/x, fetched first) '
+                   'instead of the checkout\'s HEAD or upstream')
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
     s.add_argument('--discard', action='store_true', help='with --repo: remove a new worktree after the report (the diff file stays)')

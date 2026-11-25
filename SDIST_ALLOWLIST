@@ -130,6 +130,7 @@ tests/test_dashboard.py
 tests/test_dashui.py
 tests/test_decisional.py
 tests/test_decisions.py
+tests/test_delegate_base.py
 tests/test_delegate_base_broken.py
 tests/test_delegate_fixrounds.py
 tests/test_delegate_fresh.py

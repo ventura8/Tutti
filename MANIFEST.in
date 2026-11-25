@@ -131,6 +131,7 @@ include tests/test_dashboard.py
 include tests/test_dashui.py
 include tests/test_decisional.py
 include tests/test_decisions.py
+include tests/test_delegate_base.py
 include tests/test_delegate_base_broken.py
 include tests/test_delegate_fixrounds.py
 include tests/test_delegate_fresh.py

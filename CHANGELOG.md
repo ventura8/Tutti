@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- `tutti run auto` names every account its machine holds back (quiet hours, offline, heat, busy) in its reason, e.g. "held
+  by its machine: codex: quiet hours on laptop"; before, such an account was dropped without a word.
 - `tutti agents count` counts the calling Claude Code session (`CLAUDE_CODE_SESSION_ID`), not the newest transcript of
   the current directory, which could be another session.
 - agy's read grant for a guide file named in a brief (`workers.guide_files`) also takes `$HOME/...` and paths relative to the

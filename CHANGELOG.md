@@ -101,8 +101,6 @@
 
 ### Added
 
-- Chat: the model picker groups related models under one heading (local by machine, online by `workers.<name>.provider`
-  or account), so models of one provider are easy to find and compare (t405, docs/CHAT.md).
 - `tutti run auto` spreads work: every account with room takes a turn (the one picked longest ago first, accounts ahead
   of pace still last), so Codex gets work next to agy-gemini; the reason line names the others with room
   (`<state>/auto-picks.json`, docs/USAGE-PACING.md).

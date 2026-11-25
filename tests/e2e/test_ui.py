@@ -306,7 +306,9 @@ class Accessibility(unittest.TestCase):
         self.assertTrue(errors, 'no role=alert error message is tied to the field')
         self.assertRegex(errors[0].text_content(), r'10')
         page.fill('#autocompact-pct', '50')
-        self.assertNotEqual(field.get_attribute('aria-invalid'), 'true')   # corrected: the error clears as the owner types
+        # corrected: the error clears as the owner types (waited for: the clear runs after the input event, and a slow runner raced it)
+        page.wait_for_function("document.querySelector('#autocompact-pct').getAttribute('aria-invalid') !== 'true'", timeout=5000)
+        self.assertNotEqual(field.get_attribute('aria-invalid'), 'true')
         ctx.close()
 
     def test_a_good_form_value_raises_no_error(self):

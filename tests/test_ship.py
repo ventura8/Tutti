@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import tmpdirs
+
 from tutti import config, ship
 
 
@@ -126,6 +128,21 @@ class ShipTest(unittest.TestCase):
         self.write('b.txt', 'two\n')
         self.ship(self.cfg(checks=[{'run': 'echo noise; echo "[SUCCESS] stage static passed"', 'quiet': True, 'verdict': r'\[SUCCESS\]'}]))
         self.assertTrue(any('[SUCCESS] stage static passed' in line for line in self.said))
+
+    def test_quiet_check_makes_its_log_folder_when_it_is_gone(self):
+        # t256: a run's folder swept away (or never made) once raised FileNotFoundError out of quiet_check and ended the run.
+        folder = os.path.join(tmpdirs.mkdtemp(), 'runs', 'gone')
+        check = {'run': 'echo "[SUCCESS] ok"', 'verdict': r'\[SUCCESS\]'}
+        rc, _where, log, verdict = ship.quiet_check(self.cfg(), self.tree, check, {}, 'trk', folder)
+        self.assertEqual((rc, os.path.dirname(log)), (0, folder))
+        self.assertIn('[SUCCESS] ok', verdict)
+
+    def test_quiet_check_names_a_log_folder_that_is_a_file(self):
+        blocker = os.path.join(tmpdirs.mkdtemp(), 'file')
+        with open(blocker, 'w', encoding='utf8') as f:
+            f.write('x')
+        with self.assertRaises(OSError):   # a real fault still surfaces; only a missing folder is made
+            ship.quiet_check(self.cfg(), self.tree, {'run': 'true'}, {}, 'trk', blocker)
 
     def test_shell_exports_tutti_env_on_the_bash_line(self):
         # WSL bash does not inherit the Windows process environment, so the variables are exported on the line itself;

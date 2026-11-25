@@ -332,7 +332,14 @@ def tree_and_command(cfg, a):
     return src, a.command
 
 
-def test_choice(cfg, a):
+def test_need(cfg, src, command):
+    """The runner the repository of tree `src` needs for `command` (autopilot.repos.<repo>.runner), or None."""
+    from . import projects
+    found = projects.repo_runner(cfg, src)
+    return routing.runner_need(found[1], found[0], command_line(command)) if found else None
+
+
+def test_choice(cfg, a, need=None):
     """(routing.Choice, device or None) for a `tutti test`; raises ConfigError when no device gets ready.
     Every `tutti test` is heavy: never a machine inside its limited-hours window, never one at heat.stop_c, and `--on`
     does not bypass those (t444: Plex NUC): an unfit `--on` machine hands the run to the next fit one in routing.order unless `--only`."""
@@ -353,33 +360,36 @@ def test_choice(cfg, a):
     if a.on:
         m = machine_of(cfg, a.on)
         probe = share.probe_at_share(m, remote.probe(m), now_dt)
-        why = routing.refused(m, probe, now=now_dt, heavy=True) or routing.unfit(m, probe, now=now_dt, heavy=True)
+        why = (routing.refused(m, probe, now=now_dt, heavy=True) or routing.unfit(m, probe, now=now_dt, heavy=True)
+               or routing.runner_unfit(m, need))
         if not why:
             return routing.Choice(m['name'], False, 'chosen with --on'), None
         if getattr(a, 'only', False):
             raise config.ConfigError(f'{m["name"]}: {why}; --only/--strict keeps the run on this machine: wait, or drop the flag to '
                                      'let it run on the next machine that fits')
-        return test_fallback(cfg, m['name'], why, probe_fn, now_dt), None
+        return test_fallback(cfg, m['name'], why, probe_fn, now_dt, need), None
     try:
-        return routing.choose(cfg['routing']['order'], cfg['machines'], probe_fn, now=now_dt, heavy=True), None
+        return routing.choose(cfg['routing']['order'], cfg['machines'], probe_fn, now=now_dt, heavy=True, need=need), None
     except routing.NoMachine as e:
         raise config.ConfigError(str(e)) from e
 
 
-def test_fallback(cfg, named, why, probe_fn, now_dt):
+def test_fallback(cfg, named, why, probe_fn, now_dt, need=None):
     """The next machine in routing.order that is fit now, when the machine named with `--on` is not (limited hours, busy, hot,
-    loaded, quiet hours, yielding, paused): the run goes there and one line says so. When none fits, the error lists every
-    machine's reason: a run never queues on a machine another one was asked for."""
+    loaded, quiet hours, yielding, paused, or a runner other than the one the repository needs: `need`): the run goes there
+    and one line says so. When none fits, the error lists every machine's reason: a run never queues on a machine another one
+    was asked for."""
     rest = [n for n in cfg['routing']['order'] if n != named and n in cfg['machines']]
     where = f'{named}: {why}'
     try:
-        c = routing.choose(rest, cfg['machines'], probe_fn, now=now_dt, heavy=True) if rest else None
+        c = routing.choose(rest, cfg['machines'], probe_fn, now=now_dt, heavy=True, need=need) if rest else None
     except routing.NoMachine as e:
         raise config.ConfigError(f'{where}; {e}') from e
     if c is None or c.queued:
         raise config.ConfigError(f'{where}; no other machine fits either: {c.reason if c else "routing.order names no other machine"}; '
                                  'wait, resume a machine (`tutti machines`), or add one to routing.order')
-    say(f'test: {where} (heavy work elsewhere); running on {c.machine} instead')
+    wrong_runner = bool(need) and why == routing.runner_unfit(cfg['machines'][named], need)
+    say(f'test: {where}{"" if wrong_runner else " (heavy work elsewhere)"}; running on {c.machine} instead')
     return routing.Choice(c.machine, False, f'{named} was unfit; next fit machine in routing.order')
 
 def test_job(cfg, a, machine, device, src, command):
@@ -540,7 +550,7 @@ def cmd_test(cfg, a):
         say(f'no work tree at {src}: create the worktree for track "{a.track}" there, or pass --dir <path>')
         return 2
     try:
-        choice, device = test_choice(cfg, a)
+        choice, device = test_choice(cfg, a, None if a.device else test_need(cfg, src, command))
     except config.ConfigError as e:
         say(f'test: {e}')
         return 3

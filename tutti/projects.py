@@ -122,6 +122,22 @@ def configured(cfg):
     return cfg.get('projects') or {}
 
 
+def repo_runner(cfg, tree):
+    """(repo name, `runner` declaration) of the autopilot repo that `tree` belongs to (the tree or its main checkout is the
+    repo's `path`) when that repo declares the runner its checks need, else None. A folder that is no git tree, or no
+    autopilot repo, declares nothing."""
+    declared = {n: r for n, r in ((cfg.get('autopilot') or {}).get('repos') or {}).items()
+                if isinstance(r, dict) and r.get('runner') and r.get('path')}
+    if not declared or not tree:
+        return None
+    found = identify(os.path.abspath(tree)) or {}
+    here = {os.path.realpath(p) for p in (found.get('repo'), found.get('folder')) if p}
+    for n, r in declared.items():
+        if os.path.realpath(os.path.expanduser(os.path.expandvars(r['path']))) in here:
+            return n, r['runner']
+    return None
+
+
 def rename(cfg, found):
     """The configured project a repository belongs to (its `match` over the path and the remote), else its own name."""
     text = f'{found.get("repo") or ""} {found.get("remote") or ""} {found.get("folder") or ""}'

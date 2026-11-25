@@ -317,6 +317,9 @@ FIELDS = {
                                    '({changed:ts,js} works as in the check): style-only failures fix themselves.', 'text'),
     'autopilot.repos.*.check': field('Check', 'The repo\'s gates; a result passes only when they pass.', 'text'),
     'autopilot.repos.*.where': field('Checks run', 'local, or route (on a machine).', 'select', choices=['local', 'route']),
+    'autopilot.repos.*.runner': field('Checks need runner', '{kind: docker, image, desktop}: `tutti test` and routed checks for this repo '
+                                      'skip a machine whose runner differs; `desktop` is a regex of commands that may use a '
+                                      'desktop shell (docs/FLEET.md).', **YAML),
     'autopilot.repos.*.pr': field('Open a pull request', 'Deprecated by land: pr.', 'switch'),
     'autopilot.repos.*.land': field('Land as', 'merge after a clean review, a pull request a person merges, or a branch.', 'select',
                                 choices=['pr', 'merge', 'branch'], default='pr'),

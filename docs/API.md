@@ -696,6 +696,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `autopilot.repos.*.fix` | text |  | Fix first: Formatters and generators run on a run's change before its check ({changed:ts,js} works as in the check): style-only failures fix themselves. | admin |
 | `autopilot.repos.*.check` | text |  | Check: The repo's gates; a result passes only when they pass. | admin |
 | `autopilot.repos.*.where` | select local, route |  | Checks run: local, or route (on a machine). | admin |
+| `autopilot.repos.*.runner` | yaml |  | Checks need runner: {kind: docker, image, desktop}: `tutti test` and routed checks for this repo skip a machine whose runner differs; `desktop` is a regex of commands that may use a desktop shell (docs/FLEET.md). | admin |
 | `autopilot.repos.*.pr` | switch |  | Open a pull request: Deprecated by land: pr. | admin |
 | `autopilot.repos.*.land` | select pr, merge, branch | `pr` | Land as: merge after a clean review, a pull request a person merges, or a branch. | admin |
 | `autopilot.repos.*.base` | text |  | Base branch: Where results branch from and land. | admin |

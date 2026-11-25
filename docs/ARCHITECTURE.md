@@ -239,7 +239,9 @@ flowchart LR
    With `--on <machine>` that machine is tried first; if it is unfit now (limited hours, busy, hot or loaded, quiet hours,
    yielding, paused) the same choice runs over the rest of `routing.order` and the run goes to the first one that is fit, with
    one line saying why. It never queues there: when none is fit it refuses and lists each machine's reason. `--only`
-   (`--strict`) keeps `--on` strict. MCP `test_on` runs the same command, with `only` for the flag.
+   (`--strict`) keeps `--on` strict. A repo that declares `autopilot.repos.<repo>.runner` also makes every machine whose runner
+   kind (or image) differs unfit, and never a queue target (`routing.runner_need`, `runner_unfit`; the repo is found from the tree
+   with `projects.repo_runner`; routed checks in `ship.run_check` ask the same). MCP `test_on` runs the same command, with `only` for the flag.
 3. For a remote machine: the tree's `HEAD` is pushed to a bare repository there, the tree is copied with rsync
    (incremental, the config's excludes: no secrets, no build output), and the copy gets a shallow git repository at
    that commit, so tests that ask git still work.

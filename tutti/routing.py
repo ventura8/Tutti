@@ -196,13 +196,45 @@ def refused(machine, probe, now=None, heavy=False):
             or limit_unfit(machine, now, heavy))
 
 
-def choose(order, machines, probe_fn, now=None, heavy=False):
+def runner_need(decl, repo, command=''):
+    """What a repository's checks need from a machine's runner, or None: `decl` is `autopilot.repos.<repo>.runner`
+    ({kind: docker|shell, image, desktop}; an `image` alone means docker). A command matching `desktop` (a regex: emulator,
+    visible browser) needs the desktop session, so the repo's runner does not apply to it."""
+    if not decl or (decl.get('desktop') and re.search(decl['desktop'], command or '')):
+        return None
+    return {'repo': repo, 'kind': decl.get('kind') or 'docker', 'image': decl.get('image') or ''}
+
+
+def runner_unfit(machine, need):
+    """Why this machine's runner is not the one the repository needs, or ''. A household member's machine is its owner's
+    to judge (their own Tutti runs the job), so it is never refused here."""
+    if not need or machine.get('transport') == 'household':
+        return ''
+    have = machine['runner']
+    wants = f'{need["kind"]} runner' + (f' (image {need["image"]})' if need['image'] else '')
+    if have['kind'] != need['kind']:
+        return (f'runs checks in its {have["kind"]} runner; {need["repo"]} needs its {wants} '
+                f'(autopilot.repos.{need["repo"]}.runner)')
+    if need['image'] and have.get('image') != need['image']:
+        return (f'runs checks in image {have.get("image") or "(none)"}; {need["repo"]} needs {need["image"]} '
+                f'(autopilot.repos.{need["repo"]}.runner.image)')
+    return ''
+
+
+def choose(order, machines, probe_fn, now=None, heavy=False, need=None):
     """The first fit machine in `order`, probed lazily (a later machine is asked only when the earlier ones are not fit).
     When none is fit the run queues on the first reachable machine whose yield flag is down, else on the first one.
     `heavy`: a Tutti test / routed check / e2e — never starts on a machine inside its limited-hours window (t444)."""
     if not order:
         raise ValueError('routing.order is empty: name at least one machine')
     seen, why = {}, []
+    if need:   # a machine whose runner is not the repo's is never a candidate, not even to queue on
+        wrong = {n: runner_unfit(machines[n], need) for n in order}
+        why = [f'{n}: {r}' for n, r in wrong.items() if r]
+        order = [n for n in order if not wrong[n]]
+        if not order:
+            raise NoMachine(f'no machine runs {need["repo"]}\'s checks the way it needs: {"; ".join(why)}; '
+                            f'give a machine in routing.order that runner, or change autopilot.repos.{need["repo"]}.runner')
     for name in order:
         seen[name] = probe_fn(name)
         reason = unfit(machines[name], seen[name], now=now, heavy=heavy)

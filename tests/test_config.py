@@ -165,3 +165,20 @@ class OptInTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RepoRunnerConfigTest(unittest.TestCase):
+    def errors(self, runner):
+        cfg = config.normalise({'autopilot': {'repos': {'app': {'path': '/x', 'check': 'true', 'runner': runner}}}})
+        return [e for e in config.validate(cfg) if 'runner' in e and 'autopilot.repos.app' in e]
+
+    def test_good_declarations(self):
+        for ok in ({'kind': 'docker'}, {'image': 'q:local'}, {'kind': 'shell'}, {'kind': 'docker', 'desktop': 'emulator|--headed'}):
+            self.assertEqual(self.errors(ok), [], ok)
+
+    def test_bad_declarations_name_the_key_and_the_fix(self):
+        self.assertIn('use docker', self.errors({'kind': 'native'})[0])
+        self.assertIn('needs kind docker', self.errors({'kind': 'shell', 'image': 'q'})[0])
+        self.assertIn('not a regular expression', self.errors({'desktop': '('})[0])
+        self.assertIn('is not a key', self.errors({'images': 'q'})[0])
+        self.assertIn('write {kind: docker}', self.errors('docker')[0])

@@ -261,6 +261,31 @@ Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). I
 - **On a move:** `main: true` marks the main machine's own window, and `tutti move` carries it to the new main machine.
 - **Default:** a new household has no window.
 
+## A repository that needs its runner
+
+A repository whose checks only pass in its own image (a quality image with the toolchain pinned) says so:
+
+```yaml
+autopilot:
+  repos:
+    map:
+      path: ~/Projects/map
+      runner: {kind: docker, image: hcm-quality:local, desktop: 'emulator|--headed'}
+```
+
+- `kind` is `docker` (the default) or `shell`; `image` (docker only) names the image the machine's runner must use; `desktop` is a
+  regex of commands that need the desktop session (an emulator, a visible browser): those are exempt and may run on any machine.
+- The repo is found from the tree: `tutti test <track>` uses the track's worktree (or `--dir`), a routed check or delegated run its
+  worktree; the tree (or its main checkout) must be the `path` of an autopilot repo. A tree that is not a git tree, or no
+  autopilot repo, declares nothing.
+- A machine whose runner differs is **unfit**, with the reason (`laptop-desktop: runs checks in its shell runner; map needs its docker
+  runner (image hcm-quality:local) (autopilot.repos.map.runner)`). `routing.choose` skips it and never queues on it; `--on` that
+  machine falls back to the next fit machine in `routing.order` and says why; with `--only` or when no machine fits the run
+  refuses and lists each reason. Household members' machines are their owners' to judge.
+- Why not run docker on the shell machine instead: a `shell` machine is shell on purpose (a desktop, an emulator, a visible browser),
+  often has no docker daemon or image, and wrapping would silently change what that machine does for every other repo. Refusing and
+  moving on is always correct; a wrong wrap can fail late or pass on the wrong toolchain. Device runs (`--device`) are not affected.
+
 ## Slot CPU budget
 
 Two `tutti test` runs on one 28-CPU machine each sized Playwright and Vitest from all 28 CPUs; with emulators alongside, load

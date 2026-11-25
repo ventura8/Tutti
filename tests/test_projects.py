@@ -64,6 +64,26 @@ class IdentifyTest(unittest.TestCase):
             self.assertEqual(projects.git_dir(os.path.join(d, 'x')), (None, None))
 
 
+class RepoRunnerTest(unittest.TestCase):
+    def cfg(self, d, main, runner):
+        return cfg_of(d, autopilot={'repos': {'map': {'path': main, 'check': 'true', 'runner': runner},
+                                              'other': {'path': os.path.join(d, 'nope'), 'check': 'true'}}})
+
+    def test_a_worktree_and_the_main_checkout_find_the_repos_declared_runner(self):
+        with tempfile.TemporaryDirectory() as d:
+            main = repo(d, worktree=os.path.join(d, 'wt', 'track'))
+            cfg = self.cfg(d, main, {'kind': 'docker'})
+            self.assertEqual(projects.repo_runner(cfg, os.path.join(d, 'wt', 'track')), ('map', {'kind': 'docker'}))
+            self.assertEqual(projects.repo_runner(cfg, main), ('map', {'kind': 'docker'}))
+
+    def test_other_trees_and_repos_without_a_runner_declare_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            main = repo(d, worktree=os.path.join(d, 'wt', 'track'))
+            self.assertIsNone(projects.repo_runner(self.cfg(d, os.path.join(d, 'elsewhere'), {'kind': 'docker'}), main))
+            self.assertIsNone(projects.repo_runner(cfg_of(d, autopilot={'repos': {'map': {'path': main, 'check': 'true'}}}), main))
+            self.assertIsNone(projects.repo_runner(self.cfg(d, main, {'kind': 'docker'}), d))   # no git tree
+
+
 class TagTest(unittest.TestCase):
     def test_jobs_get_their_project(self):
         with tempfile.TemporaryDirectory() as d:

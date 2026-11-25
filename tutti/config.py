@@ -651,6 +651,29 @@ def _autopilot_name_errors(cfg, key, names):
     return [e for e in (_autopilot_name_error(cfg, key, n) for n in names or []) if e]
 
 
+REPO_RUNNER_KEYS = ('kind', 'image', 'desktop')
+
+
+def _repo_runner_errors(n, runner):
+    """autopilot.repos.<n>.runner: the runner the repository's checks need ({kind: docker|shell, image, desktop})."""
+    if runner is None:
+        return []
+    key = f'autopilot.repos.{n}.runner'
+    if not isinstance(runner, dict) or not runner:
+        return [f'{key} is {runner!r}: write {{kind: docker}} or {{image: <image>}}: '
+                'a machine whose runner differs is not used for this repo']
+    errs = [f'{key}.{k} is not a key: use {", ".join(REPO_RUNNER_KEYS)}' for k in runner if k not in REPO_RUNNER_KEYS]
+    if runner.get('kind', 'docker') not in ('docker', 'shell'):
+        errs.append(f'{key}.kind is {runner["kind"]!r}: use docker (the machine runs checks in its image) or shell')
+    if runner.get('image') and runner.get('kind', 'docker') != 'docker':
+        errs.append(f'{key}.image needs kind docker: a shell runner has no image; remove image or set kind: docker')
+    if runner.get('image') is not None and not isinstance(runner['image'], str):
+        errs.append(f'{key}.image is {runner["image"]!r}: write the image name, e.g. my-quality:local')
+    if runner.get('desktop') is not None:
+        errs += _regex_errors(f'{key}.desktop', runner['desktop'])
+    return errs
+
+
 def _autopilot_repo_errors(n, r):
     if not isinstance(r, dict) or not r.get('path'):
         return [f'autopilot.repos.{n} needs path: the repository\'s folder (and check: its acceptance check)']
@@ -666,6 +689,7 @@ def _autopilot_repo_errors(n, r):
                     'docs/HOUSEHOLD.md) or false')
     if not isinstance(r.get('untested', True), bool):
         errs.append(f'autopilot.repos.{n}.untested is {r["untested"]!r}: true (fill_room queues tests for files no test names) or false')
+    errs += _repo_runner_errors(n, r.get('runner'))
     if r.get('land', 'pr') not in ('merge', 'pr', 'branch'):
         errs.append(f'autopilot.repos.{n}.land is {r["land"]!r}: use merge (a reviewed result is merged), pr (a pull request a '
                     'person merges) or branch (it waits for a person)')

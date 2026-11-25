@@ -97,5 +97,92 @@ class TestFallsBack(unittest.TestCase):
             self.assertEqual((a.on, a.command), ('nuc', ['make']))
 
 
+class TestRepoNeedsItsRunner(unittest.TestCase):
+    """autopilot.repos.<repo>.runner: a desktop shell machine is unfit for that repo; the run moves on and says why."""
+    NEED = {'repo': 'map', 'kind': 'docker', 'image': 'q:local'}
+
+    def setUp(self):
+        tz.use({'time': {'zone': 'UTC'}})
+        self.addCleanup(tz.use, {})
+        self.probes = {'nuc': free(2), 'pc': free(2), 'old': free(1)}
+
+    def cfg(self):
+        return cfg_of(nuc={'limit': None, 'runner': {'kind': 'shell'}}, pc={'runner': {'kind': 'docker', 'image': 'q:local'}},
+                      old={'runner': {'kind': 'docker', 'image': 'q:local'}})
+
+    def choose(self, cfg, a, need=NEED):
+        err = io.StringIO()
+        with mock.patch.object(cli.remote, 'probe', side_effect=lambda m: self.probes[m['name']]), redirect_stderr(err):
+            try:
+                return cli.test_choice(cfg, a, need)[0], err.getvalue()
+            except config.ConfigError as e:
+                return e, err.getvalue()
+
+    def test_on_a_shell_machine_moves_to_the_next_fit_one_and_says_why(self):
+        c, said = self.choose(self.cfg(), args(on='nuc'))
+        self.assertEqual((c.machine, c.queued), ('pc', False))
+        self.assertIn('nuc: runs checks in its shell runner; map needs its docker runner', said)
+        self.assertIn('running on pc instead', said)
+        self.assertNotIn('heavy work elsewhere', said)
+
+    def test_routed_run_skips_the_shell_machine_first_in_order(self):
+        c, _ = self.choose(self.cfg(), args())
+        self.assertEqual(c.machine, 'pc')
+
+    def test_only_refuses_naming_the_runner(self):
+        e, _ = self.choose(self.cfg(), args(on='nuc', only=True))
+        self.assertIsInstance(e, config.ConfigError)
+        self.assertIn('needs its docker runner', str(e))
+
+    def test_no_docker_machine_fit_refuses_and_never_runs_on_the_shell_one(self):
+        self.probes['pc'], self.probes['old'] = free(0), free(0)
+        e, said = self.choose(self.cfg(), args(on='nuc'))
+        self.assertIsInstance(e, config.ConfigError)
+        self.assertIn('no other machine fits', str(e))
+        self.assertNotIn('running on', said)
+
+    def test_without_a_need_the_shell_machine_is_used_as_before(self):
+        c, _ = self.choose(self.cfg(), args(on='nuc'), need=None)
+        self.assertEqual(c.machine, 'nuc')
+
+    def test_need_comes_from_the_trees_repo_and_a_desktop_command_is_exempt(self):
+        decl = {'kind': 'docker', 'desktop': 'emulator'}
+        with mock.patch('tutti.projects.repo_runner', return_value=('map', decl)):
+            self.assertEqual(cli.test_need({}, '/t', ['npm', 'test'])['kind'], 'docker')
+            self.assertIsNone(cli.test_need({}, '/t', ['run-emulator', '--avd', 'x']))
+        with mock.patch('tutti.projects.repo_runner', return_value=None):
+            self.assertIsNone(cli.test_need({}, '/t', ['npm', 'test']))
+
+
+class TestRoutedCheckNeedsItsRunner(unittest.TestCase):
+    def test_a_routed_check_skips_the_shell_machine_and_never_runs_there(self):
+        from tutti import ship
+        cfg = config.normalise({'project': {'state': tmpdirs.mkdtemp()},
+                                'machines': {'desk': {'host': 'desk.example', 'runner': {'kind': 'shell'}},
+                                             'box': {'host': 'box.example', 'runner': {'kind': 'docker', 'image': 'q:local'}}},
+                                'routing': {'order': ['desk', 'box']}})
+        ran, err = [], io.StringIO()
+        with mock.patch('tutti.projects.repo_runner', return_value=('map', {'kind': 'docker'})), \
+                mock.patch.object(cli.remote, 'probe', return_value=free(2)), \
+                mock.patch.object(ship.remote, 'run', side_effect=lambda c, m, t, top, run: ran.append(m['name']) or 0), \
+                redirect_stderr(err):
+            rc, where = ship.run_check(cfg, '/t', {'run': 'npm test', 'where': 'route'}, {}, 'trk')
+        self.assertEqual((rc, where, ran), (0, 'box', ['box']))
+        self.assertIn('desk: runs checks in its shell runner', err.getvalue())
+
+    def test_no_docker_machine_means_no_run_and_the_reason(self):
+        from tutti import ship
+        cfg = config.normalise({'project': {'state': tmpdirs.mkdtemp()},
+                                'machines': {'desk': {'host': 'desk.example', 'runner': {'kind': 'shell'}}},
+                                'routing': {'order': ['desk']}})
+        err = io.StringIO()
+        with mock.patch('tutti.projects.repo_runner', return_value=('map', {'kind': 'docker'})), \
+                mock.patch.object(ship.remote, 'run') as run, redirect_stderr(err):
+            rc, where = ship.run_check(cfg, '/t', {'run': 'npm test', 'where': 'route'}, {}, 'trk')
+        self.assertEqual((rc, where), (3, 'none'))
+        run.assert_not_called()
+        self.assertIn('check not run', err.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -160,7 +160,10 @@ def run_check(cfg, top, check, env, track):
         def probe_fn(n):
             return share.probe_at_share(machines[n], remote.probe(machines[n]), now_dt)
 
-        choice = routing.choose(cfg['routing']['order'], machines, probe_fn, now=now_dt, heavy=True)
+        from . import projects
+        found = projects.repo_runner(cfg, top)
+        need = routing.runner_need(found[1], found[0], run) if found else None
+        choice = routing.choose(cfg['routing']['order'], machines, probe_fn, now=now_dt, heavy=True, need=need)
     except routing.NoMachine as e:
         sys.stderr.write(f'tutti: check not run: {e}\n')
         return 3, 'none'

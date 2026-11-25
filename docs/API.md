@@ -1309,6 +1309,7 @@ brief a CLI worker (cursor, agy, claude; `auto`: the one whose account has room)
 ```text
 usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO] [--track TRACK] [--base BASE] [--bg]
                  [--no-checks] [--discard] [--check CMD] [--check-where {local,route}] [--no-backlog] [--size {S,M,L}]
+                 [--account ACCOUNT]
                  worker task [files ...]
 ```
 
@@ -1332,7 +1333,7 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 | `--no-backlog` | claude with --repo: run it untracked (no backlog task, no pacing) |  |
 | `--size` | claude with --repo: the task's size (default S) | `S` |
 | `--remote-track` | ==SUPPRESS== |  |
-| `--account` | ==SUPPRESS== |  |
+| `--account` | with a worker several accounts share (agy): run on this account, with its args (--model, --settings) |  |
 | `--id` | ==SUPPRESS== |  |
 | `--extra` | ==SUPPRESS== |  |
 

@@ -580,7 +580,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `workers.*.machine` | select |  | Machine: Where this worker runs (Codex on the laptop): yield, pause, heat and quiet hours are honoured; Move work knows the host. | admin |
 | `workers.*.tunnel` | yaml |  | Tunnel: An ssh tunnel to the model server: {ssh, remote}. | admin |
 | `routing.workers` | list |  | Worker order: `tutti run auto` prefers these first (order only; every account that names a worker still joins, so Codex is not left out when the list is only cursor and agy). | admin |
-| `routing.shift_when_main_ahead` | switch |  | Shift to cheap workers: While the main agent's account (autopilot.main_accounts) is ahead of its pace, the other accounts may spend ahead of their even spread, up to their own panic line and target (docs/USAGE-PACING.md). | admin |
+| `routing.shift_when_main_ahead` | switch | `True` | Shift to cheap workers: While the main agent's account (autopilot.main_accounts) is ahead of its pace, the other accounts may spend ahead of their even spread, up to their own panic line and target (docs/USAGE-PACING.md). | admin |
 | `brief.rules` | list |  | Rules in every brief: Added to every brief (the standing ones are always added). | admin |
 | `main.target_pct` | number (%) |  | Target: The % of the main agent's quota to use by its spend-by time; the owner's reserve still holds. | admin |
 | `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal, or auto: Tutti keeps preferred while it has room, else the first worker in main.fallback with room. | each user (own value) or an admin |

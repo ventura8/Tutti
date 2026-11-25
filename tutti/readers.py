@@ -528,10 +528,37 @@ def scan_log(accounts, path, now):
     return out
 
 
-def scan_text(accounts, cmd_text, lines, now, ref):
-    """Limit messages in a worker's output (`tutti run`), attributed like a job log's."""
+def plain_text(lines):
+    """A worker's output as a person would read it: a stream-json event line (claude --output-format stream-json) is data,
+    not a message. Its words (rate_limit_event, "limit", usage fields) must never read as "you hit your limit". Only a
+    failed result's text, and a rate limit the event says was rejected, are kept as text."""
     out = []
-    for i, reset, around in limit_hits(lines, now):
+    for line in lines or ():
+        t = line.strip() if isinstance(line, str) else ''
+        if not (t.startswith('{') and t.endswith('}')):
+            out.append(line)
+            continue
+        try:
+            e = json.loads(t)
+        except ValueError:
+            out.append(line)
+            continue
+        if not isinstance(e, dict) or 'type' not in e:
+            out.append(line)
+        elif e.get('type') == 'result' and e.get('is_error') and isinstance(e.get('result'), str):
+            out.append(e['result'])
+        elif e.get('type') == 'rate_limit_event' and str((e.get('rate_limit_info') or {}).get('status', '')).lower() == 'rejected':
+            out.append('usage limit reached (rate_limit_event: rejected)')
+        else:
+            out.append('')   # an event line keeps its place so a hit's line number still points at the output
+    return out
+
+
+def scan_text(accounts, cmd_text, lines, now, ref):
+    """Limit messages in a worker's output (`tutti run`), attributed like a job log's. Stream-json events are read as data
+    (plain_text), so a JSON line that merely mentions limits never logs an account as spent."""
+    out = []
+    for i, reset, around in limit_hits(plain_text(lines), now):
         name = match_account(accounts, cmd_text, around)
         if name:
             out.append((name, reset, f'{ref}:{i + 1}', around))

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- A worker's stream-json output (claude `--output-format stream-json`) is read as data by the limit scanner: an event line that
+  only mentions limits (rate_limit_event, usage fields) no longer logs the account as spent (it logged Claude at 100 %). A
+  failed result's text and a rejected rate limit still count.
 - An overspent main agent shifts its share to the cheap workers even when its reading is stale: an old reading already
   above the pace still proves it ahead (use only grows within a window).
 

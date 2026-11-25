@@ -228,6 +228,20 @@ def mark_base_broken(checks, base_results):
     return checks
 
 
+def names_new_file(check, new):
+    """Pure: True when a failed check's verdict or log names a file the worker added (not in the base): that error is the
+    change's own, whatever the base does."""
+    if not new:
+        return False
+    text = check.get('verdict') or ''
+    try:
+        with open(check.get('log') or '', encoding='utf8', errors='replace') as f:
+            text += f.read()[-200000:]
+    except (OSError, TypeError, ValueError):
+        pass
+    return any(f in text for f in new)
+
+
 def base_checks(cfg, wt, chosen, results, env, track, say=print, folder=None):
     """The checks of `results` that failed, run once more on the run's base commit (HEAD of the worktree: the worker's edits
     are uncommitted) in a temporary clean detached worktree with the shared dependency folders, removed afterwards. Marks the
@@ -243,7 +257,15 @@ def base_checks(cfg, wt, chosen, results, env, track, say=print, folder=None):
         added = True
         worktree.share(tmp, cfg['ship'].get('share', []), say)
         say(f'run: {len(failed)} check(s) failed; running them on the base {base[:10]} to see whether the change is to blame')
-        base_env = {**env, 'TUTTI_TREE': tmp, 'TUTTI_GIT_MOUNT': worktree.docker_mount(tmp)}
+        changed = ship.split_changed(env.get('TUTTI_CHANGED'))
+        new = [f for f in changed if not os.path.exists(os.path.join(tmp, f))]   # files the worker added: not in the base
+        # the base is checked on the files it has: a check named on the worker's new files would fail there for that reason only
+        base_env = {**env, 'TUTTI_TREE': tmp, 'TUTTI_GIT_MOUNT': worktree.docker_mount(tmp),
+                    'TUTTI_CHANGED': ship.join_changed([f for f in changed if f not in new])}
+        failed = [i for i in failed if not names_new_file(results[i], new)]   # an error in a new file is the change's own
+        if not failed:
+            say('run: the failing checks name files the worker added: the change is to blame, not the base')
+            return results
         on_base = run_checks(cfg, tmp, [chosen[i] for i in failed], base_env, track, say, folder)
         mark_base_broken(results, {i: b['rc'] for i, b in zip(failed, on_base, strict=True)})
     except (ship.ShipError, OSError, subprocess.SubprocessError) as e:

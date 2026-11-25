@@ -33,7 +33,8 @@ tutti usage read                   # run the automatic readers now (the dashboar
 `tutti run auto` (and Chat's delegate_task) chooses among every account with room. Accounts ahead of their pace come last.
 Among the rest, the account picked longest ago goes first (`<state>/auto-picks.json`), so the work alternates across
 the accounts that have room instead of all going to the soonest-expiring one. The reason line lists the others that have
-room (`also has room: …`).
+room (`also has room: …`). An account whose worker runs on a machine that may not run now (its quiet hours, offline,
+heat, every slot busy) is left out and named (`held by its machine: …`).
 
 ## The target, and straight on after the reset
 

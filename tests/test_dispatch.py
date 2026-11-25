@@ -362,7 +362,7 @@ class CallTest(Base):
         self.patch('release_focus', lambda c, d: keys.append('HOME'))   # the edge: no adb here
 
         def popen(argv, **kw):
-            return subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+            return subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(1)'], start_new_session=True)
         rc = dispatch.run(cfg, lid, popen=popen, after=lambda c: None, look=lambda c, d: next(looks))
         self.assertEqual((rc, keys), (0, ['HOME']))
         self.assertEqual(dispatch.read_rc(cfg, lid), dispatch.STOPPED_FOR_CALL)

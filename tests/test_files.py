@@ -132,11 +132,11 @@ class SendTest(unittest.TestCase):
             return a.read() == b.read()
 
     def test_rsync_sends_a_file_and_a_folder_verified_then_skips_them(self):
-        base, out = self.send([self.archive, os.path.join(self.src, 'set')], use_rsync=True)
+        base, out = self.send([self.archive, os.path.join(self.src, 'set')])
         self.assertEqual(base, self.cache)
         self.assertEqual([(n, how) for n, how, _ in out], [('harti.zip', 'sent'), ('set', 'sent')])
         self.assertTrue(self.same('harti.zip') and self.same('set/deep/b.txt'))
-        _, out = self.send([self.archive], use_rsync=True)
+        _, out = self.send([self.archive])
         self.assertEqual(out[0][1], 'already there')
 
     def test_stream_fallback_resumes_a_partial_file(self):
@@ -197,7 +197,7 @@ class SendTest(unittest.TestCase):
 
     def test_dest_puts_the_item_there_and_the_job_is_recorded(self):
         dest = os.path.join(self.d, 'elsewhere')
-        base, _ = self.send([os.path.join(self.src, 'set')], dest=dest, use_rsync=True)
+        base, _ = self.send([os.path.join(self.src, 'set')], dest=dest)
         self.assertEqual(base, dest)
         self.assertTrue(os.path.isfile(os.path.join(dest, 'set', 'deep', 'b.txt')))
         jobs = state.jobs_state(self.cfg, 0, is_alive=lambda pid: False)['items']
@@ -214,7 +214,7 @@ class SendTest(unittest.TestCase):
         self.assertEqual(out[0][1], 'sent')
         self.assertFalse(os.path.exists(os.path.join(self.cache, 'set', 'a.csv')))
         os.makedirs(os.path.join(self.src, 'blank'))
-        self.assertEqual(self.send([os.path.join(self.src, 'blank')], use_rsync=True)[1][0][1], 'sent')
+        self.assertEqual(self.send([os.path.join(self.src, 'blank')])[1][0][1], 'sent')
 
     def test_a_pinned_item_is_neither_evicted_nor_replaced_nor_cleaned(self):
         self.cfg = cfg_in(self.d, budget_gb=4 * files.MB / GB)

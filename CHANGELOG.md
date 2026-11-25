@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `tutti run auto` applies the same shift as the dashboard: while the main agent is ahead of its pace, the cheap workers'
+  per-window share no longer holds them back there either (agy-gemini was skipped by run auto while the dashboard said it
+  could spend ahead).
+
 ## 0.31.30 (2026-11-25)
 
 ### Fixed

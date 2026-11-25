@@ -113,7 +113,11 @@ and once a day from the running dashboard, which then restarts in place only whe
 dashboard compares its version with the installed one every minute and restarts at the next safe point; the open page reloads itself for the new
 version. An update reads the latest release's `SHA256SUMS`, downloads the newer tarball, checks it, installs its
 requirements and only then moves `current`; any failure leaves the running version in place. `tutti self-update
---check` only says whether one is out. Opt out with `self_update: {enabled: false}` in the config.
+--check` only says whether one is out. **A git checkout** (a source install) is pulled with `git pull --ff-only` when it
+is on its default branch (origin's HEAD, else main or master), tracks origin and has no local changes to tracked files; a running
+dashboard restarts itself onto the new code like after a release. Otherwise it refuses and says why (local changes, another
+branch, no upstream, a diverged history) and changes nothing; at login (`--auto`) the refusal is printed but never fails the
+service. Opt out with `self_update: {enabled: false}` in the config.
 
 `tutti self-update --stage-only` verifies the signed release and checksum, then prepares a unique private staging directory
 with the release and its own Python environment. It never changes `current` or the shared environment; the printed path
@@ -157,7 +161,7 @@ runs daily where the tool's package manager allows it (docs/WORKERS.md).
 | From source | `git clone https://github.com/ventura8/Tutti` and `install/install.sh` (or `install.ps1`): the newest release tag, hash-checked requirements | run the script again |
 
 Then run `tutti setup`. npm is a ready hook: `tutti/install.py` lists it under `CHANNELS` with `published: False`; the
-first publish flips it. `tutti self-update` updates only a release install and names the right command otherwise.
+first publish flips it. `tutti self-update` updates a release install, and a source (git) checkout by itself; it names the right command for any other (uv, pipx).
 
 Source-distribution builds pin setuptools to 84.1.0. Review the contents of a source archive before publishing it. See the upstream
 [Unicode-normalization advisory](https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c) for current status.

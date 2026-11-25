@@ -185,11 +185,13 @@ def cmd_self_update(cfg, a):
     """`tutti self-update [--check|--auto]`: the newest checksummed release (docs/INSTALL.md, *Updates*)."""
     from . import install
     home_dir = install.home()
-    if not install.is_release_install(remote.ROOT, home_dir):
+    release = install.is_release_install(remote.ROOT, home_dir)
+    git = not release and install.is_git_checkout(remote.ROOT)
+    if not release and not git:
         if a.auto:
             return 0
-        say(f'self-update: this Tutti runs from {remote.ROOT}, not a release install: update it the way it was installed '
-            '(git pull, uv tool upgrade tutti-agents or pipx upgrade tutti-agents)')
+        say(f'self-update: this Tutti runs from {remote.ROOT}, not a release or git install: update it the way it was installed '
+            '(uv tool upgrade tutti-agents or pipx upgrade tutti-agents)')
         return 1
     if a.auto:
         try:
@@ -198,6 +200,10 @@ def cmd_self_update(cfg, a):
             on = True
         if not on:
             return 0
+    if git:
+        code, msg = install.git_update(remote.ROOT, check_only=a.check)
+        say(msg)
+        return 0 if a.auto and code else code   # at login a refusal is said but never fails the service
     skip = bool(getattr(a, 'insecure_skip_verify', False)) and not a.auto   # never unattended
     if skip:
         say(f'self-update: {install.SKIP_WARNING}')
@@ -2015,7 +2021,7 @@ def parser():
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
     s.add_argument('--stage-only', action='store_true', help='verify and stage the release in a separate environment without activating it')
-    s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
+    s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release or git install')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add: set up a computer found on the network; '
             'add-android: set up a Termux machine)')
     s.add_argument('action', nargs='?', choices=['add', 'add-android'],

@@ -223,6 +223,7 @@ include tests/test_self_update.py
 include tests/test_selfheal.py
 include tests/test_selfimprove.py
 include tests/test_selftest.py
+include tests/test_selfupdate_git.py
 include tests/test_settings.py
 include tests/test_setup.py
 include tests/test_shards.py

@@ -123,6 +123,72 @@ class NeedsReadingTest(unittest.TestCase):
         self.assertFalse(pacing.needs_reading({'reading_file': '/r.json', 'stale_hours': 4}, old, now))
 
 
+class SpendTargetTest(unittest.TestCase):
+    """An account that cannot run work is never offered bounded tasks (it can still be shown, read only)."""
+    now = pacing.parse_time('2026-01-06T12:00Z')
+    base = {'window': '7d', 'resets': '2026-01-10T02:00Z', 'reader': {'command': ['x']}}
+    entry = [{'at': '2026-01-06T11:30Z', 'account': 'a', 'used': 5.0, 'note': ''}]
+
+    def state(self, **extra):
+        return pacing.account_state('a', {**self.base, **extra}, self.entry, self.now)
+
+    def planned(self, **extra):
+        acc = {**self.base, **extra}
+        return pacing.account_state('a', acc, self.entry, self.now, accounts={'a': acc})
+
+    def test_an_account_with_a_worker_is_offered_tasks(self):
+        for s in (self.state(worker='w'), self.planned(worker='w')):
+            self.assertTrue(s['room_tasks'])
+            self.assertIn('bounded task(s) can go to w', s['action'])
+
+    def test_no_worker_means_read_only_not_a_spend_target(self):
+        for s in (self.state(), self.planned()):
+            self.assertIsNone(s['room_tasks'])
+            self.assertNotIn('can go to', s['action'])
+            self.assertIn('read only (no worker', s['action'])
+
+    def test_enabled_false_and_never_use_are_never_offered(self):
+        for extra, why in (({'enabled': False}, 'turned off'), ({'never_use': True}, 'never_use')):
+            for s in (self.state(worker='w', **extra), self.planned(worker='w', **extra)):
+                self.assertIsNone(s['room_tasks'])
+                self.assertIn(why, s['action'])
+                self.assertEqual((s['quota_plan'] or {}).get('tasks', 0), 0) if 'quota_plan' in s else None
+
+    def test_the_owners_own_account_keeps_its_spend_line(self):
+        acc = {**self.base}
+        owner = {'accounts': ['a'], 'schedule': {}, 'mode': 'auto', 'dates': {}}
+        from tutti import owner as owner_mod
+        with mock.patch.object(owner_mod, 'context', return_value=None):
+            s = pacing.account_state('a', acc, self.entry, self.now, accounts={'a': acc}, owner=owner)
+        self.assertNotIn('read only', s['action'])
+
+
+class EstimateOnlyTest(unittest.TestCase):
+    """An account nothing can read is not stale while Tutti's own estimates carry it."""
+    now = pacing.parse_time('2026-01-06T12:00Z')
+    acc = {'window': '7d', 'resets': '2026-01-10T02:00Z', 'usage_url': 'https://usage.example/x'}
+
+    def entries(self, estimate_hours):
+        return [{'at': '2026-01-04T00:00Z', 'account': 'a', 'used': 40.0, 'note': ''},
+                {'at': (self.now - timedelta(hours=estimate_hours)).isoformat(), 'account': 'a', 'used': 41.0, 'note': 'e',
+                 'source': 'estimate'}]
+
+    def test_a_fresh_estimate_makes_it_estimate_only_not_stale(self):
+        s = pacing.account_state('a', self.acc, self.entries(1), self.now)
+        self.assertEqual((s['stale'], s['estimate_only'], s['reading_source']), (False, True, 'estimate'))
+        self.assertNotEqual(s['verdict'], 'stale')
+        self.assertIn('estimate only', s['note'])
+
+    def test_an_old_estimate_is_still_stale(self):
+        s = pacing.account_state('a', self.acc, self.entries(30), self.now)
+        self.assertEqual((s['stale'], s.get('estimate_only')), (True, None))
+
+    def test_a_broken_automatic_reader_is_a_fault_not_an_estimate(self):
+        s = pacing.account_state('a', {**self.acc, 'reader': {'command': ['x']}}, self.entries(1), self.now)
+        self.assertTrue(s['stale'])
+        self.assertNotIn('estimate_only', s)
+
+
 class StaleVerdictTest(unittest.TestCase):
     now = pacing.parse_time('2026-01-06T12:00Z')
     acc = {'window': '7d', 'resets': '2026-01-10T02:00Z', 'reading_file': '/r.json'}

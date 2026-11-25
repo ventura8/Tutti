@@ -271,6 +271,70 @@ def verify_signature(sums_path, bundle_path, version, gh=None, run=subprocess.ru
     return ''
 
 
+# --- self-update of a source (git) checkout ---
+
+def is_git_checkout(root):
+    """True when the running Tutti's folder is a git checkout (a `.git` folder, or the file a worktree has)."""
+    return os.path.exists(os.path.join(root, '.git'))
+
+
+def _git(root, *args, run=subprocess.run):
+    """(code, output) of one git command in `root`; a missing git or a hang is a code 1 with its reason."""
+    try:
+        r = run(['git', '-C', root, *args], capture_output=True, text=True, timeout=120, check=False)
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, f'git {args[0]} could not run ({e})'
+    return r.returncode, (r.stdout or '').strip() or (r.stderr or '').strip()
+
+
+def git_refusal(root, run=subprocess.run):
+    """'' when the checkout may be updated by `git pull --ff-only`, else why not and what to do. Only a clean checkout on its
+    default branch (origin's HEAD, else main or master) that tracks origin is touched: nothing of the owner's is overwritten."""
+    code, branch = _git(root, 'symbolic-ref', '--short', 'HEAD', run=run)
+    if code:
+        return f'{root} is on a detached HEAD: check out its default branch first (git switch main)'
+    code, upstream = _git(root, 'rev-parse', '--abbrev-ref', '@{u}', run=run)
+    if code or not upstream.startswith('origin/'):
+        return f'{root} ({branch}) does not track a branch of origin: set it with `git branch --set-upstream-to=origin/{branch}`'
+    code, head = _git(root, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD', run=run)
+    default = head.split('/', 1)[1] if not code and '/' in head else None
+    if default is None:
+        default = next((n for n in ('main', 'master') if _git(root, 'rev-parse', '--verify', '-q', f'refs/remotes/origin/{n}',
+                                                               run=run)[0] == 0), None)
+    if branch != default:
+        return (f'{root} is on branch {branch}, not its default branch ({default or "unknown"}): Tutti updates only the default '
+                f'branch, so work in progress is never touched; switch with `git switch {default or "main"}` to update')
+    code, dirty = _git(root, 'status', '--porcelain', '--untracked-files=no', run=run)
+    if code or dirty:
+        return f'{root} has local changes: commit or stash them (git status shows which), then run `tutti self-update` again'
+    return ''
+
+
+def git_update(root, check_only=False, run=subprocess.run):
+    """(code, message): `git pull --ff-only` in a clean checkout of the default branch that tracks origin (docs/INSTALL.md,
+    *Updates*). A running dashboard restarts itself onto the new code (start_code_watch); anything else starts the new code
+    next time. A refusal or a failed git command changes nothing."""
+    why = git_refusal(root, run)
+    if why:
+        return 1, f'self-update: {why}'
+    code, out = _git(root, 'fetch', '--quiet', 'origin', run=run)
+    if code:
+        return 1, f'self-update: git fetch failed in {root} ({out}); offline? Nothing changed; it tries again next time'
+    code, behind = _git(root, 'rev-list', '--count', 'HEAD..@{u}', run=run)
+    if code or not behind.isdigit():
+        return 1, f'self-update: could not compare {root} with origin ({behind}); nothing changed'
+    if behind == '0':
+        return 0, f'self-update: {root} is up to date with origin'
+    if check_only:
+        return 0, f'self-update: origin is {behind} commit(s) ahead of {root}; run `tutti self-update` to pull them'
+    code, out = _git(root, 'pull', '--ff-only', '--quiet', run=run)
+    if code:
+        return 1, (f'self-update: git pull --ff-only failed in {root} ({out}); nothing changed. The checkout has commits origin '
+                   'lacks: rebase or reset it by hand')
+    return 0, (f'self-update: pulled {behind} commit(s) into {root} (a running dashboard restarts itself onto the new code '
+               'within a minute, once Chat is idle)')
+
+
 # --- self-update (I/O) ---
 
 def fetch(url, dest=None, timeout=60):

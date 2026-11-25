@@ -1,11 +1,15 @@
 # Changelog
 
-## 0.31.23 (2026-11-25)
+## Unreleased
 
 ### Added
 
 - Dashboard: a Needs you view, first in the menu, with a count badge; the dashboard opens on it while it has items, and on Chat
   otherwise (docs/DASHBOARD.md).
+
+## 0.31.23 (2026-11-25)
+
+### Added
 
 ### Fixed
 

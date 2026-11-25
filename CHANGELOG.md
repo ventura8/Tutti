@@ -85,21 +85,6 @@
   clearly belongs to the same model (never one another account reads), else the account is `unreadable` and left out of pacing;
   a headless claude run's `rate_limit_event` weekly utilization is written to the account's `reading_file` (docs/USAGE-PACING.md).
 
-- Scouts: a kept diff is never orphaned. `autoland` marks the task as applying (cleared at the end, whatever happens), the
-  round recovers a kept diff nobody is applying even with `patch_autoland` on (never one with a fresh mark), and a kept
-  diff holds its task so no worker duplicates it. One bad task (a missing file, a task gone from the backlog, a failed
-  spawn) is an event line, never the end of the scout round. A scout that could not be reached is tried again in an hour
-  (`patch.retry_after`) instead of marking the task refused for good; a first failure is sent back only while the
-  scout's allowance has room.
-- Runs: a fix round never loses the diff. The diff before round 1 is kept (`<diff>.round0`); a round whose worker fails
-  or leaves nothing restores it and keeps the last good checks, and the diff is captured again after a failed worker so the
-  report matches the worktree. A check that timed out or whose machine was unreachable gets no fix round (not a code
-  failure). The track resolved from `--track` is the one used for the lock, the job and the remote copy.
-- `tutti run auto` records its picks under a lock and through a temporary file in the state folder, so two calls at once
-  spread over two accounts; `run auto --show` records no pick.
-- Main agent: the preferred agent coming back by itself is recorded and shown as "preferred, back by itself" (not as a
-  stand-in), and `tutti main auto` is recorded as Tutti's own choice, not the owner's.
-
 ### Added
 
 - `tutti run auto` spreads work: every account with room takes a turn (the one picked longest ago first, accounts ahead

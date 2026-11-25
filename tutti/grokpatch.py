@@ -135,22 +135,20 @@ def eligible(task, now=None):
     or whose first diff failed the check and has not gone back once."""
     p = task.get('patch') or {}
     scope = task.get('scope') or []
-    if task.get('status') != 'queued':
-        return False, 'not queued'
-    if p.get('request') or p.get('diff'):
-        return False, 'a scout already has it'
-    if float(p.get('retry_after') or 0) > (now or 0):
-        return False, 'its scout could not be reached a moment ago; tried again later'
-    if p.get('error'):
-        return False, 'its diff was refused once; the workers take it'
-    if p.get('second'):
-        return False, 'the scout had its tries'
-    if task.get('size', 'S') not in AUTO_SIZES:
-        return False, f'size {task.get("size")} is over {AUTO_SIZES[-1]}'
-    if not scope or any(s.endswith('/') for s in scope):
-        return False, 'its scope is not a list of files'
-    if task.get('depends_on') or float(task.get('not_before') or 0) > (now or 0):
-        return False, 'blocked or waiting'
+    now = now or 0
+    refusals = (
+        (task.get('status') != 'queued', 'not queued'),
+        (bool(p.get('request') or p.get('diff')), 'a scout already has it'),
+        (float(p.get('retry_after') or 0) > now, 'its scout could not be reached a moment ago; tried again later'),
+        (bool(p.get('error')), 'its diff was refused once; the workers take it'),
+        (bool(p.get('second')), 'the scout had its tries'),
+        (task.get('size', 'S') not in AUTO_SIZES, f'size {task.get("size")} is over {AUTO_SIZES[-1]}'),
+        (not scope or any(s.endswith('/') for s in scope), 'its scope is not a list of files'),
+        (bool(task.get('depends_on')) or float(task.get('not_before') or 0) > now, 'blocked or waiting'),
+    )
+    for refused, why in refusals:
+        if refused:
+            return False, why
     return True, 'fits'
 
 
@@ -429,6 +427,17 @@ def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None, guar
         clear_applying(cfg, tid)
 
 
+def _package_new_files(cfg, tid, wt):
+    """Commits the allowlist entries for the new test and doc files a landed diff brings (the packaging guard needs them)."""
+    saved = patch_file(cfg, (backlog.find(backlog.load(cfg), tid).get('patch') or {}).get('diff'))
+    with open(saved, encoding='utf8') if saved else contextlib.nullcontext(None) as f:
+        new = [p for p in paths(f.read() if f else '') if p.startswith(('tests/', 'docs/'))]
+    if allowlist_new(wt, new):
+        _git(wt, 'add', '-A')
+        _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-m',
+             f'chore: package the new files ({tid})')
+
+
 def _autoland(cfg, tid, via, run, apply_fn, ask_fn, guard_fn):
     ok, wt, out = (apply_fn or apply)(cfg, tid, run)
     if not ok:
@@ -441,13 +450,7 @@ def _autoland(cfg, tid, via, run, apply_fn, ask_fn, guard_fn):
             return f'{tid}: the diff failed its check; not sent back to {via} yet: {e}'
         (ask_fn or ask)(cfg, tid, via, failure=t['patch'].get('failure'))
         return f'{tid}: the diff failed its check: sent back to {via} with the output (second try)'
-    saved = patch_file(cfg, (backlog.find(backlog.load(cfg), tid).get('patch') or {}).get('diff'))
-    with open(saved, encoding='utf8') if saved else contextlib.nullcontext(None) as f:
-        new = [p for p in paths(f.read() if f else '') if p.startswith(('tests/', 'docs/'))]
-    if allowlist_new(wt, new):
-        _git(wt, 'add', '-A')
-        _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-m',
-             f'chore: package the new files ({tid})')
+    _package_new_files(cfg, tid, wt)
     _git(wt, 'push', '-q', '-u', 'origin', f'grok/{tid}')
     t = backlog.find(backlog.load(cfg), tid)
     body = (f'Drafted by the {via} scout ({t["patch"].get("request")}) as one diff, applied at its base and checked by Tutti '

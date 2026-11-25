@@ -327,7 +327,7 @@ def fix_task(task, failed, round_no, rounds, tail=_tail):
     return '\n'.join(parts)
 
 
-NOT_CODE = re.compile(r'timed? ?out|timeout|unreachable|not reached|no machine|connection (?:refused|timed out)', re.I)
+NOT_CODE = re.compile(r'timed? ?out|unreachable|not reached|no machine|connection (?:refused|timed out)', re.I)
 NOT_CODE_RC = (124, 255)   # `timeout`'s exit and ssh's own failure: the check did not judge the code
 
 
@@ -337,6 +337,23 @@ def code_failure(c):
     if c['rc'] == 0:
         return False
     return not (c.get('where') == 'none' or c['rc'] in NOT_CODE_RC or NOT_CODE.search(c.get('verdict') or ''))
+
+
+def fixable_checks(checks, n, say):
+    """The failing checks a fix round can act on: those that judged the code and are not broken on the base too. Empty when
+    nothing fails, or when what fails timed out or never reached its machine (said, so the owner runs the checks again)."""
+    failed = [c for c in checks if c['rc'] != 0 and not c.get('base_broken')]
+    fixable = [c for c in failed if code_failure(c)]
+    if failed and not fixable:
+        say(f'run: fix round {n}: the failing check(s) timed out or could not reach their machine, not a code failure; '
+            'no fix round (run the checks again)')
+    return fixable
+
+
+def keep_file(src, dst):
+    """Copy src over dst when src exists (the last good diff is kept before a round and put back after a bad one)."""
+    if os.path.isfile(src):
+        shutil.copyfile(src, dst)
 
 
 def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chosen, env, remote_track, r, say,
@@ -354,23 +371,16 @@ def fix_rounds(cfg, name, task, files, repo, wt, log, extra, p, check_list, chos
     on_base = {i: c['base_rc'] for i, c in enumerate(r['checks']) if c.get('base_broken')}
     good = p['diff'] + '.round0'
     for n in range(1, rounds + 1):
-        failed = [c for c in r['checks'] if c['rc'] != 0 and not c.get('base_broken')]
+        failed = fixable_checks(r['checks'], n, say)
         if not failed:
-            return
-        failed = [c for c in failed if code_failure(c)]
-        if not failed:
-            say(f'run: fix round {n}: the failing check(s) timed out or could not reach their machine, not a code failure; '
-                'no fix round (run the checks again)')
             return
         say(f'run: fix round {n} of {rounds}: {len(failed)} check(s) failed; their errors go back to {name}')
-        if os.path.isfile(p['diff']):
-            shutil.copyfile(p['diff'], good)
+        keep_file(p['diff'], good)
         rc, _ = work(cfg, name, fix_task(task, failed, n, rounds), files, wt, log, extra, p['worker_log'], check_list)
         r['fix_rounds'] = n
         changed, stat = diff_after_fix(cfg, repo, wt, p['diff'], True, say)   # the diff file matches the worktree again
         if not changed:
-            if os.path.isfile(good):
-                shutil.copyfile(good, p['diff'])
+            keep_file(good, p['diff'])
             say(f'run: fix round {n}: {name} exited {rc} and left no change; the last good diff and checks stand')
             return
         r['changed'], r['stat'] = changed, stat

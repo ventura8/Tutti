@@ -393,6 +393,32 @@ class BudgetTest(unittest.TestCase):
         self.assertLessEqual(os.path.getsize(os.path.join(d, 'big.log')), 1024 * 1024)
         self.assertTrue(lines)
 
+    def test_runs_are_kept_per_run_with_all_their_files_and_a_live_one_never_goes(self):
+        d = tmpdirs.mkdtemp()
+        runs = os.path.join(d, 'runs')
+        os.makedirs(runs)
+        old = time.time() - 30 * 86400
+        for i, rid in enumerate(['1795000001-11', '1795000002-22', '1795000003-33']):
+            os.makedirs(os.path.join(runs, rid))
+            for ext in ('.log', '.log.rc', '.log.cmd', '.log.job', '.log.target'):
+                open(os.path.join(runs, rid + ext), 'w').close()
+            for n in os.listdir(runs):
+                if n.startswith(rid):
+                    t = time.time() - 3600 * (3 - i)
+                    os.utime(os.path.join(runs, n), (t, t))
+        _freed, _lines = statebudget.prune(d, {**statebudget.DEFAULTS, 'runs_keep': 2})
+        left = os.listdir(runs)
+        self.assertEqual(len(left), 12)   # two whole runs, six entries each: never just files of many runs
+        self.assertFalse(any(n.startswith('1795000001-11') for n in left))
+        live = f'1795000009-{os.getpid()}'   # an old run whose process is this one: alive, so it stays
+        os.makedirs(os.path.join(runs, live))
+        with open(os.path.join(runs, live + '.log.pid'), 'w') as f:
+            f.write(str(os.getpid()))
+        for n in (live, live + '.log.pid'):
+            os.utime(os.path.join(runs, n), (old, old))
+        statebudget.prune(d, {**statebudget.DEFAULTS, 'runs_keep': 2})
+        self.assertTrue(os.path.isdir(os.path.join(runs, live)))
+
 
 class WatchdogTest(unittest.TestCase):
     def test_a_corrupt_file_comes_back_from_its_last_good_snapshot(self):

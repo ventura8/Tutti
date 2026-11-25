@@ -732,3 +732,4 @@ Four tests (three work-queue round tests, the dashboard's `/api/state`) failed w
 `quietmode.status` held every `here` job, and `share.idle_seconds` cut the local machine's share so it read `busy`.
 CI has no keyboard, so it never saw them. Fix: those tests inject both readings. Lesson: a test that reaches
 `quietmode` or `share.idle_seconds` unmocked depends on who sits at the machine; inject them, as the plan tests do.
+- **Runs are counted per run** (a run's folder and its .log files together); a live run is never pruned. A failure that taught it: counting files kept only ~25 runs, so reports vanished within hours (2026-11-25).

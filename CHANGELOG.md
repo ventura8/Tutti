@@ -11,6 +11,9 @@
 
 ### Fixed
 
+- agy's read grant for a guide file named in a brief (`workers.guide_files`) also takes `$HOME/...` and paths relative to the
+  repo (`.tutti-state/runs/x.log`, tried against the worktree and the checkout it belongs to), with the same safety: the real
+  path under a `.tutti-state` folder, no `..`, an existing file, an allowed suffix, read only.
 - Self-update: a dashboard started from a release folder never saw a later `tutti self-update` (the code watch looks at the
   folder it started from), so fixes waited up to a day. A version watch now restarts it at the next safe point (Chat
   idle), the dashboard shows a banner while the installed version differs from the running one, and a restart that did
@@ -44,10 +47,6 @@
 ## 0.31.18 (2026-11-24)
 
 ### Fixed
-
-- agy's read grant for a guide file named in a brief (`workers.guide_files`) also takes `$HOME/...` and paths relative to the
-  repo (`.tutti-state/runs/x.log`, tried against the worktree and the checkout it belongs to), with the same safety: the real
-  path under a `.tutti-state` folder, no `..`, an existing file, an allowed suffix, read only.
 
 - Delegated agy runs no longer end "FAILED: the worker's CLI refused tool calls" when the brief names a log or diff as
   `~/.../.tutti-state/...`: the tilde is expanded before the read grant is made. A run whose CLI still refused a file read

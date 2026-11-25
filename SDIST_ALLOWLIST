@@ -230,6 +230,7 @@ tests/test_shards.py
 tests/test_share.py
 tests/test_share_lock.py
 tests/test_shared_status.py
+tests/test_shared_worker_args.py
 tests/test_shift_to_cheap.py
 tests/test_ship.py
 tests/test_slot.py

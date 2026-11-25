@@ -62,14 +62,15 @@ class ReaperTest(unittest.TestCase):
             os.utime(os.path.join(self.p.root, n), (old, old))   # none of them just started
         self.p.add(23, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': h, 'TUTTI_PROC': 'tunnel:x'})
         killed, logged = [], []
-        lines = procs.reap(logged.append, proc=self.p.root, kill=lambda pid, sig: killed.append((pid, sig)))
-        self.assertEqual(sorted(pid for pid, _ in killed), [10, 12, 13, 20, 22, 30, 32])
-        self.assertTrue(all(sig == signal.SIGTERM for _, sig in killed))
-        self.assertEqual(logged, lines)
-        # 23: a second loop of tunnel x, but it just started (its pid file may be on its way): left for the next round
-        self.assertIn('stopped claim 10: its home folder /gone/home is gone', lines)
-        self.assertTrue(any(ln.startswith('stopped inhibit 30: its Tutti process 1 is gone') for ln in lines))
-        self.assertEqual(procs.reap(logged.append, proc=self.p.root, dry=True, kill=None)[0][:10], 'would stop')
+        with mock.patch('os.getpid', return_value=99999):
+            lines = procs.reap(logged.append, proc=self.p.root, kill=lambda pid, sig: killed.append((pid, sig)))
+            self.assertEqual(sorted(pid for pid, _ in killed), [10, 12, 13, 20, 22, 30, 32])
+            self.assertTrue(all(sig == signal.SIGTERM for _, sig in killed))
+            self.assertEqual(logged, lines)
+            # 23: a second loop of tunnel x, but it just started (its pid file may be on its way): left for the next round
+            self.assertIn('stopped claim 10: its home folder /gone/home is gone', lines)
+            self.assertTrue(any(ln.startswith('stopped inhibit 30: its Tutti process 1 is gone') for ln in lines))
+            self.assertEqual(procs.reap(logged.append, proc=self.p.root, dry=True, kill=None)[0][:10], 'would stop')
 
     def test_a_refused_or_finished_kill_is_said_and_never_raised(self):
         self.p.add(10, ['bash', '-c', LOOP], {'HOME': '/gone'})

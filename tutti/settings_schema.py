@@ -28,7 +28,8 @@ SECTIONS = [
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),
     ('machines', 'Machines', 'The computers that run heavy commands, their slot queues and how commands run there.',
      ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
-    ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
+    ('devices', 'Devices', 'Devices for end-to-end runs, Home Assistant TVs, and when a run may start on them.',
+     ['devices', 'night', 'home_assistant']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos', 'depbots']),
     ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
@@ -234,6 +235,8 @@ FIELDS = {
     'devices.*.capabilities': field('Capabilities', 'Set by `tutti devices pair`: camera, telephony, touchscreen, tv...', 'list',
                                     item='capability'),
     'devices.*.adb': field('adb', 'The adb on its machine; empty: found by itself (PATH, the Android SDK, Tutti\'s own copy).', 'text'),
+    'devices.*.ha_entity': field('Home Assistant entity', 'Media player entity in Home Assistant (e.g. media_player.apple_tv).', 'text'),
+    'home_assistant.url': field('Home Assistant URL', 'Base URL of the Home Assistant instance (e.g. http://ha.example:8123).', 'text'),
     **{f'devices.*.{k}': v for k, v in POLICY.items()},
     # autopilot
     'autopilot.enabled': field('Autopilot', 'Sends backlog tasks to accounts that are behind their pace.', 'switch'),

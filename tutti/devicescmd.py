@@ -442,9 +442,19 @@ def connect_problem(device, addr, adb):
             f'check that this computer reaches the device\'s network (VPN, same LAN), then try again')
 
 
+def cmd_remote(cfg, a):
+    from . import remotecontrol
+    if len(a.names) != 2:
+        say('name the device and the command: tutti devices remote <device> <command>')
+        return 2
+    result = remotecontrol.send_remote_command(cfg, a.names[0], a.names[1])
+    print(result)
+    return 0
+
+
 ACTIONS = {'night': cmd_night, 'lease': cmd_lease, 'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim,
            'release': cmd_claim,
-           'install': cmd_install}
+           'install': cmd_install, 'remote': cmd_remote}
 
 
 def add_arguments(s):

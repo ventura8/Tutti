@@ -611,6 +611,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
 | `devices.*.adb` | text |  | adb: The adb on its machine; empty: found by itself (PATH, the Android SDK, Tutti's own copy). | admin |
+| `devices.*.ha_entity` | text |  | Home Assistant entity: Media player entity in Home Assistant (e.g. media_player.apple_tv). | admin |
+| `home_assistant.url` | text |  | Home Assistant URL: Base URL of the Home Assistant instance (e.g. http://ha.example:8123). | admin |
 | `devices.*.policy.min_battery` | number (%) | `30 (phone, tablet), 0 (tv)` | Lowest battery: A run starts only above this charge. | admin |
 | `devices.*.policy.require_charging` | switch | `False` | Only while charging: A run starts only while the device charges. | admin |
 | `devices.*.policy.max_battery_c` | number (°C) | `42 (phone, tablet), 0 (tv)` | Hottest battery: No new run at or above this battery temperature. | admin |

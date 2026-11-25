@@ -130,3 +130,38 @@ command, checks battery and heat first and queues a second run:
   release <name> --who <session>` after; the device is released (its own settings back) when the last user is done.
 - MCP (`tutti mcp`): the `test_on` tool with `device` (and `track`, `command`); it returns a job id to poll with
   `job_status`. The `devices` tool shows each device's state and lock.
+
+## Apple TV (tvOS) and Home Assistant devices
+
+Tutti supports Apple TV (tvOS) and other media players through the Home Assistant REST API (`tutti/ha.py`,
+`tutti/ha_readings.py`, `tutti/remotecontrol.py`). Pairing with the Apple TV happens once in Home Assistant's Apple TV
+integration (`pyatv`), and Tutti authenticates with a long-lived access token stored in
+`~/.config/tutti/secrets/home-assistant.token` (mode `0600`).
+
+Configure the Home Assistant connector and device in `tutti.config.yaml`:
+
+```yaml
+home_assistant:
+  url: http://ha.example:8123
+devices:
+  living_room_atv:
+    kind: tv
+    machine: runner.example
+    ha_entity: media_player.apple_tv
+```
+
+What this provides:
+
+- **Device listing and readings**: `tutti devices` shows the device with `kind: tv`, its power/playback state
+  (`ha_state`), screen state, now-playing title (`media_title`), active app (`source`), and volume (`volume`/`muted`).
+- **Remote control**: send remote keys through the paired `remote.<entity>` service:
+  ```bash
+  tutti devices remote <device> <command>  # up, down, left, right, select, menu, home, top_menu, play_pause, volume_up, volume_down, suspend, wakeup
+  ```
+- **App launch, casting and power**: `remotecontrol.select_source` launches an app, `remotecontrol.play_media` starts
+  AirPlay/media playback, and `remotecontrol.set_power` turns the device on or off.
+- **TV safety and volume restore**: TV device-class deny rules (`device_classes.tv.deny`) prevent display-setting
+  changes; `remotecontrol.save_volume` and `remotecontrol.restore_volume` preserve volume and mute state around a run;
+  protected Plex entities are never touched.
+- **Wireless debugging (Phase 2, planned)**: tvOS app debugging via Xcode (`Settings > Remotes and Devices` /
+  `xcrun devicectl`) on a Mac runner will be added in a follow-up once the Mac runner is connected.

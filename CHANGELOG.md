@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-23
+
+### Added
+
+- Home Assistant connector (`tutti/ha.py`, `tutti/ha_readings.py`, `tutti/remotecontrol.py`) for Apple TV (tvOS) and
+  other Home Assistant `media_player`/`remote` devices: device listing and readings (`ha_state`, screen, now playing,
+  app/source, volume/mute), `tutti devices remote <device> <command>`, app launch (`select_source`), AirPlay/media
+  playback (`play_media`), power control, volume save/restore, and Plex entity protection (docs/DEVICES.md).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

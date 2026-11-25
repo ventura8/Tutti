@@ -289,7 +289,8 @@ def lease_script(device, claim, minutes, who):
             f'{{ {person_recent(device)} || [ $k = 0 ]; }} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
             f'sleep {KEEP_AWAKE_SECONDS}; done')
     # a person's touch noticed while the lease's loop lives (it ends with the loop's pid file): Tutti then sends no key
-    watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
+    getevent = f'{_adb(device).replace("timeout 20 ", "timeout --foreground 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
+    watch = (f'while [ -e {pid} ]; do if {getevent}; '
              f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
     tag = q(f'{procs.MARK}=claim:{device["name"]}')   # the reaper's marker (tutti/procs.py)
     awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 & '
@@ -322,7 +323,7 @@ def person_watch(device):
     """A background loop that notices a person: `getevent` sees only physical touches and keys (the test's own taps and
     Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
     p = person_path(device)
-    one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
+    one = f'{_adb(device).replace("timeout 20 ", "timeout --foreground 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
     loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'
     return f'mkdir -p "$(dirname {p})"; {{ {loop} & }}; '
 

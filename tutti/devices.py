@@ -519,10 +519,11 @@ Then `tutti devices` shows its battery, charging, heat, screen and Wi-Fi, and
 """
 
 TERMUX_STEPS = """\
-One-time setup of an Android device as a Termux machine ({name}): light CPU jobs (unit tests, lint) and small local models.
+One-time setup of an Android device as a Termux host ({name}), alongside its adb device role: light checks (unit tests,
+lint), small local models (llama.cpp arm64/NNAPI or ollama), sensor/presence probes (Termux:API) and adb hub.
 
 On the device:
-  1. Install F-Droid (f-droid.org), then from F-Droid: Termux and Termux:API (the Play Store builds are outdated).
+  1. Install Termux and Termux:API from F-Droid (f-droid.org) or their GitHub release APKs via `adb install` (never Play Store).
   2. Settings > Apps > Termux > Battery: "Unrestricted", so Android does not stop its ssh server.
   3. In Termux, type:
        termux-setup-storage                      (tap Allow)
@@ -531,13 +532,14 @@ On the device:
        sshd                                      (the ssh server, on port 8022)
        whoami                                    (the user name, like u0_a123)
      The device's IP address: Settings > About phone > Status (or Wi-Fi > the network's details).
-  4. Optional local model: `pkg install ollama`, then `ollama serve &` and `ollama pull <a small model>`.
+  4. Optional local model: build/install llama.cpp or `pkg install ollama`, then serve a small model.
 
 On this computer:
   5. `ssh-copy-id -p {port} {user}@{host}` and type the device's password once; then `ssh -p {port} {user}@{host} true`
      must answer without a password.
 
-Add to tutti.config.yaml:
+Add to tutti.config.yaml (the same name may also be in `devices:` for adb tests — shown once on Devices with an
+"also a host" badge, sharing one presence/battery/heat/power governor and never running both roles at full load at once):
 
 machines:
   {name}:

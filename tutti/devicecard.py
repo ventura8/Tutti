@@ -39,8 +39,8 @@ def _paused(p):
     return 'away' if p.get('from') is not None and p.get('window') != 'over' else 'paused'
 
 
-def card(d, paused=None, warning=None, moved=''):
-    """The card of device row `d` from /api/state: {status, label, tone, why, waiting, action, moved, temp}."""
+def card(d, paused=None, warning=None, moved='', also_host=False):
+    """The card of device row `d` from /api/state: {status, label, tone, why, waiting, action, moved, temp, also_host}."""
     name = d['name']
     status, why, waiting, action = d.get('status') or 'offline', d.get('reason') or '', '', None
     if warning:
@@ -55,7 +55,7 @@ def card(d, paused=None, warning=None, moved=''):
         status = 'idle'
         why = f'idle for {plain_minutes(warning.get("minutes") or 0)}; Keep busy is sending it work'
     return {'status': status, 'label': LABEL.get(status, status), 'tone': TONE.get(status, 'warn'), 'why': why,
-            'waiting': waiting, 'action': action, 'moved': moved, 'temps': temps(d)}
+            'waiting': waiting, 'action': action, 'moved': moved, 'temps': temps(d), 'also_host': bool(also_host)}
 
 
 def attach(cfg, out):
@@ -63,8 +63,10 @@ def attach(cfg, out):
     paused = {p['name']: p for p in (out.get('controls') or {}).get('paused') or [] if p.get('kind') == 'device'}
     disp = out.get('dispatch') or {}
     warns = {w['name']: w for w in disp.get('warnings') or [] if w.get('kind') in ('android', 'tv', 'device')}
+    machines = (cfg or {}).get('machines') or {}
     for d in (out.get('devices') or {}).get('items') or []:
-        label = ((cfg.get('devices') or {}).get(d['name']) or {}).get('model') or d['name']
+        label = (((cfg or {}).get('devices') or {}).get(d['name']) or {}).get('model') or d['name']
         moved = next((line.split(': ', 1)[-1] for line in disp.get('reroute') or [] if line.startswith(f'{label} away')), '')
-        d['card'] = card(d, paused.get(d['name']), warns.get(d['name']), moved)
+        also_host = (machines.get(d['name']) or {}).get('transport') == 'android'
+        d['card'] = card(d, paused.get(d['name']), warns.get(d['name']), moved, also_host=also_host)
     return out

@@ -241,6 +241,31 @@ def light_refused(cfg, target, w):
 # ---- targets: devices and machines as the probes see them
 
 
+def _dual_device_busy(name, leased, android_hosts):
+    """True when the same Android item is busy in its Termux host role (never both roles at full load at once)."""
+    m = android_hosts.get(name)
+    if not m:
+        return False
+    return m.get('status') == 'busy' or leased.count(f'machine:{name}') >= max(m.get('free') or 0, 1)
+
+
+def _dual_machine_state(m, leased, dev_by_name, held):
+    """(busy, why) inherited by a Termux host from its paired adb device role (one governor, mutual exclusion)."""
+    if m.get('transport') != 'android':
+        return False, ''
+    d = dev_by_name.get(m['name'])
+    if not d:
+        return False, ''
+    if d.get('status') == 'busy' or f'device:{m["name"]}' in leased:
+        return True, ''
+    if (held or {}).get(m['name']):
+        return False, held[m['name']]
+    if d.get('status') != 'ready':
+        shown = 'paused' if d.get('status') == 'held' else d.get('status')
+        return False, f'{m["name"]} is {shown}: {d.get("reason")}'
+    return False, ''
+
+
 def targets(devices_rows, machine_rows, st, held=None, gone=None):
     """Every device and machine as a target: busy (a run holds it), or free, with what blocks it ('' when nothing does).
     `held`: {device: why} for a phone call or its owner (tutti/calls.py). A machine is busy once our leases on it fill its
@@ -248,28 +273,34 @@ def targets(devices_rows, machine_rows, st, held=None, gone=None):
     says are away or asleep: blocked with that text and marked absent (the idle watchdog never flags them)."""
     leased = [lease['target'] for lease in st['leases'].values()]
     leased += [f'device:{n}' for lease in st['leases'].values() for n in lease.get('holds') or []]
+    android_hosts = {m['name']: m for m in (machine_rows or []) if m.get('transport') == 'android'}
+    dev_by_name = {d['name']: d for d in (devices_rows or [])}
     out = []
     for d in devices_rows or []:
         tid = f'device:{d["name"]}'
-        busy = tid in leased or d.get('status') == 'busy'
+        busy = tid in leased or d.get('status') == 'busy' or _dual_device_busy(d['name'], leased, android_hosts)
         shown = 'paused' if d.get('status') == 'held' else d.get('status')
         why = (held or {}).get(d['name']) or ('' if d.get('status') == 'ready' else f'{d["name"]} is {shown}: {d.get("reason")}')
         kind = 'tv' if d.get('kind') == 'tv' else 'android'
-        out.append(_absent({'id': tid, 'kind': kind, 'name': d['name'], 'busy': busy, 'blocked': '' if busy else why}, gone))
+        alt = f'machine:{d["name"]}' if d['name'] in android_hosts else ''
+        out.append(_absent({'id': tid, 'kind': kind, 'name': d['name'], 'busy': busy, 'blocked': '' if busy else why}, gone, alt))
     for m in machine_rows or []:
         tid = f'machine:{m["name"]}'
-        busy = m.get('status') == 'busy' or leased.count(tid) >= max(m.get('free') or 0, 1)
-        why = '' if m.get('status') == 'free' else f'{m["name"]} is {m.get("status")}: {m.get("reason")}'
+        dual_busy, dual_why = _dual_machine_state(m, leased, dev_by_name, held)
+        busy = m.get('status') == 'busy' or leased.count(tid) >= max(m.get('free') or 0, 1) or dual_busy
+        why = ('' if m.get('status') == 'free' else f'{m["name"]} is {m.get("status")}: {m.get("reason")}') or dual_why
         pw = m.get('power') or {}
+        alt = f'device:{m["name"]}' if m.get('transport') == 'android' and m['name'] in dev_by_name else ''
         out.append(_absent({'id': tid, 'kind': 'machine', 'name': m['name'], 'busy': busy, 'blocked': '' if busy else why,
                             'zone': m.get('zone') or '', 'power': pw.get('score', 0), 'room': pw.get('room', 1.0),
-                            'effective': pw.get('effective', 0)}, gone))
+                            'effective': pw.get('effective', 0)}, gone, alt))
     return out
 
 
-def _absent(t, gone):
-    if (gone or {}).get(t['id']):
-        t.update(absent=True, busy=False, blocked=f'{t["name"]}: {gone[t["id"]]}')
+def _absent(t, gone, alt=''):
+    msg = (gone or {}).get(t['id']) or (alt and (gone or {}).get(alt))
+    if msg:
+        t.update(absent=True, busy=False, blocked=f'{t["name"]}: {msg}')
     return t
 
 

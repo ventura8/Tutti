@@ -280,5 +280,25 @@ class DashboardTest(Base):
         self.assertEqual(dashboard.save_dispatch(c, b'{"enabled": "yes"}')[0], 400)
 
 
+class DualRoleAndroidTest(unittest.TestCase):
+    def test_dual_role_mutual_exclusion_and_shared_governor(self):
+        dev = {'name': 'phone', 'kind': 'phone', 'status': 'ready', 'reason': ''}
+        mach = {'name': 'phone', 'transport': 'android', 'status': 'free', 'free': 1, 'reason': ''}
+        # device busy -> host role is also busy
+        tgts = {t['id']: t for t in dispatch.targets([{**dev, 'status': 'busy'}], [mach], {'leases': {}})}
+        self.assertTrue(tgts['device:phone']['busy'])
+        self.assertTrue(tgts['machine:phone']['busy'])
+        # host busy -> device role is also busy
+        tgts = {t['id']: t for t in dispatch.targets([dev], [{**mach, 'status': 'busy', 'free': 0}], {'leases': {}})}
+        self.assertTrue(tgts['device:phone']['busy'])
+        self.assertTrue(tgts['machine:phone']['busy'])
+        # device held (call) or hot -> host role is blocked by the same governor
+        tgts = {t['id']: t for t in dispatch.targets([dev], [mach], {'leases': {}}, held={'phone': 'phone call'})}
+        self.assertEqual(tgts['machine:phone']['blocked'], 'phone call')
+        # device absent -> host role is also absent
+        tgts = {t['id']: t for t in dispatch.targets([dev], [mach], {'leases': {}}, gone={'device:phone': 'away'})}
+        self.assertTrue(tgts['machine:phone'].get('absent'))
+
+
 if __name__ == '__main__':
     unittest.main()

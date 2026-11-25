@@ -48,6 +48,7 @@ function device(d, paused) {
     return el('li', { class: 'row', 'data-device': d.name, 'data-status': c.status },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
         chip(c.label, c.tone),
+        c.also_host ? chip('also a host', 'idle') : null,
         el('div', { class: 'row__stats' }, deviceAction(d)),
         deviceStats(d),
         presenceBits(d.presence),
@@ -198,7 +199,7 @@ function renderControls(s) {
         ['Work machines', 'No work machines in the config.', [
             ...machines.filter((m) => m.transport !== 'android').map((m) => row('machine', m.name, m.status))]],
         ['Termux machines', 'No Termux machines; each Android device pauses on its own card above.', [
-            ...machines.filter((m) => m.transport === 'android').map((m) => row('machine', m.name, m.status)), ...leftover(['device'])]],
+            ...machines.filter((m) => m.transport === 'android' && !onCards.has(m.name)).map((m) => row('machine', m.name, m.status)), ...leftover(['device'])]],
         ['Local agents', 'No local models (Ollama, llama.cpp) configured.', workers.filter(local).map((w) => row('worker', w.name, ready(w)))],
         ['Online agents', 'No online agents configured.', [
             ...workers.filter((w) => !local(w)).map((w) => row('worker', w.name, ready(w))),

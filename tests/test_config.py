@@ -113,6 +113,23 @@ class ConfigTest(unittest.TestCase):
         self.assertIn(f'cp {config.EXAMPLE} {dest}', msg)
         self.assertNotIn('tutti.config.yaml in', msg)
 
+    def test_android_phone_as_both_machine_and_device(self):
+        cfg = config.normalise({
+            'machines': {'pixel9pro': {'transport': 'android', 'host': '192.168.1.50', 'user': 'u0_a123'}},
+            'devices': {'pixel9pro': {'serial': 'R58', 'machine': 'pixel9pro'}}
+        })
+        self.assertEqual(cfg['machines']['pixel9pro']['transport'], 'android')
+        self.assertEqual(cfg['devices']['pixel9pro']['machine'], 'pixel9pro')
+        self.assertEqual(config.validate(cfg), [])
+
+    def test_android_phone_missing_serial_fails(self):
+        cfg = config.normalise({
+            'machines': {'pixel9pro': {'transport': 'android', 'host': '192.168.1.50'}},
+            'devices': {'pixel9pro': {'machine': 'pixel9pro'}}
+        })
+        errs = '\n'.join(config.validate(cfg))
+        self.assertIn('devices.pixel9pro.serial', errs)
+
 
 class LeadHoursWarningTest(unittest.TestCase):
     def test_lead_hours_other_than_one_gets_the_fix(self):

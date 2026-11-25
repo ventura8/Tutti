@@ -158,8 +158,9 @@ devices:
 
 ### Termux machines (opt-in)
 
-With [Termux](https://termux.dev) and its ssh server, a phone runs light jobs (python or node unit tests, lint) and a small
-local model. Off until the owner opts in (the dashboard's Controls, or `tutti optin machine <name> on`).
+With [Termux](https://termux.dev) (installed from F-Droid or its GitHub release APK via `adb install`, never Play Store) and its ssh server, a phone runs light jobs (python or node unit tests, lint), small local models (`llama.cpp` arm64/NNAPI or `ollama`), sensor/presence probes (Termux:API) and adb hub duties. Off until the owner opts in (the dashboard's Controls, or `tutti optin machine <name> on`).
+
+One Android phone can be **both** an adb device (`devices.<name>`) and a Termux host (`machines.<name>` with `transport: android`). It is shown once on Devices with an **also a host** badge (and not duplicated under Termux machines), shares one presence/battery/heat/power governor across both roles, and never runs both roles at full load at once.
 
 ```yaml
 machines:

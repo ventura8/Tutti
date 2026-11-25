@@ -43,6 +43,13 @@ class Card(unittest.TestCase):
         self.assertEqual(c['status'], 'idle')
         self.assertIn('1 h 35 min', c['why'])
 
+    def test_dual_role_android_item_gets_also_host_badge(self):
+        cfg = {'machines': {'pixel9pro': {'transport': 'android'}, 'pixeltablet': {'transport': 'ssh'}}}
+        out = {'devices': {'items': [dict(PHONE), dict(TABLET)]}, 'controls': {'paused': []}, 'dispatch': {'warnings': []}}
+        items = devicecard.attach(cfg, out)['devices']['items']
+        self.assertTrue(items[0]['card']['also_host'])
+        self.assertFalse(items[1]['card']['also_host'])
+
 
 if __name__ == '__main__':
     unittest.main()

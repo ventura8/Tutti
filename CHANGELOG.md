@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- Dual-role Android device + Termux host support: an Android item configured under both `devices:` and `machines:` (`transport: android`) is shown once on Devices with an "also a host" badge, shares one presence/battery/heat/power governor across both roles, and enforces mutual exclusion so both roles never run at full load at once. Updated `tutti machines add-android` setup instructions for F-Droid/GitHub release APKs, `llama.cpp`, and Termux:API.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

@@ -88,9 +88,11 @@ def timeline(own, lim, hours, per_window):
     return out or [(start, reset, None)]
 
 
-def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
+def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None, shift=None):
     """The plan of one short window under its limit: {expires, allowance, this_window, left, tasks, lose, why}. With `owner`
-    (tutti/owner.py) the owner's expected burn until the limit's target is kept out of the budget."""
+    (tutti/owner.py) the owner's expected burn until the limit's target is kept out of the budget. With `shift` (the main
+    agent's overspent account) the window's share is lifted: the whole room left before the limit's target, up to the
+    account's panic line, may be spent now."""
     from tutti import owner as owner_mod
     start = parse_time(own['window_start'])
     kept = owner_mod.reserve_until(owner, now, parse_time(lim['target'])) if owner and now else 0.0
@@ -117,9 +119,14 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
         weekly = min(room, caps[0]) if caps[0] is not None else room
         left = weekly - spent
         left_own = own_left if not per else min(own_left, left * 100 / per)
+    if shift and room > spent and caps[0] != 0:   # the main agent is overspent: no per-window share, only the room and the panic line
+        left = room - spent
+        own_left = max(0.0, float(own.get('panic_at', 95)) - (own['used'] or 0))
+        left_own = own_left if not per else min(own_left, left * 100 / per)
+        give = room
     task = float(a.get('task_pct', TASK_PCT))
     tasks = max(0, int(left_own // task)) if left > 0 and task > 0 else 0
-    return {'limit': lim['name'], 'expires': own['target'], 'resets': own.get('reset'),
+    return {'limit': lim['name'], 'shifted': shift or None, 'expires': own['target'], 'resets': own.get('reset'),
             'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per,
@@ -159,10 +166,12 @@ def background_rate(readings, busy):
     return rise / hours if hours >= 1 else None
 
 
-def plan_single(s, a, now, rate=None, owner=None):
+def plan_single(s, a, now, rate=None, owner=None, shift=None):
     """An account without limits: one window, its room (minus the reserve and the background spend expected until its
     target) until its target. With `owner` (the main agent's account, tutti/owner.py) the owner's expected burn until the
-    target is kept too, and the rest is spent evenly (owner.spendable) instead of only while behind the even-pace line."""
+    target is kept too, and the rest is spent evenly (owner.spendable) instead of only while behind the even-pace line.
+    With `shift` (the name of the main agent's overspent account) the whole room left before the target, up to its panic line,
+    may be spent now: the main agent's share moves here."""
     target = parse_time(s['target'])
     hours_left = max(0.0, (target - now).total_seconds() / 3600)
     background = (rate or 0.0) * hours_left
@@ -170,8 +179,12 @@ def plan_single(s, a, now, rate=None, owner=None):
     budget = float(a.get('target_pct', 100)) * s['share'] - float(a.get('reserve', 0)) - background - (mine['owner_reserve'] or 0.0)
     left = max(0.0, budget - (s['used'] or 0))
     task = float(a.get('task_pct', TASK_PCT))
+    tasks = single_tasks(s, left, task, owner, now, target)
+    if shift and task > 0:
+        tasks = max(tasks, int(min(left, max(0.0, s.get('panic_at', 95) - (s['used'] or 0))) // task))
     return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1),
-            'tasks': single_tasks(s, left, task, owner, now, target), 'allowance': round(left, 1), 'this_window': None,
+            'shifted': shift or None,
+            'tasks': tasks, 'allowance': round(left, 1), 'this_window': None,
             'windows': 1, 'runnable': 1, 'background': None if rate is None else round(background, 1), **mine,
             'run_out': run_out_of(s, owner, now), 'slow_left': left}
 
@@ -220,8 +233,13 @@ def points_line(p):
     return f'used {used:g} of its {share:g} weekly points{over}'
 
 
+def shifted_note(name, p):
+    """'main agent claude is ahead of pace: agy-gemini may spend ahead; ' while the main agent's share moves to this account."""
+    return f'main agent {p["shifted"]} is ahead of pace: {name} may spend ahead; ' if p.get('shifted') else ''
+
+
 def explain_limited(name, p, when):
-    head = (f'{name}: spend by {when}; this window {points_line(p)} '
+    head = (f'{name}: {shifted_note(name, p)}spend by {when}; this window {points_line(p)} '
             f'({p["runnable"]} of {p["windows"]} windows left can run)')
     if p.get('owner_reserve'):
         head += f'; {p["owner_reserve"]:g} weekly points kept for the owner ({p["mode"]})'
@@ -231,12 +249,14 @@ def explain_limited(name, p, when):
 
 
 def explain_single(name, p, when):
-    head = f'{name}: {p["left"]:g} points left, spend by {when}'
+    head = f'{name}: {shifted_note(name, p)}{p["left"]:g} points left, spend by {when}'
     if p.get('background'):
         head += f', after {p["background"]:g} expected outside Tutti'
     if p.get('owner_reserve') is not None:
         head += f', {p["owner_reserve"]:g} kept for the owner ({p["mode"]})'
         return f'{head} → {p["tasks"]} task(s) now, spread evenly to the target' if p['tasks'] else f'{head} → nothing more now'
+    if p['tasks'] and p.get('shifted'):
+        return f'{head} → {p["tasks"]} task(s) now, up to its panic line'
     return f'{head} → {p["tasks"]} task(s) now, behind its pace' if p['tasks'] else f'{head} → no extra tasks (not behind its pace)'
 
 
@@ -293,7 +313,7 @@ def explain(name, p, now):
     return explain_limited(name, p, when) if p['limit'] else explain_single(name, p, when)
 
 
-def bind(own, limits, a, accounts, hours, now, owner=None):
+def bind(own, limits, a, accounts, hours, now, owner=None, shift=None):
     """The account under its limits: a limit spent or in panic closes it; otherwise the planner sets its room."""
     out = {**own, 'limits': limits, 'bound_by': None, 'quota_plan': None}
     for lim in limits:
@@ -306,7 +326,7 @@ def bind(own, limits, a, accounts, hours, now, owner=None):
     ok = [lim for lim in limits if lim['state'] == 'ok']
     if own['state'] != 'ok' or not ok:
         return out
-    plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours, owner, now) for lim in ok]
+    plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours, owner, now, shift) for lim in ok]
     p = min(plans, key=lambda x: (x['tasks'], x['left']))   # the fewest tasks: points of different limits do not compare
     p['slow_limits'] = [x['slow_limit'] for x in plans] if len(ok) == len(limits) else []
     p['why'], p['rows'] = explain(own['name'], p, now), rows(p)
@@ -364,14 +384,14 @@ def _held_by_limit(s, p, now):
             f'new work waits for the {reset} reset (this window {points_line(p)}; the next window gets a new share)')
 
 
-def plan_alone(s, a, now, rate=None, owner=None):
+def plan_alone(s, a, now, rate=None, owner=None, shift=None):
     """The plan of an account with no limits, for the expiry order and the dashboard's line; `rate`: its background spend;
     `owner`: the owner's context when it is the main agent's account."""
     if s['state'] != 'ok':
         return s
-    p = plan_single(s, a, now, rate, owner)
+    p = plan_single(s, a, now, rate, owner, shift)
     p['why'], p['rows'] = explain(s['name'], p, now), rows(p)
     out = {**s, 'quota_plan': p}
-    if owner:   # the owner's account: the plan (reserve kept, the rest spread evenly) decides, not the even line
+    if owner or shift:   # the owner's account: the plan (reserve kept, the rest spread evenly) decides, not the even line
         out.update(room_tasks=p['tasks'] or None, action=agree(out, p, a, now))
     return out

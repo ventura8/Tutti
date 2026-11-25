@@ -56,10 +56,16 @@ def usage_state(cfg, now):
         problem = None
     except (OSError, ValueError) as e:
         entries, problem = [], f'{path} could not be read ({e}): fix or move the broken line, then `tutti usage` to check'
-    accounts = []
-    for n, a in cfg['accounts'].items():
-        s = with_credits(cfg, pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg)), a or {})
-        accounts.append(with_background(cfg, s, a or {}, now))
+    def one(n, a, shift=None):
+        s = with_credits(cfg, pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg), shift=shift), a or {})
+        return with_background(cfg, s, a or {}, now, shift)
+    accounts = [one(n, a) for n, a in cfg['accounts'].items()]
+    from . import autopilot
+    main = autopilot.main_overspent(cfg, accounts)   # its share moves to the cheap workers: they may spend ahead of their spread
+    if main:
+        skip = autopilot.main_accounts(cfg)
+        accounts = [s if s['name'] in skip or s.get('state') != 'ok' else one(s['name'], cfg['accounts'][s['name']], main)
+                    for s in accounts]
     accounts = with_scouts(cfg, accounts, now)
     accounts = with_targets(cfg, accounts, now)
     from . import owner
@@ -156,7 +162,7 @@ def scout_plan(a, p, do):
     return {**plan, 'tasks': 0, 'rows': rows, 'why': f'{a["name"]}: {do}'}
 
 
-def with_background(cfg, s, a, now):
+def with_background(cfg, s, a, now, shift=None):
     """For an account with `background: true` (Cursor, whose own automatic reviews spend it outside Tutti): its rise with no
     Tutti run on it, per hour, from this window's readings, and the plan re-made around what that spends until the target."""
     from . import planner, readers
@@ -164,7 +170,7 @@ def with_background(cfg, s, a, now):
         return s
     busy = readers.busy_intervals(os.path.join(config.expand(cfg['project']['state']), 'runs'), a.get('worker') or '', now)
     rate = planner.background_rate(s['readings'], busy)
-    s = planner.plan_alone(s, a, now, rate)
+    s = planner.plan_alone(s, a, now, rate, shift=shift)
     s['background_rate'] = None if rate is None else round(rate, 3)
     return s
 

@@ -4,11 +4,20 @@
 
 ### Added
 
+- Use the cheap workers while the main agent is overspent (`routing.shift_when_main_ahead`, default true): when the main
+  agent's account (`autopilot.main_accounts`) is `ahead` of its pace, every other account may spend ahead of its even spread,
+  up to its own panic line and `lead_hours` target. A limited account's per-window share ("this window used its share of
+  agy-gemini-weekly") no longer blocks it; the planner's line says "main agent claude is ahead of pace: agy-gemini may spend
+  ahead". Back at its pace, the main agent takes its share again.
 - Chat: the model picker groups related models under one heading (local by machine, online by `workers.<name>.provider`
   or account), so models of one provider are easy to find and compare (t405, docs/CHAT.md).
 
 ### Fixed
 
+- A `kind: cli` worker with `machine:` (Codex on the laptop) is no longer held by its machine's heat, load, busy slots, quiet
+  hours or the memory floor: it runs a cloud model and its checks are routed to other machines. An owner pause, off, offline
+  or a yield flag still hold it; a local model keeps the full governor (`fleet.governor`, used by `run auto`, the autopilot
+  and conduct).
 - Main agent: the preferred agent coming back by itself is recorded and shown as "preferred, back by itself" (not as a
   stand-in), and `tutti main auto` is recorded as Tutti's own choice, not the owner's.
 - `tutti run auto` records its picks under a lock and through a temporary file in the state folder, so two calls at once

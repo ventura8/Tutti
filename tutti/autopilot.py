@@ -292,7 +292,7 @@ def ordinary_account_room(cfg, name, s, used):
         why = ('its room is taken by running tasks' if forecast > 0
                else 'estimated task cost would reach the panic line, or usage is unavailable')
         return (room, '') if room > 0 else (0, f'{name}: {why}')
-    if s.get('verdict') == 'ahead':
+    if s.get('verdict') == 'ahead' and not (s.get('quota_plan') or {}).get('shifted'):
         return 0, f'{name}: ahead of its pace'
     room = min(max(0, 1 - used), forecast_room(cfg, name, s, used))
     return (room, '') if room else (0, f'{name}: busy or its estimated task would reach the panic threshold')
@@ -319,6 +319,21 @@ def main_accounts(cfg):
     """The main agent's accounts (autopilot.main_accounts, a name or a list; default: claude)."""
     names = (cfg.get('autopilot') or {}).get('main_accounts') or ['claude']
     return [names] if isinstance(names, str) else list(names)
+
+
+def main_overspent(cfg, states):
+    """The name of a main account that is ahead of its pace (verdict `ahead`, read fresh), else ''. Then the cheap workers'
+    accounts may spend ahead of their even spread (planner.plan_limited `shift`), up to their own panic line and target.
+    Off with routing.shift_when_main_ahead: false. `states`: a list of account states or {name: state}."""
+    if not (cfg.get('routing') or {}).get('shift_when_main_ahead', True):
+        return ''
+    rows = states.values() if isinstance(states, dict) else states
+    by_name = {s.get('name'): s for s in rows}
+    for name in main_accounts(cfg):
+        s = by_name.get(name) or {}
+        if s.get('state') == 'ok' and s.get('verdict') == 'ahead' and not quota_panic(s):
+            return name
+    return ''
 
 
 def takeover_room(cfg, name, s):

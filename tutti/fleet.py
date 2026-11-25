@@ -235,17 +235,25 @@ BLOCKING = {'held': 'paused by the owner', 'off': 'turned off', 'offline': 'offl
 def governor(cfg, name, machines, now=None, mem_gb=None, hardware=None):
     """Why the worker's machine may not run a model now, or '': owner pause, offline (presence), its yield flag (the PC yields
     to RoRadio), heat or load, its own quiet hours (machines.<m>.quiet_hours), too little free memory (fleet.memory_floor_gb,
-    read on this computer), and a CPU-only machine whose test slots are all taken."""
+    read on this computer), and a CPU-only machine whose test slots are all taken.
+    A `kind: cli` worker runs a cloud model: its own CPU use is tiny and its checks are routed to other machines, so only
+    the reasons that stop the machine running anything hold it (pause, off, offline, its yield flag), never heat, load, busy
+    slots, quiet hours or the memory floor, which guard local compute (docs/FLEET.md, *Cloud CLI workers*)."""
     home = machine_of(cfg, name)
+    cloud = (cfg['workers'].get(name) or {}).get('kind') == 'cli'
     row = next((m for m in machines or () if m.get('name') == home), None)
     if row:
         st, reason = row.get('status'), row.get('reason') or ''
         if st in BLOCKING:
             return f'{name}: its machine {home} is {BLOCKING[st]} ({reason})'
+        if cloud:
+            return ''
         if st == 'loaded' and HOT_OR_LOADED.search(reason):
             return f'{name}: its machine {home} is {reason}'
         if st == 'busy' and not (hardware or {}).get('gpu'):
             return f'{name}: its machine {home} runs on its CPU and every slot is busy'
+    if cloud:
+        return ''
     hours = (cfg['machines'].get(home) or {}).get('quiet_hours')
     if now is not None and hours and planner.quiet(now, hours):
         return f'{name}: quiet hours on {home} ({", ".join(hours)}, machines.{home}.quiet_hours)'

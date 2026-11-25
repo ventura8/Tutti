@@ -1243,5 +1243,25 @@ class NoUsagePages(unittest.TestCase):
                          {'https://usage.example/b': browserusage.OFF})
 
 
+
+class StreamJsonIsData(unittest.TestCase):
+    """claude --output-format stream-json: event lines that only mention limits never log the account as spent."""
+    ACC = {'claude': {'window': '7d', 'match': {'command': r'\bclaude\b'}}}
+    CMD = 'claude -p x --output-format stream-json --verbose'
+
+    def test_a_normal_stream_logs_nothing(self):
+        lines = [json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': 'allowed', 'rateLimitType': 'seven_day'},
+                             'unifiedWindows': {'seven_day': {'utilization': 0.91}}}),
+                 json.dumps({'type': 'result', 'is_error': False, 'result': 'OK', 'usage': {'limit': 1}})]
+        self.assertEqual(readers.scan_text(self.ACC, self.CMD, lines, NOW, 'run'), [])
+
+    def test_a_failed_result_or_a_rejected_limit_still_counts(self):
+        failed = [json.dumps({'type': 'result', 'is_error': True, 'result': 'You have hit your usage limit. Try again in 3 hours.'})]
+        self.assertEqual([h[0] for h in readers.scan_text(self.ACC, self.CMD, failed, NOW, 'run')], ['claude'])
+        rejected = [json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': 'rejected'}})]
+        self.assertEqual([h[0] for h in readers.scan_text(self.ACC, self.CMD, rejected, NOW, 'run')], ['claude'])
+        self.assertEqual(readers.plain_text(['plain text', '{not json']), ['plain text', '{not json'])
+
+
 if __name__ == '__main__':
     unittest.main()

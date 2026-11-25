@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- An account nothing can read (Grok Bot: usage pages are never opened) is `estimate only`, not stale, while Tutti's own scout
+  estimates are current; a stopped automatic reader still shows stale.
+- Spend advice never offers an account that cannot run work: no `worker:`, `enabled: false`, paused, or the new
+  `accounts.<n>.never_use: true` (for example Argon's reader) show "read only" instead of "bounded task(s) can go to ...", in
+  `tutti usage`, the handoff advice, the dashboard and the planner.
+- `tutti self-update` updates a source (git) checkout itself: `git pull --ff-only` when it is on its default branch, tracks
+  origin and has no local changes, else a refusal naming the reason and the fix (it no longer just says "git pull"). At login it
+  never fails the service.
+
 ## 0.31.25 (2026-11-25)
 
 ### Fixed

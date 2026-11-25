@@ -94,15 +94,18 @@ def tabs(page):
         const btn = document.getElementById('nav-menu-btn');
         const panel = document.getElementById('nav-menu-panel');
         if (btn && panel && panel.hidden) btn.click();
-        const found = [...document.querySelectorAll('.nav-menu [data-view]')].filter((a) =>
+        return [...document.querySelectorAll('.nav-menu [data-view]')].filter((a) =>
             !a.hidden && getComputedStyle(a).display !== 'none')
             .map((a) => [a.textContent.trim(), new URL(a.href).hash]);
-        if (btn && panel && !panel.hidden) btn.click();   // the page may already be on the first view (no hashchange to close it)
-        return found;
     })()""")
 
 
 def go(page, hash_):
+    # the menu tabs() opened closes on a hashchange; the page may already be on this view (Needs you is the default), so close it here
+    page.evaluate("""(() => {
+        const panel = document.getElementById('nav-menu-panel');
+        if (panel && !panel.hidden) document.getElementById('nav-menu-btn').click();
+    })()""")
     page.evaluate('(h) => { location.hash = h; }', hash_ or '#')
     page.wait_for_timeout(400)   # a view's own fetch (Settings, Users) answers from the local server well within this
 
@@ -633,7 +636,8 @@ class Roles(unittest.TestCase):
     def test_a_viewer_sees_no_admin_control(self):
         ctx = new_context(VIEWER)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Needs you 11', 'Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Hosts', 'Agents'])
+        self.assertEqual([n for n, _ in tabs(page)],
+                         ['Needs you 11', 'Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Hosts', 'Agents'])
         shown = page.evaluate("""[...document.querySelectorAll('[data-admin], button, input, select, textarea, form, a.link')]
             .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, .nav-menu'))
             .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id) && !e.classList.contains('more'))
@@ -649,7 +653,8 @@ class Roles(unittest.TestCase):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
         self.assertEqual([n for n, _ in tabs(page)],
-                         ['Needs you 11', 'Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Hosts', 'Discovered', 'Agents', 'Settings', 'Users'])
+                         ['Needs you 11', 'Chat', 'Dashboard', 'Tasks', 'Schedule', 'Devices', 'Hosts', 'Discovered', 'Agents', 'Settings',
+                          'Users'])
         hidden = [c for c in ADMIN_CONTROLS if not page.is_visible(c)]
         self.assertEqual(hidden, [])
         go(page, '#settings')

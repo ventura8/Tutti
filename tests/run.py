@@ -20,13 +20,24 @@ os.environ['TUTTI_NO_DAEMONS'] = '1'   # no real keep-awake loop, tunnel or inhi
 RUNNER_HELPERS = ('multiprocessing.resource_tracker', 'multiprocessing.forkserver')
 
 
+def _has_root(pid, needle):
+    try:
+        with open(os.path.join('/proc', pid, 'environ'), 'rb') as f:
+            return needle in f.read()
+    except OSError:
+        return False
+
+
 def left_children(root):
     """Pids of this user's live processes started under this test run (TUTTI_TEST_ROOT == root), never this runner."""
     from tutti import procs
+    me, uid, needle = str(os.getpid()), os.getuid(), f'TUTTI_TEST_ROOT={root}'.encode()
     out = []
-    for name in (n for n in os.listdir('/proc') if n.isdigit()):
+    for name in os.listdir('/proc'):
+        if not name.isdigit() or name == me or not _has_root(name, needle):
+            continue
         p = procs.info(name)
-        if p and p['uid'] == os.getuid() and p['pid'] != os.getpid() and p['env'].get('TUTTI_TEST_ROOT') == root \
+        if p and p['uid'] == uid and p['env'].get('TUTTI_TEST_ROOT') == root \
                 and not any(h in ' '.join(p['argv']) for h in RUNNER_HELPERS):
             out.append(p)
     return out

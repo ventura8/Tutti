@@ -37,6 +37,11 @@ class Pure(unittest.TestCase):
         out = delegate.outcome(self.report([{'rc': 1, 'base_broken': True}, {'rc': 1}]))
         self.assertEqual(out, 'FAILED: 2 check(s) failed (1 of them fail on the base too)')
 
+    def test_names_new_file_reads_the_verdict(self):
+        self.assertTrue(delegate.names_new_file({'verdict': 'src/new.ts:45 error'}, ['src/new.ts']))
+        self.assertFalse(delegate.names_new_file({'verdict': 'src/old.ts:1 error'}, ['src/new.ts']))
+        self.assertFalse(delegate.names_new_file({'verdict': 'x'}, []))
+
     def test_outcome_plain_failure(self):
         self.assertEqual(delegate.outcome(self.report([{'rc': 1}])), 'FAILED: 1 check(s) failed')
 
@@ -59,9 +64,9 @@ class OnBase(unittest.TestCase):
         self.cfg = {'delegate': {'base_check': True}, 'ship': {'share': []}, 'routing': {'order': []}, 'machines': {}, 'test': {}}
         self.said = []
 
-    def run_base(self, chosen, base_check=True):
+    def run_base(self, chosen, base_check=True, changed=''):
         self.cfg['delegate']['base_check'] = base_check
-        env = {'TUTTI_CHANGED': '', 'TUTTI_TREE': self.wt, 'TUTTI_GIT_MOUNT': ''}
+        env = {'TUTTI_CHANGED': changed, 'TUTTI_TREE': self.wt, 'TUTTI_GIT_MOUNT': ''}
         results = delegate.run_checks(self.cfg, self.wt, chosen, env, 't', self.said.append, self.folder)
         return delegate.base_checks(self.cfg, self.wt, chosen, results, env, 't', self.said.append, self.folder)
 
@@ -80,6 +85,18 @@ class OnBase(unittest.TestCase):
         self.assertNotEqual(res[0]['rc'], 0)
         self.assertNotIn('base_broken', res[0])
         self.assertEqual(self.worktrees(), 2)
+
+    def test_an_error_in_a_file_the_worker_added_is_never_the_bases(self):
+        with open(os.path.join(self.wt, 'geocoder.ts'), 'w') as f:   # a new, untracked file with a lint error
+            f.write('bad\n')
+        res = self.run_base([{'run': 'f=$(echo "$TUTTI_CHANGED"); grep -q good $f 2>&1 || { echo "error in $f"; exit 1; }'}],
+                            changed='geocoder.ts')
+        self.assertNotEqual(res[0]['rc'], 0)
+        self.assertNotIn('base_broken', res[0])   # on the base the file is missing too, but that is the change's error
+
+    def test_a_check_on_an_old_file_still_compares_with_the_base(self):
+        res = self.run_base([{'run': 'grep -q good $TUTTI_CHANGED'}], changed='flag')
+        self.assertTrue(res[0]['base_broken'])   # flag is in the base and fails there too
 
     def test_the_base_is_clean_of_the_workers_edits(self):
         with open(os.path.join(self.wt, 'flag'), 'w') as f:

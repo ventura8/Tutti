@@ -14,6 +14,9 @@
 
 ### Fixed
 
+- Base-broken detection never blames the base for an error in a file the worker added: such a failure goes back to the worker
+  (fix rounds), and the base check runs only on the changed files the base has (a check named on a new file failed there
+  just because the file is missing).
 - A `kind: cli` worker with `machine:` (Codex on the laptop) is no longer held by its machine's heat, load, busy slots, quiet
   hours or the memory floor: it runs a cloud model and its checks are routed to other machines. An owner pause, off, offline
   or a yield flag still hold it; a local model keeps the full governor (`fleet.governor`, used by `run auto`, the autopilot

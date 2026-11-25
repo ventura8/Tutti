@@ -101,7 +101,7 @@ from a non-git cwd (MCP `delegate_task`, chat `/delegate`).
    reserved for shared files. An unsafe name is refused before a lock or remote copy is touched. Cleanup does not prove
    remote writers stopped (t309). **Base-broken checks:** each check that fails is run once more on the run's base commit
    (the worktree's HEAD) in a temporary clean `git worktree add --detach` with `ship.share` folders shared, removed
-   afterwards (a routed check goes through the same route). One that fails there too is marked `base_broken: true` in the
+   afterwards (a routed check goes through the same route), on the changed files the base has. A failure that names a file the worker added is always the change's own. One that fails there too is marked `base_broken: true` in the
    report, and when every failure is one the outcome reads "FAILED: N check(s) fail on the base too (not this change): fix
    the base branch": the worker's diff is not blamed, and the fix rounds skip those checks (the base check runs before them;
    when every failure is base-broken no round runs). `delegate.base_check: false`

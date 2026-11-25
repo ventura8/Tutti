@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A shared worker (agy, its accounts agy-claude and agy-gemini) needs no hand-set `chat_account_selector` when every linked
+  account passes its own `--model` (or `-m`, `--account`, `--profile`): Tutti derives it, so agy can conduct and serve Chat.
+
 ## 0.31.24 (2026-11-25)
 
 ### Added

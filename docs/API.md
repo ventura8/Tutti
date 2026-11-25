@@ -133,6 +133,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/devices/move` | `{"to": "build1", "devices": ["pixel"], "dry_run": true}` | The plan (dry run, the default) or the move started (`tutti devices move`). |
 | `/api/move` | `{"action": "plan", "to": "build1"}`, `{"action": "move", "to": "build1", "jobs": "wait"\|"handover"}`, `{"action": "rollback"}` | Tutti itself to another machine (`tutti move`, docs/MOVE.md): the plan, or 202 when it started. |
 | `/api/work/move` | `{"job": "<id>", "to": "<target>"\|"auto", "bump": false}` or `{"evacuate": "<machine>"}` | `{"ok": true, "done": [...]}`; 409 when the job cannot move. |
+| `/api/sessions` | `GET` for `{"sessions": [...], "settings": {...}}`; `POST` `{"action": "start"\|"pause"\|"resume"\|"steer"\|"handover"\|"stop"\|"complete", ...}` | `{"ok": true, "session": {...}}`; 400 on quota, privacy, or missing `costs_money` opt-in. |
 | `/api/queue` | `{"kind": "task", "id": "t12", "action": "run"\|"move"\|"cancel"\|"up"\|"down", "to": "<account>"}` or `{"kind": "scout", "id": "s3", "action": "cancel"}` | The Queued list's actions. 404: no such queued item. |
 | `/api/vpn` | `{"action": "status"}`, `{"action": "qr", "phone": "<name>"}`, `{"action": "router"}`, `{"action": "open-port", "consent": true}` | The private network card (`tutti vpn`). |
 | `/api/machine-limit` | `{"machine": "build1", "window": "18-01"\|"off", "pct": 60}` | A machine's limited-usage window, saved in the config. |
@@ -1037,6 +1038,33 @@ usage: tutti optin [-h] {machine,device,worker,account} name {on,off}
 | `kind {machine,device,worker,account}` |  |  |
 | `name` |  |  |
 | `state {on,off}` |  |  |
+
+### `tutti session`
+
+always-on or cloud agent sessions that keep working when the laptop sleeps: list, start, show, pause, resume, steer, handover, stop
+
+```text
+usage: tutti session [-h] [--task TASK] [--worker WORKER] [--host HOST] [--device DEVICE] [--repo REPO]
+                     [--track TRACK] [--privacy {local_only,cloud_allowed}] [--accept-cost] [--note NOTE]
+                     [--status STATUS] [--json]
+                     {list,start,show,pause,resume,stop,complete,steer,handover} [id]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {list,start,show,pause,resume,stop,complete,steer,handover}` |  |  |
+| `id` | session id (for show, pause, resume, steer, handover, stop) |  |
+| `--task` | task description (for start) |  |
+| `--worker` | worker name |  |
+| `--host` | target always-on or cloud machine name |  |
+| `--device` | originating or controlling device name (e.g. laptop, phone) | `local` |
+| `--repo` | repository path |  |
+| `--track` | worktree track name |  |
+| `--privacy` | local_only (default) or cloud_allowed |  |
+| `--accept-cost` | explicit opt-in for paid cloud hosts or costs_money workers |  |
+| `--note` | steering instruction or handover note |  |
+| `--status` | filter by status (for list) |  |
+| `--json` | print JSON output |  |
 
 ### `tutti test`
 

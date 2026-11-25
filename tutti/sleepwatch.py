@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-from . import autopilot, backlog, config, controls, dispatch, handover, presence, procs, telemetry
+from . import autopilot, backlog, config, controls, dispatch, handover, presence, procs, sessions, telemetry
 
 SIGNAL = re.compile(r'PrepareFor(Sleep|Shutdown)\s*\((true|false),?\)')
 # the lock's child waits on this process (tail --pid): it ends with Tutti, never a `sleep infinity` left behind (2026-11-15)
@@ -75,6 +75,7 @@ def going_down(cfg, what, budget, now=time.time, running=controls.running_jobs, 
     rec = pst['targets'].setdefault(HOST, presence.new_record('host', 'this computer'))
     rec.update(state=presence.ASLEEP, since=now(), reason=why)
     presence.write(cfg, pst)
+    sessions.sleep_handoff(cfg, now=now())
     telemetry.record('feature', 'presence.sleep', what=what, jobs=len(seen))
     return pst['resume']
 
@@ -110,6 +111,7 @@ def woke(cfg, now=time.time, start=handover.spawn):
             out.append(_resume_run(cfg, j['spec'], j, start))
         else:
             out.append(start(cfg, j['args'], f'test-{j.get("track", "run")}'))
+    sessions.resume_after_wake(cfg, now=now())
     return out
 
 

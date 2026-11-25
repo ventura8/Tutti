@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-24
+
+### Added
+
+- Always-on and cloud agent sessions (`tutti/sessions.py`, `tutti session`, `GET`/`POST /api/sessions`): sessions persist
+  durably across laptop sleep/closure (`tutti/sleepwatch.py` hands running sessions over to an always-on household host or
+  pauses and resumes them on wake with state preserved), can be started, steered, handed over, paused, resumed and stopped
+  from any device, preserve session state across handovers, and enforce `sessions.max_sessions` quotas, `sessions.privacy`
+  (`local_only` by default), and explicit `costs_money` opt-in with clear cost notices.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

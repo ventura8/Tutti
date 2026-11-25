@@ -57,6 +57,7 @@ from . import (
     remote,
     report,
     scouts,
+    sessions,
     settings,
     setupcmd,
     sleepwatch,
@@ -418,6 +419,7 @@ ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MO
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
+API_SESSIONS = '/api/sessions'   # always-on and cloud agent sessions, controllable from any device
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
 BODY_LIMITS[API_SETTINGS] = 65536
 
@@ -672,7 +674,7 @@ POSTS = ('/api/reading', '/api/refresh',
          '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT)
+         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT, API_SESSIONS)
 BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
@@ -865,6 +867,7 @@ HANDLERS = {
     API_PAIR: lambda c, b: devicesweb.pair_post(c, b),
     API_MOVE: lambda c, b: devicesweb.move_post(c, b),
     API_WORK_MOVE: save_work_move,
+    API_SESSIONS: lambda c, b: sessions.api_post(c.cfg, b),
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
     API_SETTINGS: settings.save,
@@ -981,6 +984,8 @@ def route(collector, path, token=''):
         return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
     if path == API_VPN_STATUS:   # read-only, for every viewer: the card's state on page load (a POST was an admin's: 403)
         return (*[200, safe_json(vpncmd.api(collector.cfg, {'action': 'status'})[1])], JSON_TYPE, 'no-store')
+    if path == API_SESSIONS:
+        return 200, safe_json(sessions.api_get(collector.cfg)), JSON_TYPE, 'no-store'
     if path in ('/helper', '/helper.html'):
         port = getattr(collector, 'port', None) or collector.cfg['dashboard']['port']
         return 200, helper.page(collector.cfg, config.state_dir(collector.cfg), port), 'text/html; charset=utf-8', 'no-store'

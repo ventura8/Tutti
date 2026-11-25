@@ -47,6 +47,7 @@ from . import (
     scouts,
     secretenv,
     selfimprove,
+    sessions,
     ship,
     state,
     telemetry,
@@ -1793,6 +1794,21 @@ def parser():
     s.add_argument('kind', choices=list(controls.SECTIONS))
     s.add_argument('name')
     s.add_argument('state', choices=['on', 'off'])
+    s = add('session', sessions.cmd_session,
+            'always-on or cloud agent sessions that keep working when the laptop sleeps: list, start, show, pause, resume, steer, handover, stop')
+    s.add_argument('action', choices=['list', 'start', 'show', *sessions.ACTIONS])
+    s.add_argument('id', nargs='?', help='session id (for show, pause, resume, steer, handover, stop)')
+    s.add_argument('--task', help='task description (for start)')
+    s.add_argument('--worker', help='worker name')
+    s.add_argument('--host', help='target always-on or cloud machine name')
+    s.add_argument('--device', default='local', help='originating or controlling device name (e.g. laptop, phone)')
+    s.add_argument('--repo', help='repository path')
+    s.add_argument('--track', help='worktree track name')
+    s.add_argument('--privacy', choices=list(sessions.PRIVACY_MODES), help='local_only (default) or cloud_allowed')
+    s.add_argument('--accept-cost', action='store_true', help='explicit opt-in for paid cloud hosts or costs_money workers')
+    s.add_argument('--note', help='steering instruction or handover note')
+    s.add_argument('--status', help='filter by status (for list)')
+    s.add_argument('--json', action='store_true', help='print JSON output')
     s = add('test', cmd_test, 'run a command over a track\'s work tree on the first fit machine, behind its slot queue')
     s.add_argument('--dir', help='the work tree (default: <project.worktrees>/<track>)')
     s.add_argument('--on', help='skip routing and use this machine')

@@ -335,7 +335,7 @@ def tree_and_command(cfg, a):
 def test_choice(cfg, a):
     """(routing.Choice, device or None) for a `tutti test`; raises ConfigError when no device gets ready.
     Every `tutti test` is heavy: never a machine inside its limited-hours window, never one at heat.stop_c, and `--on`
-    does not bypass those (t444: Plex NUC)."""
+    does not bypass those (t444: Plex NUC): an unfit `--on` machine hands the run to the next fit one in routing.order unless `--only`."""
     from datetime import datetime, timezone
 
     from . import share, sharing  # share: limited hours; sharing: household grant
@@ -347,20 +347,40 @@ def test_choice(cfg, a):
         if why:
             raise config.ConfigError(f'{device["machine"]} (the machine {device["name"]} is on): {why}; wait or move the device')
         return routing.Choice(device['machine'], False, f'the machine device {device["name"]} is on'), device
+    def probe_fn(n):
+        raw = sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), time.time())
+        return share.probe_at_share(cfg['machines'][n], raw, now_dt)
     if a.on:
         m = machine_of(cfg, a.on)
         probe = share.probe_at_share(m, remote.probe(m), now_dt)
         why = routing.refused(m, probe, now=now_dt, heavy=True) or routing.unfit(m, probe, now=now_dt, heavy=True)
-        if why:
-            raise config.ConfigError(f'{m["name"]}: {why}; pick another machine (`tutti machines`) or wait')
-        return routing.Choice(m['name'], False, 'chosen with --on'), None
+        if not why:
+            return routing.Choice(m['name'], False, 'chosen with --on'), None
+        if getattr(a, 'only', False):
+            raise config.ConfigError(f'{m["name"]}: {why}; --only/--strict keeps the run on this machine: wait, or drop the flag to '
+                                     'let it run on the next machine that fits')
+        return test_fallback(cfg, m['name'], why, probe_fn, now_dt), None
     try:
-        def probe_fn(n):
-            raw = sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), time.time())
-            return share.probe_at_share(cfg['machines'][n], raw, now_dt)
         return routing.choose(cfg['routing']['order'], cfg['machines'], probe_fn, now=now_dt, heavy=True), None
     except routing.NoMachine as e:
         raise config.ConfigError(str(e)) from e
+
+
+def test_fallback(cfg, named, why, probe_fn, now_dt):
+    """The next machine in routing.order that is fit now, when the machine named with `--on` is not (limited hours, busy, hot,
+    loaded, quiet hours, yielding, paused): the run goes there and one line says so. When none fits, the error lists every
+    machine's reason: a run never queues on a machine another one was asked for."""
+    rest = [n for n in cfg['routing']['order'] if n != named and n in cfg['machines']]
+    where = f'{named}: {why}'
+    try:
+        c = routing.choose(rest, cfg['machines'], probe_fn, now=now_dt, heavy=True) if rest else None
+    except routing.NoMachine as e:
+        raise config.ConfigError(f'{where}; {e}') from e
+    if c is None or c.queued:
+        raise config.ConfigError(f'{where}; no other machine fits either: {c.reason if c else "routing.order names no other machine"}; '
+                                 'wait, resume a machine (`tutti machines`), or add one to routing.order')
+    say(f'test: {where} (heavy work elsewhere); running on {c.machine} instead')
+    return routing.Choice(c.machine, False, f'{named} was unfit; next fit machine in routing.order')
 
 def test_job(cfg, a, machine, device, src, command):
     """The run's job record: the dashboard shows it, and a "pause, stop now" knows how to start it again elsewhere."""
@@ -397,6 +417,7 @@ def test_on_runner(cfg, a, runner):
 
 
 TEST_OPTIONS = {'--dir': 'dir', '--on': 'on', '--device': 'device', '--wait-minutes': 'wait_minutes'}
+TEST_FLAGS = ('--only', '--strict')
 TEST_LISTS = {'--fetch': 'fetch', '--input': 'input', '--hold-device': 'hold_device'}
 
 
@@ -404,6 +425,8 @@ def late_options(a):
     """Options written after the track (`tutti test MyApp --on pc -- cmd`) are taken as options, up to a `--`
     or the first word that is not one of them; the rest is the command, and a lone `--` before it is dropped."""
     words, i = list(a.command or []), 0
+    while i < len(words) and words[i] in TEST_FLAGS:
+        a.only, i = True, i + 1
     while i < len(words) and (words[i] in TEST_OPTIONS or words[i] in TEST_LISTS) and i + 1 < len(words):
         flag, value = words[i], words[i + 1]
         if flag in TEST_LISTS:
@@ -525,7 +548,7 @@ def cmd_test(cfg, a):
     machine = cfg['machines'][choice.machine]
     if machine['transport'] == 'household':   # another member's machine: its owner's Tutti runs it (tutti/hhjobs.py)
         return household_test(cfg, a, machine, src, command)
-    how = 'on' if a.on else 'routed'
+    how = 'on' if a.on and a.on == choice.machine else 'fallback' if a.on else 'routed'
     if device:
         how = 'device'
     telemetry.record('feature', 'routing.choice', how=how, machine_kind=telemetry.machine_kind(machine), queued=bool(choice.queued),
@@ -2072,7 +2095,10 @@ def parser():
     s.add_argument('--wait', type=int, default=0, metavar='MINUTES', help='ask again every minute for this long before refusing')
     s = add('test', cmd_test, 'run a command over a track\'s work tree on the first fit machine, behind its slot queue')
     s.add_argument('--dir', help='the work tree (default: <project.worktrees>/<track>)')
-    s.add_argument('--on', help='skip routing and use this machine')
+    s.add_argument('--on', help='run on this machine; when it is unfit now (limited hours, busy, hot, quiet hours) the next fit machine '
+                                'in routing.order takes the run')
+    s.add_argument('--only', '--strict', dest='only', action='store_true',
+                   help='with --on: never fall back; refuse when that machine is unfit (a hardware-specific test)')
     s.add_argument('--device', help='an Android device (or `any`): ANDROID_SERIAL set, its lock held, on the machine it is plugged into')
     s.add_argument('--wait-minutes', type=int, default=30, help='with --device: how long to wait for it to get ready (charge, heat)')
     s.add_argument('--hold-device', action='append', metavar='NAME',

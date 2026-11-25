@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `tutti test --on <machine>` (and MCP `test_on` with a machine) no longer just refuses when that machine is unfit now (limited
+  hours, busy slots, heat or load pause, quiet hours, yielding, paused): the run goes to the next fit machine in `routing.order`
+  and one line says so (`nuc: limited hours 18-01 (heavy work elsewhere); running on pc instead`). It refuses only when no machine
+  fits, listing each reason. `--only` (alias `--strict`; MCP `only: true`) keeps the old refusal for a test that must run on that
+  machine. Without `--on` the first fit machine in `routing.order` was already chosen; device runs are unchanged.
+
 ## 0.31.26 (2026-11-25)
 
 ### Fixed

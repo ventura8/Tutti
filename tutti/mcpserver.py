@@ -78,9 +78,12 @@ TOOLS = [
          {'machine': _s('the machine, or several separated by spaces, tried in order')}, required=('machine',)),
     tool('devices', 'The Android devices for end-to-end tests: connection, battery, charging, heat, lock.'),
     tool('test_on', 'Run a test command over a track\'s worktree on a machine (routed, behind its slot queue) or on an Android '
-         'device. Starts detached; poll job_status with the returned id.',
+         'device. Starts detached; poll job_status with the returned id. A named machine that is unfit now (limited hours, busy, '
+         'hot) hands the run to the next fit machine unless only is true.',
          {'track': _s('the track (worktree name) to test'), 'command': _s('the command to run there'),
-          'machine': _s('optional: this machine instead of routing'), 'device': _s('optional: an Android device, or "any"')},
+          'machine': _s('optional: this machine instead of routing'),
+          'only': {'type': 'boolean', 'description': 'with machine: never fall back, refuse when it is unfit'},
+          'device': _s('optional: an Android device, or "any"')},
          required=('track', 'command'), mutating=True),
     tool('scout_ask', 'Ask a scout (a research helper such as Grok Bot, not a coding worker) a question; the answer arrives on a '
          'GitHub issue. Returns the request id.',
@@ -223,7 +226,8 @@ def start_test(cfg, a, popen=subprocess.Popen):
     """test_on: `tutti test` detached, its log and exit code in <state>/mcp-jobs/<id>.{log,rc}."""
     jid = f'test-{int(time.time())}-{secrets.token_hex(2)}'
     base = os.path.join(jobs_dir(cfg), jid)
-    args = ['test'] + (['--on', a['machine']] if a.get('machine') else []) + (['--device', a['device']] if a.get('device') else [])
+    args = ['test'] + (['--on', a['machine']] if a.get('machine') else []) + (['--only'] if a.get('only') and a.get('machine') else [])
+    args += (['--device', a['device']] if a.get('device') else [])
     args += [a['track'], 'sh', '-c', a['command']]
     cmd = [sys.executable, BIN, '--config', cfg['_path'], *args]
     with open(base + '.log', 'w', encoding='utf8') as log:

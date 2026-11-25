@@ -236,6 +236,10 @@ flowchart LR
 
 1. The config gives the routing order. Machines are probed lazily, in order: free slots, load, cores, yield flag.
 2. The first fit machine wins. If none is fit, the run queues on the first reachable machine whose flag is down.
+   With `--on <machine>` that machine is tried first; if it is unfit now (limited hours, busy, hot or loaded, quiet hours,
+   yielding, paused) the same choice runs over the rest of `routing.order` and the run goes to the first one that is fit, with
+   one line saying why. It never queues there: when none is fit it refuses and lists each machine's reason. `--only`
+   (`--strict`) keeps `--on` strict. MCP `test_on` runs the same command, with `only` for the flag.
 3. For a remote machine: the tree's `HEAD` is pushed to a bare repository there, the tree is copied with rsync
    (incremental, the config's excludes: no secrets, no build output), and the copy gets a shallow git repository at
    that commit, so tests that ask git still work.

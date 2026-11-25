@@ -336,7 +336,7 @@ No parameters.
 
 ### `test_on`
 
-Run a test command over a track's worktree on a machine (routed, behind its slot queue) or on an Android device. Starts detached; poll job_status with the returned id.
+Run a test command over a track's worktree on a machine (routed, behind its slot queue) or on an Android device. Starts detached; poll job_status with the returned id. A named machine that is unfit now (limited hours, busy, hot) hands the run to the next fit machine unless only is true.
 
 Needs: admin role (changes something).
 
@@ -345,6 +345,7 @@ Needs: admin role (changes something).
 | `track` | string | yes | the track (worktree name) to test |
 | `command` | string | yes | the command to run there |
 | `machine` | string | no | optional: this machine instead of routing |
+| `only` | boolean | no | with machine: never fall back, refuse when it is unfit |
 | `device` | string | no | optional: an Android device, or "any" |
 
 ### `scout_ask`
@@ -1207,15 +1208,16 @@ usage: tutti may-run [-h] [--who WHO] [--lease MINUTES] [--release ID] [--wait M
 run a command over a track's work tree on the first fit machine, behind its slot queue
 
 ```text
-usage: tutti test [-h] [--dir DIR] [--on ON] [--device DEVICE] [--wait-minutes WAIT_MINUTES] [--hold-device NAME]
-                  [--fetch PATH] [--input PATH]
+usage: tutti test [-h] [--dir DIR] [--on ON] [--only] [--device DEVICE] [--wait-minutes WAIT_MINUTES]
+                  [--hold-device NAME] [--fetch PATH] [--input PATH]
                   track ...
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `--dir` | the work tree (default: <project.worktrees>/<track>) |  |
-| `--on` | skip routing and use this machine |  |
+| `--on` | run on this machine; when it is unfit now (limited hours, busy, hot, quiet hours) the next fit machine in routing.order takes the run |  |
+| `--only, --strict` | with --on: never fall back; refuse when that machine is unfit (a hardware-specific test) |  |
 | `--device` | an Android device (or `any`): ANDROID_SERIAL set, its lock held, on the machine it is plugged into |  |
 | `--wait-minutes` | with --device: how long to wait for it to get ready (charge, heat) | `30` |
 | `--hold-device` | with --device: another device the run uses too (its external lock is held as well; repeat it) |  |

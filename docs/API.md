@@ -565,7 +565,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
-| `workers.*.chat_account_selector` | text |  | Chat account selector: The CLI flag an admin asserts selects an account or model. | admin |
+| `workers.*.chat_account_selector` | text |  | Chat account selector: The CLI flag that selects an account or model. Empty: Tutti derives --model (or -m, --account, --profile) when every linked account sets it to its own value. | admin |
 | `workers.*.provider` | text |  | Provider: The heading the Chat model picker lists this worker under (default: its account). | admin |
 | `workers.*.chat_output_format` | text |  | Chat output format: Use text, cursor-stream-json (Cursor) or claude-stream-json (Claude Code, which also feeds its usage reading). | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |

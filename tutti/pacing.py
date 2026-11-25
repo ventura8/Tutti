@@ -209,6 +209,16 @@ def freshness(name, a, newest, now):
             'needs_reading': needs_reading(a, at, now, name=name)}
 
 
+def estimate_only(name, a, newest, fresh, now):
+    """True when no reader or file can read the account, its real reading is old, and Tutti's own estimate (a scout send logs
+    one: newest reading + the run's cost, tutti/scouts.py) is current: Tutti is then the only spender, so the meter is an
+    estimate, not a stale reading. An account with an automatic reader that has stopped is still stale: that is a fault."""
+    if not fresh['stale'] or automatic(name, a) or not newest or newest.get('source') != 'estimate':
+        return False
+    age = (now - parse_time(newest['at'])).total_seconds()
+    return 0 <= age < float(a.get('stale_hours') or STALE_HOURS) * 3600
+
+
 def needs_reading(a, reading_at, now, name=''):
     """Offer manual entry only for accounts without an automatic reader or file producer."""
     return not automatic(name, a)
@@ -238,7 +248,36 @@ def owner_readings(entries, names, now, weeks=4):
             if e['account'] in names and e.get('source') != 'estimate' and parse_time(e['at']) >= since]
 
 
+def spend_blocker(a):
+    """Why an account cannot be offered as a place to send bounded work, or '' when it can: it has no worker (a reader only, or
+    a weekly limit that bounds another account), it is off or paused, or the owner said never to use it (`never_use: true`)."""
+    a = a or {}
+    if a.get('never_use'):
+        return 'never_use: true in its config'
+    if a.get('enabled') is False or a.get('paused'):
+        return 'turned off or paused'
+    if not a.get('worker'):
+        return 'no worker: it can be read but runs no work'
+    return ''
+
+
 def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=None, shift=None):
+    """The account's state (see _account_state), with no room for bounded tasks when it cannot run work (spend_blocker): the
+    owner's own account (its agent spends it itself) is the exception. Its Do line then says "read only" and why."""
+    out = _account_state(name, a, entries, now, accounts, quiet_hours, owner, shift)
+    why = spend_blocker(a)
+    mine = bool(owner) and name in (owner.get('accounts') or ())
+    offered = out.get('room_tasks') or (out.get('quota_plan') or {}).get('tasks')
+    if not why or mine or not offered:
+        return out
+    plan = {**out['quota_plan'], 'tasks': 0} if out.get('quota_plan') else None
+    out = {**out, 'room_tasks': None, 'action': f'read only ({why}): no bounded task is offered to {name}'}
+    if plan:
+        out['quota_plan'] = plan
+    return out
+
+
+def _account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=None, shift=None):
     """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
     `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window).
     With `accounts` (the config's), the planner (tutti/planner.py) adds its `plan`: an account's `limits` (a 5 h window's
@@ -249,12 +288,12 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
         from tutti import owner as owner_mod
         from tutti import planner  # planner imports pacing: imported here, when a plan is wanted
         a = {**a, 'target_pct': target_of(name, a, owner)}
-        own = account_state(name, {k: v for k, v in a.items() if k != 'limits'}, entries, now)
+        own = _account_state(name, {k: v for k, v in a.items() if k != 'limits'}, entries, now)
         ctx = owner_mod.context(owner, owner_readings(entries, owner['accounts'], now), now) \
             if owner and name in owner['accounts'] else None
         if not a.get('limits'):
             return planner.plan_alone(own, a, now, owner=ctx, shift=shift)
-        lims = [account_state(n, accounts.get(n), entries, now) for n in a['limits'] if n in accounts]
+        lims = [_account_state(n, accounts.get(n), entries, now) for n in a['limits'] if n in accounts]
         return planner.bind(own, lims, a, accounts, quiet_hours, now, owner=ctx, shift=shift)
     src = a.get('source', 'its dashboard')
     out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
@@ -265,6 +304,10 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
            'stale': False, 'remind': '', 'auto': False, 'reading_source': None, 'room_tasks': None, 'note': a.get('note'),
            'needs_reading': True, 'target_pct': target_of(name, a)}
     out.update(freshness(name, a, latest([x for x in entries if x.get('source') != 'estimate'], name), now))
+    est = estimate_only(name, a, latest(entries, name), out, now)
+    if est:   # nothing can read this meter: Tutti's own estimates carry it, so it is not "stale"
+        out.update(stale=False, remind='', estimate_only=True, reading_source='estimate',
+                   note=a.get('note') or 'estimate only: nothing reads this meter, so sends logged by Tutti move it')
     anchor = reading_anchor(entries, name)
     if anchor:
         out['reset_from'] = 'reading'

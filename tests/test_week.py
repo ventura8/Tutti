@@ -148,7 +148,7 @@ class Parallel(unittest.TestCase):
 def simulate(window, step, a, start, hours_after=0):
     """Readings every `step` through one window, spending what the pace allows; returns (used at the spend-by time, the
     state after the reset). The account's anchor is its first reset."""
-    a = {'window': window, 'resets': start.isoformat(), 'task_pct': 1, **a}
+    a = {'window': window, 'resets': start.isoformat(), 'task_pct': 1, 'worker': 'w', **a}
     entries, used, t = [], 0.0, start + step
     reset = pacing.window_at(start, window, start + step)[1]
     by = reset - timedelta(hours=a.get('lead_hours', 1))

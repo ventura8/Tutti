@@ -561,6 +561,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `accounts.*.task_pct` | number (%) |  | One task costs: The share of the quota one task spends, for pacing. | admin |
 | `accounts.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |
 | `accounts.*.enabled` | switch |  | On: Off takes it out of pacing, routing and the dashboard. | admin |
+| `accounts.*.never_use` | switch | `False` | Never use: Read for information only: bounded work is never offered or sent to it. | admin |
 | `accounts.*.opt_in` | switch | `False` | Opt-in: Off until you turn it on, without costing money. | admin |
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
@@ -1021,7 +1022,7 @@ usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--stage-only] 
 | `--insecure-skip-verify` | offline only: install without checking the release's Sigstore signature (a loud warning; never with --auto) |  |
 | `--check` | only say whether a newer release is out |  |
 | `--stage-only` | verify and stage the release in a separate environment without activating it |  |
-| `--auto` | quiet no-op when turned off (self_update.enabled) or not a release install |  |
+| `--auto` | quiet no-op when turned off (self_update.enabled) or not a release or git install |  |
 
 ### `tutti machines`
 

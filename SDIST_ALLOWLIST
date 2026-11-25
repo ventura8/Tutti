@@ -222,6 +222,7 @@ tests/test_self_update.py
 tests/test_selfheal.py
 tests/test_selfimprove.py
 tests/test_selftest.py
+tests/test_selfupdate_git.py
 tests/test_settings.py
 tests/test_setup.py
 tests/test_shards.py

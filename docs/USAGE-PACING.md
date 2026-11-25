@@ -110,6 +110,16 @@ Two more sources for what no CLI prints:
   open, signed in, and saves it in one click. It reads only the page's visible text, never cookies or tokens; automatic
   page readings use that same extractor in the scoped Work browser.
 
+**Accounts that cannot run work are never spend targets.** An account with no `worker:` (a reader only, or a weekly limit that
+bounds another account), with `enabled: false` or paused, or with `never_use: true` (the owner said never to use it) gets no room
+in tasks: `tutti usage`, the handoff advice, the dashboard and the planner show it for information with the Do line "read only
+(why)", never "about N bounded task(s) can go to ...". The owner's own account is the exception: its agent spends it itself.
+
+**Estimate only.** An account nothing can read (no `reader`, no `reading_file`; a `usage_url` is a link for people, Tutti never opens
+it) whose real reading is old but whose newest entry is Tutti's own estimate (a scout send logs one, docs/SCOUTS.md) is marked
+`estimate only`, not `stale`, while the estimate is younger than `stale_hours`: Tutti is the only spender it knows of. A real
+reading replaces the estimate; an automatic reader that stopped still shows `stale`.
+
 **Opt-in accounts.** `enabled: false` keeps an account (a premium model you use only on request) out of pacing, panic,
 routing and the dashboard; `tutti usage log` still keeps its readings. `note:` is shown on the card (for example "includes
 your own IDE use, which Tutti does not start"). One `reading_file` can serve several accounts:

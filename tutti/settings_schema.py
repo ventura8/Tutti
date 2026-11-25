@@ -122,6 +122,8 @@ FIELDS = {
     'accounts.*.task_pct': field('One task costs', 'The share of the quota one task spends, for pacing.', **PCT),
     'accounts.*.costs_money': field('Costs money per use', 'Kept off until you turn it on.', 'switch', default=False),
     'accounts.*.enabled': field('On', 'Off takes it out of pacing, routing and the dashboard.', 'switch'),
+    'accounts.*.never_use': field('Never use', 'Read for information only: bounded work is never offered or sent to it.', 'switch',
+                               default=False),
     'accounts.*.opt_in': field('Opt-in', 'Off until you turn it on, without costing money.', 'switch', default=False),
     'usage.log': field('Usage log', 'The file every reading is appended to.', 'text', default='~/.local/state/tutti/usage.jsonl'),
     # workers

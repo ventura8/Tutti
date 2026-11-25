@@ -171,7 +171,7 @@ through the Work browser's scoped usage reader, so the scouts' pacing stays curr
 
 Between readings, each question sent logs an estimate on the scout's account (newest reading + `task_pct`, source
 `estimate`; from 0 after a reset), so the meter and the pacing move. The Scouts card's **Add a reading** remains available
-for a manual correction; a usage page still on its spinner is reported, never saved as 0.
+for a manual correction. With no reader to read the meter, the newest estimate keeps the account `estimate only`, not stale; a usage page still on its spinner is reported, never saved as 0.
 
 ## Sentry triage
 

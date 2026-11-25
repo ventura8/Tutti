@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.2 (2026-11-23)
+
+### Fixed
+
+- Dashboard API: `POST /api/github` now treats non-object JSON bodies as invalid requests and returns 400 instead of
+  crashing with `AttributeError`; a regression test covers JSON arrays.
+
 ## 0.16.1 (2026-11-15)
 
 ### Fixed

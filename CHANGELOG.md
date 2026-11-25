@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- `tutti test --on <machine>` (and MCP `test_on` with a machine) no longer just refuses when that machine is unfit now (limited
+  hours, busy slots, heat or load pause, quiet hours, yielding, paused): the run goes to the next fit machine in `routing.order`
+  and one line says so (`nuc: limited hours 18-01 (heavy work elsewhere); running on pc instead`). It refuses only when no machine
+  fits, listing each reason. `--only` (alias `--strict`; MCP `only: true`) keeps the old refusal for a test that must run on that
+  machine. Without `--on` the first fit machine in `routing.order` was already chosen; device runs are unchanged.
+
 - An account nothing can read (Grok Bot: usage pages are never opened) is `estimate only`, not stale, while Tutti's own scout
   estimates are current; a stopped automatic reader still shows stale.
 - Spend advice never offers an account that cannot run work: no `worker:`, `enabled: false`, paused, or the new

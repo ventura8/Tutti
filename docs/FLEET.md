@@ -255,7 +255,7 @@ Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). I
   set without a share, `pct` defaults to 60 (1 to 100; to stop Tutti there, pause the machine).
 - **Inside it:** the machine's share is capped at `pct`, which means fewer slots, fewer model threads and a lower adaptive
   limit. Every heavy path goes elsewhere: work-queue jobs marked `heavy`, `tutti test` / routed checks / ship, and a
-  handed-over test restart. `--on <machine>` does not bypass this (or `heat.stop_c`): Tutti refuses and names the
+  handed-over test restart. `--on <machine>` does not bypass this (or `heat.stop_c`): the run goes to the next fit machine in `routing.order` with one line saying why, and with `--only`/`--strict` (or when none fits) Tutti refuses and names the
   reason. Light work still uses the reduced share. Running jobs finish, but none is replaced while the machine is
   over the cap. `pct: 0` is blocked hours (no new work from 30 min before; running work handed over at the start).
 - **On a move:** `main: true` marks the main machine's own window, and `tutti move` carries it to the new main machine.

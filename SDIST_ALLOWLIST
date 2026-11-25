@@ -241,6 +241,7 @@ tests/test_tasketa.py
 tests/test_tasklist.py
 tests/test_telemetry.py
 tests/test_temps.py
+tests/test_test_falls_back.py
 tests/test_tui.py
 tests/test_tz.py
 tests/test_unblocker.py

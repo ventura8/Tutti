@@ -242,6 +242,7 @@ include tests/test_tasketa.py
 include tests/test_tasklist.py
 include tests/test_telemetry.py
 include tests/test_temps.py
+include tests/test_test_falls_back.py
 include tests/test_tui.py
 include tests/test_tz.py
 include tests/test_unblocker.py

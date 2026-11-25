@@ -275,6 +275,15 @@ class McpServerTest(unittest.TestCase):
         self.assertIn('exit code 0', mcpserver.call(self.cfg, 'job_status', {'id': jid}, 'viewer')[1])
         self.assertTrue(mcpserver.call(self.cfg, 'job_status', {'id': 'test-nope'}, 'viewer')[0])
 
+    def test_test_on_only_is_passed_with_a_machine_and_ignored_without(self):
+        started = []
+        mcpserver.call(self.cfg, 'test_on', {'track': 't1', 'command': 'c', 'machine': 'm1', 'only': True}, 'admin',
+                       popen=lambda argv, **kw: started.append(argv))
+        mcpserver.call(self.cfg, 'test_on', {'track': 't1', 'command': 'c', 'only': True}, 'admin',
+                       popen=lambda argv, **kw: started.append(argv))
+        self.assertIn('--only', started[0])
+        self.assertNotIn('--only', started[1])
+
     def test_http_never_listens_on_a_public_address(self):
         for bad in ('0.0.0.0', '::', '8.8.8.8', '2606:4700::1'):
             with self.assertRaises(netpolicy.PublicAddress):

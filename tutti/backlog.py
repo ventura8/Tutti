@@ -131,6 +131,67 @@ def listing(data, show_all=False):
     return '\n'.join(rows) or 'the backlog is empty: tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>'
 
 
+TASK_ID_RX = re.compile(r'\bt\d+\b')
+FULL_TEXT_CAP = 8000   # characters of one task's full text appended to a worker's brief
+
+
+def _when(ts):
+    try:
+        return time.strftime('%Y-%m-%d %H:%M', time.localtime(float(ts)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return str(ts)
+
+
+def full_text(t):
+    """A task's whole record as plain text: every field, the notes and each attempt with its reason (`tutti backlog show`)."""
+    from . import priority
+    level = f'P{priority.task_level(t)}' if 'priority' in t else 'untriaged'
+    deps = t.get('depends_on') or []
+    lines = [f'id: {t["id"]}', f'title: {t.get("title", "")}', f'status: {t.get("status", "")}', f'repo: {t.get("repo", "")}',
+             f'size: {t.get("size", "")}', f'priority: {level}', f'scope: {", ".join(t.get("scope") or []) or "(the worker decides)"}',
+             f'check: {t.get("check") or "(the repo check)"}',
+             f'depends_on: {", ".join(deps) if isinstance(deps, list) else deps or "(none)"}']
+    for key in ('source', 'claimed_by', 'run', 'parked'):
+        if t.get(key):
+            lines.append(f'{key}: {t[key]}')
+    for key in ('description', 'details'):
+        if t.get(key):
+            lines += ['', f'{key}:', str(t[key])]
+    if t.get('notes'):
+        lines += ['', 'notes:'] + [f'- {n}' for n in t['notes']]
+    attempts = t.get('attempts') or []
+    lines += ['', f'attempts: {len(attempts)}']
+    for i, a in enumerate(attempts, 1):
+        result = 'passed' if a.get('ok') else 'failed'
+        lines.append(f'{i}. {_when(a["at"]) if "at" in a else "?"} {a.get("step", "?")} {result}'
+                     + (f' ({a["class"]})' if a.get('class') else ''))
+        for key in ('signature', 'why', 'stat', 'tail'):
+            if a.get(key):
+                lines.append(f'   {key}: {a[key]}')
+    return '\n'.join(lines)
+
+
+def referenced(text, data):
+    """The tasks of the backlog that `text` names by id (t123), in order of first mention; ids that do not exist are ignored."""
+    known = {t['id']: t for t in data.get('tasks', [])}
+    seen = []
+    for tid in TASK_ID_RX.findall(text or ''):
+        if tid in known and known[tid] not in seen:
+            seen.append(known[tid])
+    return seen
+
+
+def with_tasks(text, data, cap=FULL_TEXT_CAP):
+    """`text` followed by the full text of each backlog task it names, so a worker needs no tool call to read them."""
+    parts = [text]
+    for t in referenced(text, data):
+        body = full_text(t)
+        if len(body) > cap:
+            body = body[:cap].rstrip() + f'\n[cut at {cap} characters: `tutti backlog show {t["id"]}` has the rest]'
+        parts.append(f'Backlog task {t["id"]} (full text):\n{body}')
+    return '\n\n'.join(parts)
+
+
 # ---- sources that are safe to automate
 
 

@@ -745,7 +745,7 @@ def cmd_run(cfg, a):
         say('run --input: name the machine the inputs go to with --on <machine> (the worker then finds them there)')
         return 2
     if a.show:
-        print(workers.brief(cfg, a.task, a.files))
+        print(workers.brief(cfg, backlog.with_tasks(a.task, backlog.load(cfg)) if a.repo else a.task, a.files))
         return 0
     if bridge.jobs_machine(cfg) and not a.input:
         return run_on_jobs_machine(cfg, a, extra)
@@ -865,7 +865,8 @@ def run_delegated(cfg, a, extra):
     """`tutti run <worker> "<task>" --repo <repo>`: worktree, headless worker, diff, targeted checks, report."""
     extra = [*extra, *(a.extra or [])]
     if a.bg:
-        return run_in_background(cfg, a, extra)
+        return run_in_background(cfg, a, extra)   # the child expands the task itself
+    a.task = backlog.with_tasks(a.task, backlog.load(cfg))   # the full text of the backlog tasks it names: the worker needs no tool call
     check_list = [{'run': c, 'where': a.check_where} for c in a.check] if a.check else None
     r = delegate.delegate(cfg, a.worker, a.task, a.files, a.repo, run_id=a.id, track=a.track, extra=extra,
                           checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track,
@@ -1441,6 +1442,8 @@ def cmd_backlog(cfg, a):
         if a.action == 'list':
             print(backlog.listing(backlog.load(cfg), a.all))
             return 0
+        if a.action == 'show':
+            return backlog_show(backlog.load(cfg), a)
         if a.action in ('deps', 'board'):
             return backlog_deps(backlog.load(cfg), a)
         with backlog.locked(cfg) as data:
@@ -1448,6 +1451,15 @@ def cmd_backlog(cfg, a):
     except (backlog.BacklogError, taskdeps.DepError) as e:
         say(str(e))
         return 2
+
+
+def backlog_show(data, a):
+    """`tutti backlog show <id> [--json]`: one task's full record (a brief can say "read it with `tutti backlog show t123`")."""
+    if not a.repo:
+        raise backlog.BacklogError('show: name the task: tutti backlog show t123 [--json]')
+    task = backlog.find(data, a.repo)
+    print(json.dumps(task, indent=1, sort_keys=True) if a.json else backlog.full_text(task))
+    return 0
 
 
 def backlog_deps(data, a):
@@ -2283,9 +2295,9 @@ def parser():
     s.add_argument('text')
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
-                                    'accept <id> (a suggested candidate)')
+                                    'accept <id> (a suggested candidate), show <id> [--json] (the full record)')
     s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'priority',
-                                      'deps', 'link', 'board'])
+                                      'deps', 'link', 'board', 'show'])
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
@@ -2296,6 +2308,7 @@ def parser():
     s.add_argument('--source', default='orchestrator')
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
+    s.add_argument('--json', action='store_true', help='show: the task record as JSON')
     s.add_argument('--on', help='link: the tasks it depends on, comma-separated ("" clears) (t243)')
     s.add_argument('--with', dest='together', help='link: the tasks that go together with it, comma-separated ("" clears)')
     s.add_argument('--merged-into', help='link: the task it was folded into ("" clears)')

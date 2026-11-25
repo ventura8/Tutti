@@ -111,6 +111,7 @@ tests/test_audit_lows.py
 tests/test_auth.py
 tests/test_auto_spread.py
 tests/test_autopilot.py
+tests/test_backlog_show.py
 tests/test_backup.py
 tests/test_brain.py
 tests/test_brain_more.py

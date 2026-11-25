@@ -118,5 +118,36 @@ def _shifted(weekly, five_used=30, panic_at=None):
     return pacing.account_state('agy', accounts['agy'], entries, NOW, accounts, None, shift='claude')
 
 
+
+class RunAutoShift(unittest.TestCase):
+    """`tutti run auto` plans the cheap accounts with the shift too, not only the dashboard (2026-11-25: gemini stayed held)."""
+    CFG = {'routing': {}, 'autopilot': {}, 'accounts': {'claude': {}, 'agy-gemini': {'worker': 'agy'}}}
+
+    def run_shifted(self, main_verdict):
+        from unittest import mock
+
+        from tutti import cli
+        calls = []
+
+        def state(name, a, entries, now, *args, shift=None):
+            calls.append((name, shift))
+            return {'name': name, 'state': 'ok', 'verdict': 'shifted' if shift else 'held'}
+        accounts = [{'name': 'claude', 'state': 'ok', 'verdict': main_verdict, 'used': 91.0, 'panic_at': 95},
+                    {'name': 'agy-gemini', 'state': 'ok', 'verdict': 'held'}]
+        with mock.patch.object(cli.pacing, 'account_state', side_effect=state), \
+                mock.patch.object(cli.pacing, 'plan_args', return_value=()):
+            return cli.shifted(self.CFG, accounts, [], None), calls
+
+    def test_an_ahead_main_replans_the_others_with_the_shift(self):
+        out, calls = self.run_shifted('ahead')
+        self.assertEqual(calls, [('agy-gemini', 'claude')])
+        self.assertEqual([s['verdict'] for s in out], ['ahead', 'shifted'])
+
+    def test_a_main_on_pace_changes_nothing(self):
+        out, calls = self.run_shifted('on pace')
+        self.assertEqual(calls, [])
+        self.assertEqual(out[1]['verdict'], 'held')
+
+
 if __name__ == '__main__':
     unittest.main()

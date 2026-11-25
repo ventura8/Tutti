@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- `tutti run --base <ref>` (with --repo): a new run starts from the branch the task names (e.g. `origin/feat/x`, fetched
+  first), not the checkout's HEAD; an unknown ref is refused. A run whose worker changes nothing now quotes the worker's last
+  lines in its report (why it stopped: wrong commit, nothing to do), not just "changed nothing".
+
 ### Fixed
 
 - State pruning keeps the newest `runs_keep` (200) **runs**, not files: each run has about eight files, so only the newest few

@@ -1300,8 +1300,8 @@ usage: tutti workers [-h]
 brief a CLI worker (cursor, agy, claude; `auto`: the one whose account has room) in a worktree; it must not commit
 
 ```text
-usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO] [--track TRACK] [--bg] [--no-checks]
-                 [--discard] [--check CMD] [--check-where {local,route}] [--no-backlog] [--size {S,M,L}]
+usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO] [--track TRACK] [--base BASE] [--bg]
+                 [--no-checks] [--discard] [--check CMD] [--check-where {local,route}] [--no-backlog] [--size {S,M,L}]
                  worker task [files ...]
 ```
 
@@ -1316,6 +1316,7 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 | `--on` | the machine --input files go to |  |
 | `--repo` | hand the task off end to end: a worktree of this repo (a folder, or a name under autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
 | `--track` | with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one |  |
+| `--base` | with --repo: start a new worktree from this ref (e.g. origin/feat/x, fetched first) instead of the checkout's HEAD or upstream |  |
 | `--bg` | with --repo: run detached; prints the id for `tutti wait run <id>` |  |
 | `--no-checks` | with --repo: skip the checks (the report says nothing was tested) |  |
 | `--discard` | with --repo: remove a new worktree after the report (the diff file stays) |  |

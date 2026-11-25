@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- State pruning keeps the newest `runs_keep` (200) **runs**, not files: each run has about eight files, so only the newest few
+  dozen runs survived and a run's report vanished within hours (`tutti runs show` found nothing). A run whose process is
+  alive is never pruned.
+
 ## 0.31.20 (2026-11-25)
 
 ### Added

@@ -2,7 +2,7 @@
 // hashes. Open/close, Escape, outside click, focus return; the toggle shows the current view's name.
 'use strict';
 
-const NAV_LABELS = { chat: 'Chat', dashboard: 'Dashboard', tasks: 'Tasks', schedule: 'Schedule', devices: 'Devices', machines: 'Hosts', discovered: 'Discovered', agents: 'Agents', settings: 'Settings', users: 'Users' };
+const NAV_LABELS = { needs: 'Needs you', chat: 'Chat', dashboard: 'Dashboard', tasks: 'Tasks', schedule: 'Schedule', devices: 'Devices', machines: 'Hosts', discovered: 'Discovered', agents: 'Agents', settings: 'Settings', users: 'Users' };
 
 // Every view, by its hash (#tasks, #settings/…); one list so a new tab is one entry here, its menu link and its <x-view>.
 const TUTTI_VIEWS = Object.keys(NAV_LABELS);
@@ -13,6 +13,11 @@ function tuttiView(hash) {
     const name = raw === 'hosts' ? 'machines' : raw;   // t406: #hosts is the name, #machines still opens it
     const admin = typeof document !== 'undefined' && document.body?.dataset.role === 'admin';
     return TUTTI_VIEWS.includes(name) && (name !== 'users' || admin) ? name : 'chat';
+}
+
+// The view to open on the first state when the address names none: Needs you while it has items, else '' (the Chat).
+function tuttiDefaultView(needsCount, hash) {
+    return !String(hash || '').replace(/^#/, '') && needsCount > 0 ? '#needs' : '';
 }
 
 function navMenuEls() {
@@ -89,5 +94,5 @@ if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('DOMContentLoaded', initNavMenu);
 }
 if (typeof module !== 'undefined') {
-    module.exports = { navMenuView, navMenuSync, navMenuOpen, navMenuClose, navMenuToggle, NAV_LABELS, TUTTI_VIEWS, tuttiView };
+    module.exports = { navMenuView, navMenuSync, navMenuOpen, navMenuClose, navMenuToggle, NAV_LABELS, TUTTI_VIEWS, tuttiView, tuttiDefaultView };
 }

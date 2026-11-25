@@ -2504,7 +2504,7 @@ class PageMarkup(unittest.TestCase):
     def test_chat_is_the_first_view_and_the_default(self):
         panel = self.html.split('id="nav-menu-panel"', 1)[1].split('</nav>', 1)[0]
         views = re.findall(r'data-view="([a-z]+)"', panel)
-        self.assertEqual(views[0], 'chat')
+        self.assertEqual(views[:2], ['needs', 'chat'])   # Needs you leads the menu; Chat is the next entry and the default view
         self.assertIn('id="nav-menu-btn"', self.html)
         self.assertIn('navmenu.js?v=', self.html)
         self.assertIn('<div id="chat-view" class="chat view-ok">', self.html)   # shown, and usable by viewers

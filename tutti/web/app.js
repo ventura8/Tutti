@@ -1423,8 +1423,41 @@ function openJob(id) {
     box?.querySelector(':scope > summary')?.focus({ preventScroll: true });
 }
 
+// Needs you is a view of its own (#needs): the Needs you and My questions cards move into it while it is open and back to
+// their place in the Dashboard grid when it closes, so the layout and the Dashboard keep them.
+const NEEDS_CARDS = ['[data-layout-id="attention"]', '#my-questions'];
+const needsHome = new Map();
+
+function showNeedsView() {
+    const view = $('needs-view');
+    if (!view) return;
+    const on = typeof tuttiView === 'function' && tuttiView(location.hash) === 'needs';
+    view.hidden = !on;
+    for (const sel of NEEDS_CARDS) {
+        const card = document.querySelector(sel);
+        if (!card) continue;
+        if (!needsHome.has(sel)) needsHome.set(sel, { parent: card.parentNode, next: card.nextSibling });
+        const home = needsHome.get(sel);
+        if (on && card.parentNode !== $('needs-grid')) $('needs-grid').append(card);
+        else if (!on && card.parentNode !== home.parent) home.parent.insertBefore(card, home.next);
+    }
+}
+
+// The default view: with no view in the address, Needs you while it has items, else the Chat. Decided once, on the first
+// state, so a person who then opens another view stays there.
+let needsDefaultDone = false;
+function needsDefault(count, hash) {
+    if (needsDefaultDone) return '';
+    needsDefaultDone = true;
+    return typeof tuttiDefaultView === 'function' ? tuttiDefaultView(count, hash) : '';
+}
+
 function renderAttention(s) {
     const items = tuttiAttention(s);
+    const badge = $('needs-count');
+    if (badge) { badge.hidden = !items.length; badge.textContent = String(items.length); }
+    const go = needsDefault(items.length, location.hash);
+    if (go) { history.replaceState(null, '', go); window.dispatchEvent(new HashChangeEvent('hashchange')); }
     const urgent = items.filter((i) => i.tone !== 'ok').length;
     $('attention-meta').textContent = items.length ? `${urgent} to act on · ${items.length - urgent} to review` : 'All clear';
     $('attention').replaceChildren(...(items.length ? more('attention', items.map(attentionItem), 6)
@@ -1715,7 +1748,9 @@ function banner(text) {
 document.addEventListener('DOMContentLoaded', () => {
     loadUi();   // the folds, filters and open jobs this tab had before a reload
     void fromHelper().then(() => refresh());
-    window.addEventListener('hashchange', () => { void fromHelper().then(() => refresh()); });   // the dashboard tab was already open
+    window.addEventListener('hashchange', () => { void fromHelper().then(() => refresh()); });
+    window.addEventListener('hashchange', showNeedsView);
+    showNeedsView();   // the dashboard tab was already open
     $('refresh').addEventListener('click', refresh);
     $('refresh-readings').addEventListener('click', refreshReadings);
     $('main-form').addEventListener('submit', switchMain);

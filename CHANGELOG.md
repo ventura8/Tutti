@@ -1,6 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Dashboard: a Needs you view, first in the menu, with a count badge; the dashboard opens on it while it has items, and on Chat
+  otherwise (docs/DASHBOARD.md).
+
 ## 0.31.23 (2026-11-25)
+
+### Added
 
 ### Fixed
 
@@ -21,6 +30,8 @@
   ahead". Back at its pace, the main agent takes its share again.
 - Chat: the model picker groups related models under one heading (local by machine, online by `workers.<name>.provider`
   or account), so models of one provider are easy to find and compare (t405, docs/CHAT.md).
+
+### Added
 
 ### Fixed
 

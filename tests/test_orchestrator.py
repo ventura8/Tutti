@@ -211,7 +211,7 @@ class DelegateTest(unittest.TestCase):
         cfg = self.cfg([])
         with mock.patch.object(delegate, '_delegate', return_value='ok') as run:
             self.assertEqual(self.run_task(cfg, remote_track='safe-1_name.test'), 'ok')
-        self.assertEqual(run.call_args.args[-1], 'safe-1_name.test')
+        self.assertEqual(run.call_args.args[-2], 'safe-1_name.test')
 
     def test_report_contains_valid_run_identity(self):
         cfg = self.cfg([])

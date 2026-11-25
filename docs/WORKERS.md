@@ -154,6 +154,12 @@ dashboard's *Settings* row changes it without editing the config). Each kind use
 `workers.<name>.context_tokens` is a worker's window (default `autocompact.context_tokens`, 200000);
 `autocompact.enabled: false` turns it off. The dashboard shows `context N %` on a running job when it is known.
 
+## Which commit a run starts from
+
+A new run starts from the checkout's upstream when the checkout is behind it, else its HEAD. A task that names its branch
+should pass `--base origin/<branch>`: Tutti fetches it and starts there (a worker cannot move its own worktree; Codex said
+so and stopped). When a worker changes nothing, the report quotes its last lines (`worker said`), so the reason shows.
+
 ## Fix rounds: a failing check goes back to the worker
 
 A worker's diff that fails a check is not thrown away. Its errors (the command and the last 40 lines of its output) go back to the

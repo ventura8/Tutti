@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `autopilot.repos.<repo>.runner` (`{kind: docker|shell, image, desktop}`) declares the runner a repository's checks need.
+  `tutti test` (also `--on`, which falls back to the next fit machine and says so) and routed checks of delegated runs treat a
+  machine whose runner differs (a desktop `shell` machine for a repo that needs its docker image) as unfit, with the reason, and
+  never queue on it; commands matching `desktop` are exempt. Fixes a map-project `tutti test` that ran on a desktop machine with
+  the host's Node instead of the quality image (docs/FLEET.md, *A repository that needs its runner*).
+
 ## 0.31.31 (2026-11-25)
 
 ### Fixed

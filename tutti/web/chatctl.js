@@ -80,10 +80,16 @@ function fillSelect(box, options, value) {
 function drawControls() {
     const s = currentSettings();
     const groups = { mode: el('optgroup', { label: 'Mode' }), local: el('optgroup', { label: 'Local models' }), online: el('optgroup', { label: 'Online agents' }) };
+    const families = {};
     for (const m of CHAT.models || []) {
-        groups[m.group].append(el('option', { value: m.id, text: m.available ? m.label : `${m.label} (not now: ${m.why})` }));
+        const option = el('option', { value: m.id, text: m.available ? m.label : `${m.label} (not now: ${m.why})` });
+        if (m.family && (m.group === 'local' || m.group === 'online')) {   // related models sit together, one heading per machine or provider
+            const key = `${m.group}:${m.family}`;
+            families[key] = families[key] || el('optgroup', { label: `${m.group === 'local' ? 'Local' : 'Online'}: ${m.family}` });
+            families[key].append(option);
+        } else groups[m.group].append(option);
     }
-    fillSelect(cq('chat-model'), Object.values(groups).filter((g) => g.children.length), s.model);
+    fillSelect(cq('chat-model'), [...Object.values(groups), ...Object.values(families).sort((a, b) => a.label.localeCompare(b.label))].filter((g) => g.children.length), s.model);
     const efforts = (CHAT.efforts?.length ? CHAT.efforts : ['auto', 'low', 'medium', 'high', 'max']);
     fillSelect(cq('chat-effort'), efforts.map((e) => el('option', { value: e, text: e === 'auto' ? 'Auto' : e[0].toUpperCase() + e.slice(1) })), s.effort);
     const modes = Object.keys(CHAT.modes || {}).length ? CHAT.modes : { auto: 'Autonomous', ask: 'Ask before acting', plan: 'Plan review' };

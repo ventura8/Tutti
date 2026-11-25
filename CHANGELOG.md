@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Chat: the model picker groups related models under one heading (local by machine, online by `workers.<name>.provider`
+  or account), so models of one provider are easy to find and compare (t405, docs/CHAT.md).
+
 ### Fixed
 
 - Main agent: the preferred agent coming back by itself is recorded and shown as "preferred, back by itself" (not as a

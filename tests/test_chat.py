@@ -989,10 +989,29 @@ class Picker(ApiBase):
         self.assertEqual(listing['defaults']['model'], 'nuc')
         self.assertEqual([m['id'] for m in listing['models']][:4], ['main', 'auto', 'local', 'online'])
         self.assertEqual(next(m for m in listing['models'] if m['id'] == 'copilot')['available'], False)
+        self.assertTrue(all(m.get('family') for m in listing['models'] if m['group'] != 'mode'))
         new = self.send(eng, ADMIN, 'second')[0]['conversation']
         self.assertEqual(eng.store.get('local', new)['model'], 'nuc')
         self.assertEqual(self.seen[-1], 'nuc')
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'model', 'model': 'gpt-imaginary'})[0], 400)
+
+
+class Families(unittest.TestCase):
+    def test_a_local_model_is_listed_under_its_machine(self):
+        self.assertEqual(chat.family_of({'kind': 'ollama', 'machine': 'nuc', 'worker': 'nuc'}), 'nuc')
+        self.assertEqual(chat.family_of({'kind': 'ollama', 'worker': 'x'}), 'the host')
+
+    def test_an_online_model_prefers_the_provider_then_the_account_then_the_worker(self):
+        c = {'kind': 'cli', 'worker': 'agy', 'account': 'agy-gemini'}
+        self.assertEqual(chat.family_of(c, {'provider': ' Google '}), 'Google')
+        self.assertEqual(chat.family_of(c, {}), 'agy-gemini')
+        self.assertEqual(chat.family_of({'kind': 'cli', 'worker': 'agy'}), 'agy')
+
+    def test_a_bad_provider_never_gives_an_empty_heading(self):
+        c = {'kind': 'cli', 'worker': 'w'}
+        self.assertEqual(chat.family_of(c, {'provider': ''}), 'w')
+        self.assertEqual(chat.family_of(c, {'provider': 7}), 'w')
+        self.assertEqual(chat.family_of({'kind': 'cli'}, None), 'other')
 
 
 class FakeOllama(BaseHTTPRequestHandler):

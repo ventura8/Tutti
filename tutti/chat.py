@@ -1011,10 +1011,24 @@ def choices(cfg, snap, user, owner_sub=None, own_machine=None):
     out = [{'id': k, 'label': v, 'group': 'mode', 'available': True} for k, v in PICKS.items()]
     if isinstance((cfg.get('chat') or {}).get('openai_api'), dict):
         online.append(openai_model(cfg, snap, user, owner_sub))
+    workers = cfg.get('workers') or {}
     for c in local + online:
         out.append({'id': c['worker'], 'label': c['label'], 'group': 'local' if c['kind'] == 'ollama' else 'online',
-                    'available': not c['why'], 'why': c['why'], 'tools': c['tools']})
+                    'family': family_of(c, workers.get(c['worker'])), 'available': not c['why'], 'why': c['why'], 'tools': c['tools']})
     return out
+
+
+def family_of(choice, worker=None):
+    """The family a model is listed under in the picker, so related models sit together: a local model's machine, an online
+    model's `workers.<name>.provider` (several workers of one vendor share it), else the account that pays for it, else the
+    worker. Never empty: the picker needs a heading for every option."""
+    worker = worker if isinstance(worker, dict) else {}
+    if choice.get('kind') == 'ollama':
+        return str(choice.get('machine') or 'the host')
+    for value in (worker.get('provider'), choice.get('account'), choice.get('worker')):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return 'other'
 
 
 def valid_pick(pick, cfg):

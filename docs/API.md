@@ -566,6 +566,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
 | `workers.*.chat_account_selector` | text |  | Chat account selector: The CLI flag an admin asserts selects an account or model. | admin |
+| `workers.*.provider` | text |  | Provider: The heading the Chat model picker lists this worker under (default: its account). | admin |
 | `workers.*.chat_output_format` | text |  | Chat output format: Use text, cursor-stream-json (Cursor) or claude-stream-json (Claude Code, which also feeds its usage reading). | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |
 | `workers.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |

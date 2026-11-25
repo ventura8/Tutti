@@ -216,7 +216,8 @@ small, and stays simple enough to check by hand:
   (`autopilot.main_accounts`, default claude) is `ahead` of its pace, the other accounts' even spread is lifted. A limited
   account may spend the whole room left before its limit's target (`lead_hours`), a plain account everything under its
   panic line, so a window's "used its share of agy-gemini-weekly" no longer blocks it and Codex and Gemini carry the work
-  Claude would have. Panic, a spent quota and the quiet hours still hold. The card says *main agent claude is ahead of pace:
+  Claude would have; a stale Claude reading that was already above its pace counts too (use only grows). Panic, a spent quota
+  and the quiet hours still hold. The card says *main agent claude is ahead of pace:
   agy-gemini may spend ahead*. Set the key to false to keep the even spread.
 - **Quiet hours** stop new dispatches at the current time too; finished runs are still collected.
 - **Reserve.** `reserve` (points, default 0) is left for work outside Tutti; the default assumes all work goes through it.

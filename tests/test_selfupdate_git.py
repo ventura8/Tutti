@@ -7,7 +7,7 @@ import unittest.mock
 
 import tmpdirs
 
-from tutti import install
+from tutti import config, install
 
 ENV = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.test', 'GIT_COMMITTER_NAME': 't',
        'GIT_COMMITTER_EMAIL': 't@example.test', 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_SYSTEM': os.devnull}
@@ -121,6 +121,7 @@ class CommandTest(Fixture):
         said = []
         with unittest.mock.patch.object(cli.remote, 'ROOT', root), \
                 unittest.mock.patch.object(install, 'home', return_value=tmpdirs.mkdtemp()), \
+                unittest.mock.patch.object(config, 'load', return_value={}), \
                 unittest.mock.patch.object(cli, 'say', said.append):
             return cli.cmd_self_update({}, a), said
 

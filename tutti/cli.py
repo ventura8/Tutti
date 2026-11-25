@@ -196,7 +196,7 @@ def cmd_self_update(cfg, a):
     if a.auto:
         try:
             on = (config.load(a.config).get('self_update') or {}).get('enabled', True)
-        except config.ConfigError:
+        except (config.ConfigError, OSError):
             on = True
         if not on:
             return 0

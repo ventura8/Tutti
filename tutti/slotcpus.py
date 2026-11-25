@@ -3,8 +3,9 @@ machine's CPUs shared among its slots, and sets the worker knobs of the common t
 pytest-xdist, CMake, make, Go, OpenMP) unless the caller set them. Two runs on a 28-CPU machine used to size Playwright and
 Vitest from all 28 visible CPUs each; with emulators alongside, triggers ran minutes late and specs failed (2026-11-25).
 
-Pure: budget, count_expr, export_line, docker_args, errors. The CPU count is read on the machine (`nproc`) unless
-`machines.<m>.cores` names it, so the line is the same for any machine."""
+Pure: budget, slot_env, docker_args, errors. The number itself is computed by scripts/slot.sh once it holds its lock (heat and
+limited hours as they are when the run starts, not when it was queued); the CPU count is read there (`nproc`) unless
+`machines.<m>.cores` names it, so the inputs are the same for any machine."""
 import shlex
 
 from . import share
@@ -23,7 +24,6 @@ KNOBS = {
     'GOMAXPROCS': '{n}',
     'OMP_NUM_THREADS': '{n}',
 }
-THERMAL = 'cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1'
 
 
 def budget(cpus, slots, pct=100, override=None):
@@ -37,34 +37,29 @@ def enabled(cfg):
     return bool(((cfg or {}).get('test') or {}).get('slot_cpu_env', True))
 
 
-def count_expr(machine, now=None):
-    """Bash that prints the budget, evaluated on the machine when the run is queued: its CPUs (`cores` or nproc), at most the
-    docker runner's `--cpus`, at most heat.throttle_cpus when it is at its heat cap, at the share of a limited-hours window
-    (`now`, a UTC datetime), divided among the slots (the same arithmetic as budget())."""
-    override = machine.get('slot_cpus')
-    if override is not None:
-        return str(budget(0, 1, override=override))
-    pct = share.limited(machine, now) if now is not None else None
-    pct = 100 if pct is None else max(1, int(pct))
+def slot_env(machine, zone='UTC'):
+    """The inputs scripts/slot.sh needs to compute the budget itself, as `NAME=value` words: it reads the heat probe and the
+    clock after it has taken its lock, so a long wait in the queue never uses stale numbers. `cores` (else nproc there),
+    `slots`, `slot_cpus`, the docker runner's `--cpus`, heat.cap_c with throttle_cpus, the limited window with its pct (hours
+    read in `zone`), and the knobs. Heat and window are shell-quoted here and parsed there the way share.limited() does."""
     r = machine.get('runner') or {}
-    parts = [f'n={int(machine["cores"])}' if machine.get('cores') else 'n=$(nproc 2>/dev/null || echo 1)']
+    env = {'SLOT_CPU_SLOTS': max(1, int(machine.get('slots') or 1)), 'SLOT_CPU_KNOBS': ' '.join(f'{k}={v}' for k, v in KNOBS.items())}
+    if machine.get('slot_cpus') is not None:
+        env['SLOT_CPU_OVERRIDE'] = budget(0, 1, override=machine['slot_cpus'])
+    if machine.get('cores'):
+        env['SLOT_CPU_CORES'] = int(machine['cores'])
     if r.get('kind') == 'docker' and r.get('cpus'):
-        cap = max(1, int(float(r['cpus'])))
-        parts.append(f'[ "$n" -le {cap} ] || n={cap}')
+        env['SLOT_CPU_DOCKER'] = max(1, int(float(r['cpus'])))
     heat = machine.get('heat') or {}
     if heat.get('cap_c') is not None:
-        low = max(1, int(float(heat.get('throttle_cpus') or 1)))
-        parts.append(f't=$({THERMAL}); [ "${{t:-0}}" -lt {int(float(heat["cap_c"]) * 1000)} ] || [ "$n" -le {low} ] || n={low}')
-    parts.append(f'n=$((n * {pct} / 100 / {max(1, int(machine.get("slots") or 1))})); [ "$n" -ge 1 ] || n=1; echo "$n"')
-    return '$(' + '; '.join(parts) + ')'
-
-
-def export_line(machine, now=None):
-    """`export ... && ` for the front of a run's script: the budget and each knob the caller has not set (`${X:-...}` keeps a
-    value already in the environment; only unset or empty names are filled)."""
-    sets = [f'{NAME}="${{{NAME}:-{count_expr(machine, now)}}}"']
-    sets += [f'{k}="${{{k}:-{v.format(n=f"${NAME}")}}}"' for k, v in KNOBS.items()]
-    return ' && '.join(f'export {x}' for x in sets) + ' && '   # one export each: a later one reads the earlier
+        env['SLOT_CPU_THROTTLE'] = max(1, int(float(heat.get('throttle_cpus') or 1)))
+    lim = machine.get('limit')
+    if isinstance(lim, dict) and share.WINDOW.fullmatch(str(lim.get('window', ''))):
+        env['SLOT_CPU_WINDOW'] = lim['window']
+        env['SLOT_CPU_DAYS'] = ','.join(lim.get('days') or share.DAYS)
+        env['SLOT_CPU_PCT'] = max(1, int(lim.get('pct', share.LIMIT_PCT)))
+        env['SLOT_CPU_ZONE'] = zone
+    return ' '.join(f'{k}={shlex.quote(str(v))}' for k, v in env.items())
 
 
 def docker_args():

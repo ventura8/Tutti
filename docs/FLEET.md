@@ -272,6 +272,8 @@ climbed until triggers ran minutes late and specs failed. Now every command `tut
 - Set from it, only when the caller has not set them: `PLAYWRIGHT_WORKERS`, `VITEST_MAX_THREADS` (`VITEST_MIN_THREADS=1`),
   `VITEST_MAX_FORKS`, `JEST_WORKERS`, `PYTEST_XDIST_AUTO_NUM_WORKERS`, `CMAKE_BUILD_PARALLEL_LEVEL`, `MAKEFLAGS=-j<n>`,
   `GOMAXPROCS`, `OMP_NUM_THREADS`. A docker runner receives them with `-e`.
+- It is worked out when the run starts, not when it was queued: `scripts/slot.sh` reads the heat and the limited-hours window
+  on the machine right after it takes its slot lock, so a long wait in the queue never uses stale numbers.
 - `test.slot_cpu_env: false` turns it all off.
 
 A Playwright config reads it: `workers: process.env.PLAYWRIGHT_WORKERS ? Number(process.env.PLAYWRIGHT_WORKERS) : undefined`

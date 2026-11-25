@@ -11,7 +11,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
 
 from . import routing, slotcpus, tz, worktree
 
@@ -671,15 +670,18 @@ def runner_command(machine, track, command, mount='', identity=None, cpu_env=Fal
             f'{mount + " " if mount else ""}{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
 
 
-def slot_prefix(machine):
+def slot_prefix(machine, cpu_zone=None):
     """slot.sh's environment: the memory floor, the lock files and the heat limits, so a run that already waits in the queue
-    re-reads the temperature right before it starts (routing only looked when it was queued)."""
+    re-reads the temperature right before it starts (routing only looked when it was queued). With `cpu_zone` (the time zone
+    name) it also gets the slot CPU budget's inputs, which slot.sh turns into numbers once it holds its lock (slotcpus)."""
     locks = shlex.quote(' '.join(lock_files(machine)))
     heat = machine.get('heat') or {}
     names = {'stop_c': 'HEAT_STOP_C', 'cap_c': 'HEAT_CAP_C', 'hot_slots': 'HOT_SLOTS'}
     extra = ''.join(f' {names[k]}={int(float(heat[k]))}' for k in names if heat.get(k) is not None)
     if machine.get('household_shared'):
         extra += ' SLOT_SHARED=1'   # lock files every member's login can open (docs/HOUSEHOLD.md, shared machines)
+    if cpu_zone:
+        extra += ' ' + slotcpus.slot_env(machine, cpu_zone)
     return f'MIN_FREE_GB={int(machine["min_free_gb"])} SLOT_LOCKS={locks}{extra}'
 
 
@@ -764,11 +766,9 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
         require_track(track, remote_copy=False)
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     command = no_daemons(command)
-    slot = slot_prefix(machine)
-    export, mount = inputs_env(inputs)
     cpu_env = slotcpus.enabled(cfg)
-    if cpu_env:
-        export = slotcpus.export_line(machine, datetime.now(timezone.utc)) + export
+    slot = slot_prefix(machine, tz.zone_name(cfg) if cpu_env else None)
+    export, mount = inputs_env(inputs)
     if device:
         from . import devices
         command = devices.external_wrap([device, *holds], command)   # other tools' lock files (devices.<d>.external_lock)

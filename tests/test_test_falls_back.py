@@ -99,7 +99,7 @@ class TestFallsBack(unittest.TestCase):
 
 class TestRepoNeedsItsRunner(unittest.TestCase):
     """autopilot.repos.<repo>.runner: a desktop shell machine is unfit for that repo; the run moves on and says why."""
-    NEED = {'repo': 'map', 'kind': 'docker', 'image': 'q:local'}
+    NEED = {'repo': 'app', 'kind': 'docker', 'image': 'q:local'}
 
     def setUp(self):
         tz.use({'time': {'zone': 'UTC'}})
@@ -121,7 +121,7 @@ class TestRepoNeedsItsRunner(unittest.TestCase):
     def test_on_a_shell_machine_moves_to_the_next_fit_one_and_says_why(self):
         c, said = self.choose(self.cfg(), args(on='nuc'))
         self.assertEqual((c.machine, c.queued), ('pc', False))
-        self.assertIn('nuc: runs checks in its shell runner; map needs its docker runner', said)
+        self.assertIn('nuc: runs checks in its shell runner; app needs its docker runner', said)
         self.assertIn('running on pc instead', said)
         self.assertNotIn('heavy work elsewhere', said)
 
@@ -147,7 +147,7 @@ class TestRepoNeedsItsRunner(unittest.TestCase):
 
     def test_need_comes_from_the_trees_repo_and_a_desktop_command_is_exempt(self):
         decl = {'kind': 'docker', 'desktop': 'emulator'}
-        with mock.patch('tutti.projects.repo_runner', return_value=('map', decl)):
+        with mock.patch('tutti.projects.repo_runner', return_value=('app', decl)):
             self.assertEqual(cli.test_need({}, '/t', ['npm', 'test'])['kind'], 'docker')
             self.assertIsNone(cli.test_need({}, '/t', ['run-emulator', '--avd', 'x']))
         with mock.patch('tutti.projects.repo_runner', return_value=None):
@@ -162,7 +162,7 @@ class TestRoutedCheckNeedsItsRunner(unittest.TestCase):
                                              'box': {'host': 'box.example', 'runner': {'kind': 'docker', 'image': 'q:local'}}},
                                 'routing': {'order': ['desk', 'box']}})
         ran, err = [], io.StringIO()
-        with mock.patch('tutti.projects.repo_runner', return_value=('map', {'kind': 'docker'})), \
+        with mock.patch('tutti.projects.repo_runner', return_value=('app', {'kind': 'docker'})), \
                 mock.patch.object(cli.remote, 'probe', return_value=free(2)), \
                 mock.patch.object(ship.remote, 'run', side_effect=lambda c, m, t, top, run: ran.append(m['name']) or 0), \
                 redirect_stderr(err):
@@ -176,7 +176,7 @@ class TestRoutedCheckNeedsItsRunner(unittest.TestCase):
                                 'machines': {'desk': {'host': 'desk.example', 'runner': {'kind': 'shell'}}},
                                 'routing': {'order': ['desk']}})
         err = io.StringIO()
-        with mock.patch('tutti.projects.repo_runner', return_value=('map', {'kind': 'docker'})), \
+        with mock.patch('tutti.projects.repo_runner', return_value=('app', {'kind': 'docker'})), \
                 mock.patch.object(ship.remote, 'run') as run, redirect_stderr(err):
             rc, where = ship.run_check(cfg, '/t', {'run': 'npm test', 'where': 'route'}, {}, 'trk')
         self.assertEqual((rc, where), (3, 'none'))

@@ -270,7 +270,7 @@ autopilot:
   repos:
     map:
       path: ~/Projects/map
-      runner: {kind: docker, image: hcm-quality:local, desktop: 'emulator|--headed'}
+      runner: {kind: docker, image: app-quality:local, desktop: 'emulator|--headed'}
 ```
 
 - `kind` is `docker` (the default) or `shell`; `image` (docker only) names the image the machine's runner must use; `desktop` is a
@@ -278,8 +278,8 @@ autopilot:
 - The repo is found from the tree: `tutti test <track>` uses the track's worktree (or `--dir`), a routed check or delegated run its
   worktree; the tree (or its main checkout) must be the `path` of an autopilot repo. A tree that is not a git tree, or no
   autopilot repo, declares nothing.
-- A machine whose runner differs is **unfit**, with the reason (`laptop-desktop: runs checks in its shell runner; map needs its docker
-  runner (image hcm-quality:local) (autopilot.repos.map.runner)`). `routing.choose` skips it and never queues on it; `--on` that
+- A machine whose runner differs is **unfit**, with the reason (`laptop-desktop: runs checks in its shell runner; app needs its docker
+  runner (image app-quality:local) (autopilot.repos.app.runner)`). `routing.choose` skips it and never queues on it; `--on` that
   machine falls back to the next fit machine in `routing.order` and says why; with `--only` or when no machine fits the run
   refuses and lists each reason. Household members' machines are their owners' to judge.
 - Why not run docker on the shell machine instead: a `shell` machine is shell on purpose (a desktop, an emulator, a visible browser),

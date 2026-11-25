@@ -73,46 +73,46 @@ class RepoRunnerTest(unittest.TestCase):
     DECL = {'kind': 'docker', 'image': 'q:local', 'desktop': 'emulator'}
 
     def test_need_from_the_declaration(self):
-        need = routing.runner_need(self.DECL, 'map', 'npm test')
-        self.assertEqual(need, {'repo': 'map', 'kind': 'docker', 'image': 'q:local'})
-        self.assertEqual(routing.runner_need({'image': 'q:local'}, 'map')['kind'], 'docker')
-        self.assertIsNone(routing.runner_need(None, 'map', 'npm test'))
+        need = routing.runner_need(self.DECL, 'app', 'npm test')
+        self.assertEqual(need, {'repo': 'app', 'kind': 'docker', 'image': 'q:local'})
+        self.assertEqual(routing.runner_need({'image': 'q:local'}, 'app')['kind'], 'docker')
+        self.assertIsNone(routing.runner_need(None, 'app', 'npm test'))
 
     def test_a_desktop_command_is_exempt(self):
-        self.assertIsNone(routing.runner_need(self.DECL, 'map', 'run-emulator --avd x'))
+        self.assertIsNone(routing.runner_need(self.DECL, 'app', 'run-emulator --avd x'))
 
     def test_shell_machine_is_unfit_with_a_reason_and_matching_ones_are_fit(self):
-        need = routing.runner_need(self.DECL, 'map')
+        need = routing.runner_need(self.DECL, 'app')
         why = routing.runner_unfit(RUNNERS['desktop'], need)
-        self.assertIn('runs checks in its shell runner; map needs its docker runner (image q:local)', why)
-        self.assertIn('autopilot.repos.map.runner', why)
+        self.assertIn('runs checks in its shell runner; app needs its docker runner (image q:local)', why)
+        self.assertIn('autopilot.repos.app.runner', why)
         self.assertEqual(routing.runner_unfit(RUNNERS['quality'], need), '')
-        self.assertIn('image o:local; map needs q:local', routing.runner_unfit(RUNNERS['other'], need))
+        self.assertIn('image o:local; app needs q:local', routing.runner_unfit(RUNNERS['other'], need))
         self.assertEqual(routing.runner_unfit(RUNNERS['desktop'], None), '')
         self.assertEqual(routing.runner_unfit({**RUNNERS['desktop'], 'transport': 'household'}, need), '')
 
     def test_kind_only_need_accepts_any_docker_image_and_refuses_shell(self):
-        need = routing.runner_need({'kind': 'docker'}, 'map')
+        need = routing.runner_need({'kind': 'docker'}, 'app')
         self.assertEqual(routing.runner_unfit(RUNNERS['other'], need), '')
         self.assertTrue(routing.runner_unfit(RUNNERS['desktop'], need))
 
     def test_choose_skips_the_shell_machine_even_when_it_is_first_and_idle(self):
         fn, asked = probes(desktop=Probe(True, 3, 0.0, 16), quality=Probe(True, 1, 0.0, 16))
-        c = routing.choose(['desktop', 'quality'], RUNNERS, fn, need=routing.runner_need(self.DECL, 'map'))
+        c = routing.choose(['desktop', 'quality'], RUNNERS, fn, need=routing.runner_need(self.DECL, 'app'))
         self.assertEqual((c.machine, c.queued, asked), ('quality', False, ['quality']))
         self.assertIn('desktop: runs checks in its shell runner', c.reason)
 
     def test_choose_never_queues_on_a_wrong_runner(self):
         fn, _ = probes(desktop=Probe(True, 3, 0.0, 16), quality=Probe(True, 0, 0.0, 16))
-        c = routing.choose(['desktop', 'quality'], RUNNERS, fn, need=routing.runner_need(self.DECL, 'map'))
+        c = routing.choose(['desktop', 'quality'], RUNNERS, fn, need=routing.runner_need(self.DECL, 'app'))
         self.assertEqual((c.machine, c.queued), ('quality', True))
 
     def test_no_matching_machine_is_an_error_naming_each_reason_and_the_fix(self):
         fn, _ = probes(desktop=Probe(True, 3, 0.0, 16))
         with self.assertRaises(routing.NoMachine) as e:
-            routing.choose(['desktop'], RUNNERS, fn, need=routing.runner_need(self.DECL, 'map'))
+            routing.choose(['desktop'], RUNNERS, fn, need=routing.runner_need(self.DECL, 'app'))
         self.assertIn('desktop: runs checks in its shell runner', str(e.exception))
-        self.assertIn('autopilot.repos.map.runner', str(e.exception))
+        self.assertIn('autopilot.repos.app.runner', str(e.exception))
 
     def test_without_a_need_the_order_is_unchanged(self):
         fn, _ = probes(desktop=Probe(True, 3, 0.0, 16), quality=Probe(True, 1, 0.0, 16))

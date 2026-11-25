@@ -169,8 +169,8 @@ if __name__ == '__main__':
 
 class RepoRunnerConfigTest(unittest.TestCase):
     def errors(self, runner):
-        cfg = config.normalise({'autopilot': {'repos': {'map': {'path': '/x', 'check': 'true', 'runner': runner}}}})
-        return [e for e in config.validate(cfg) if 'runner' in e and 'autopilot.repos.map' in e]
+        cfg = config.normalise({'autopilot': {'repos': {'app': {'path': '/x', 'check': 'true', 'runner': runner}}}})
+        return [e for e in config.validate(cfg) if 'runner' in e and 'autopilot.repos.app' in e]
 
     def test_good_declarations(self):
         for ok in ({'kind': 'docker'}, {'image': 'q:local'}, {'kind': 'shell'}, {'kind': 'docker', 'desktop': 'emulator|--headed'}):

@@ -247,6 +247,7 @@ include tests/test_unreported_hold.py
 include tests/test_update.py
 include tests/test_users.py
 include tests/test_users_tab.py
+include tests/test_versionwatch.py
 include tests/test_vpn.py
 include tests/test_waitlist.py
 include tests/test_watch.py

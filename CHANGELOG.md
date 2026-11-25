@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Self-update: a dashboard started from a release folder never saw a later `tutti self-update` (the code watch looks at the
+  folder it started from), so fixes waited up to a day. A version watch now restarts it at the next safe point (Chat
+  idle), the dashboard shows a banner while the installed version differs from the running one, and a restart that did
+  not help is not repeated (docs/DASHBOARD.md, *New code*).
+
 ## 0.31.19 (2026-11-25)
 
 ### Fixed

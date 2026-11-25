@@ -109,7 +109,8 @@ Right after a release its assets take a few minutes to upload; `self-update` ask
 
 Tutti updates itself, on by default: at every login (the service runs `tutti self-update --auto` before the dashboard)
 and once a day from the running dashboard, which then restarts in place only when Chat has no active answer or action
-(retries every few minutes while Chat is busy; t404); the open page reloads itself for the new
+(retries every few minutes while Chat is busy; t404). A `tutti self-update` run by hand is noticed too: the running
+dashboard compares its version with the installed one every minute and restarts at the next safe point; the open page reloads itself for the new
 version. An update reads the latest release's `SHA256SUMS`, downloads the newer tarball, checks it, installs its
 requirements and only then moves `current`; any failure leaves the running version in place. `tutti self-update
 --check` only says whether one is out. Opt out with `self_update: {enabled: false}` in the config.

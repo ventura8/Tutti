@@ -1467,6 +1467,7 @@ function render() {
     renderHousehold(s);   // household.js: the household card (shown in the Household view)
     if (s.probe_error) showBanner(s.probe_error);
     else if (ui.notice) showBanner(ui.notice);
+    else if (s.restart_pending) showBanner(s.restart_pending.text);   // installed release not running yet: restarts when Chat is idle
     else if (s.releases_stuck) showBanner(s.releases_stuck);   // merged versions no GitHub release publishes
     else if (!ui.failing) $('banner').hidden = true;
 }

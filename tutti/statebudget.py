@@ -4,6 +4,7 @@ needed cut, logs and runs rotated and capped, and a budget `tutti doctor` shows.
 The budget (`failover.budget_mb`, default 50 MB) is what the backup main machine copies; `failover.delta_kb` (default 512 KB)
 is what one sync round should send. Pure: measure() and plan() take a folder and a clock; prune() deletes what plan() named."""
 import os
+import re
 import shutil
 import time
 
@@ -73,14 +74,47 @@ def plan(folder, o, now=None):
     return drop, cut
 
 
-def _old_runs(runs, o, now):
-    """Runs beyond the newest `runs_keep`, or older than `runs_days`, go (their index entry in the backlog stays)."""
+RUN_ID = re.compile(r'(?:tutti-run-)?(\d{6,}-\d+(?:-\d+)?)')
+
+
+def _run_of(name):
+    """The run a file of runs/ belongs to: its folder and its .log, .log.rc, .log.pid ... and lock share one id."""
+    m = RUN_ID.match(name)
+    return m.group(1) if m else name
+
+
+def _alive(runs, rid):
+    """True while the run's process still runs: its files are never pruned under it."""
     try:
-        entries = sorted((os.path.join(runs, n) for n in os.listdir(runs)), key=_mtime, reverse=True)
+        with open(os.path.join(runs, rid + '.log.pid'), encoding='utf8') as f:
+            pid = int(f.read().strip() or 0)
+        if pid <= 0:
+            return False
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _old_runs(runs, o, now):
+    """Runs beyond the newest `runs_keep`, or older than `runs_days`, go with all their files (their index entry in the
+    backlog stays). Counted per run, not per file: a run has about eight files, so counting files kept only the newest
+    few dozen runs and a report vanished within hours. A run whose process is alive is never pruned."""
+    try:
+        names = os.listdir(runs)
     except OSError:
         return []
+    groups = {}
+    for n in names:
+        groups.setdefault(_run_of(n), []).append(os.path.join(runs, n))
+    newest = sorted(groups, key=lambda r: max(_mtime(p) for p in groups[r]), reverse=True)
     cutoff = now - o['runs_days'] * 86400
-    return [(p, 'an old run') for i, p in enumerate(entries) if i >= o['runs_keep'] or _mtime(p) < cutoff]
+    drop = []
+    for i, rid in enumerate(newest):
+        last = max(_mtime(p) for p in groups[rid])
+        if (i >= o['runs_keep'] or last < cutoff) and not _alive(runs, rid):
+            drop += [(p, 'an old run') for p in groups[rid]]
+    return drop
 
 
 def cut_log(path, keep):

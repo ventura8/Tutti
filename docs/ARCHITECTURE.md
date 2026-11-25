@@ -244,7 +244,9 @@ flowchart LR
    (incremental, the config's excludes: no secrets, no build output), and the copy gets a shallow git repository at
    that commit, so tests that ask git still work.
 4. The command runs behind `slot.sh`: it takes a free slot lock, waits for free memory, then starts the runner
-   (a container capped in memory and CPUs, or plain bash).
+   (a container capped in memory and CPUs, or plain bash). Once it holds its lock, right before the command, `slot.sh` works out and exports the slot's CPU budget
+   (`tutti/slotcpus.py` passes the inputs: `TUTTI_SLOT_CPUS` and the test tools' worker knobs, from the heat and the hour at
+   that moment; docker gets them through `-e`), so two runs on one machine do not each size their workers from every CPU.
 5. The command's exit code comes back unchanged.
 
 ## Quiet mode

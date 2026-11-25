@@ -6,7 +6,7 @@ import os
 import re
 import sys
 
-from . import files
+from . import files, slotcpus
 
 PROJECT_NAME = 'tutti.config.yaml'
 NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
@@ -44,7 +44,8 @@ DEFAULTS = {
                   'watch_scripts': [],
                   'watch_agents': [], 'task_globs': [], 'shapes': {}, 'typical_minutes': {'agent': 20, 'agent task': 15, 'conduct': 30}},
     # test.prepare: steps a command needs first ({when: regex, run: cmd}); test.no_coverage: how a run with coverage off looks
-    'test': {'prepare': [], 'no_coverage': ''},
+    # test.slot_cpu_env: every run gets TUTTI_SLOT_CPUS and the test tools' worker knobs (tutti/slotcpus.py); false leaves them alone
+    'test': {'prepare': [], 'no_coverage': '', 'slot_cpu_env': True},
     # delegate: `tutti run --repo`; checks default to ship.checks, worktrees go under project.worktrees/<prefix><id>
     # fix_rounds: how many times a failing check's errors go back to the same worker in the same worktree (0: never)
     # remote_track: base name for per-run remote copies (`<base>-<run-id>`); --remote-track / --track keep a shared folder
@@ -457,6 +458,7 @@ def _machine_errors(name, m):
     k = m.get('capped')
     if k is not None and (not isinstance(k, list) or not all(isinstance(x, str) and x and not x.startswith('-') for x in k)):
         errs.append(f'machines.{name}.capped is {k!r}: a list of container names a governor caps, e.g. [map-worker]')
+    errs += slotcpus.errors(name, m)
     return errs + _heat_errors(name, m.get('heat'))
 
 
@@ -505,6 +507,8 @@ def _test_errors(cfg):
             errs.append(f'test.prepare[{i}] needs run: the command to run first, e.g. python3 scripts/ci/e2e_build.py')
             continue
         errs += _regex_errors(f'test.prepare[{i}].when', r.get('when'))
+    if not isinstance(cfg['test'].get('slot_cpu_env', True), bool):
+        errs.append(f'test.slot_cpu_env is {cfg["test"]["slot_cpu_env"]!r}: write true or false (true: every run gets TUTTI_SLOT_CPUS)')
     if cfg['test'].get('no_coverage'):
         errs += _regex_errors('test.no_coverage', cfg['test']['no_coverage'])
     return errs

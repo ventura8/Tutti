@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Slot CPU budget: every command `tutti test` runs gets `TUTTI_SLOT_CPUS` (the machine's CPUs divided by its slots, lower in
+  limited hours or at its heat cap) and, unless already set, `PLAYWRIGHT_WORKERS`, `VITEST_MAX_THREADS`/`VITEST_MIN_THREADS`,
+  `JEST_WORKERS`, `PYTEST_XDIST_AUTO_NUM_WORKERS`, `CMAKE_BUILD_PARALLEL_LEVEL`, `MAKEFLAGS`, `GOMAXPROCS` and
+  `OMP_NUM_THREADS`, on remote machines and in docker runners too. Two runs on a 28-CPU machine no longer each start 14
+  workers. `machines.<m>.slot_cpus` overrides it, `test.slot_cpu_env: false` turns it off (docs/FLEET.md, *Slot CPU budget*). The number is
+  worked out by `slot.sh` once it holds its slot lock, from the heat and the limited-hours window at that moment, not when the
+  run was queued.
+
 ## 0.31.28 (2026-11-25)
 
 ### Added
@@ -10,8 +22,6 @@
   exist are ignored), under "Backlog task t123 (full text):", so a worker needs no tool call to read it.
 
 ## 0.31.27 (2026-11-25)
-
-### Added
 
 ### Fixed
 

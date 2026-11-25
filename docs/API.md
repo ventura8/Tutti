@@ -612,6 +612,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `selfheal.enabled` | switch |  | Self-healing: Each round Tutti installs what work needs and restarts or repairs what broke. docs/SELFHEAL.md. | admin |
 | `selfheal.every_seconds` | number (seconds) |  | Self-heal every: How often the self-heal checks run on each machine. | admin |
 | `machines.*.slots` | number | `2` | Slots: At most this many runs at once. | admin |
+| `machines.*.slot_cpus` | number |  | CPUs per slot: The CPUs one run may use (TUTTI_SLOT_CPUS and the test tools' workers); empty: the machine's CPUs divided by its slots. | admin |
 | `machines.*.min_free_gb` | number (GB) | `6` | Free memory needed: A run starts only with this much memory free. | admin |
 | `machines.*.max_load_ratio` | number |  | Load limit: Fit only while its load is under this share of its cores. | admin |
 | `machines.*.use_pct` | number |  | Tutti's share (%): How much of this machine's slots, cores and model threads Tutti uses. | admin |
@@ -853,6 +854,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `delegate.fix_rounds` | number | `3` | Fix rounds after a failed check: A failing check's errors go back to the same worker in the same worktree this many times before the run is reported FAILED (0: never). | admin |
 | `delegate.base_check` | switch | `True` | Compare failures with the base: A check that fails on a run is run once on its base commit; one that fails there too is marked base_broken and not blamed on the worker. | admin |
 | `test.prepare` | yaml |  | Steps first: When a test command matches `when`, `run` goes in front. | admin |
+| `test.slot_cpu_env` | switch | `True` | CPU budget per run: Every `tutti test` run gets TUTTI_SLOT_CPUS and the worker settings of common test tools (not those already set). | admin |
 | `test.no_coverage` | text |  | Coverage off looks like: A regex for a run with coverage turned off. | admin |
 | `translate.translator` | select |  | Translator: The worker that translates. | admin |
 | `translate.judge` | select |  | Judge: A different model that checks the translation. | admin |

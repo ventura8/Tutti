@@ -14,6 +14,11 @@
 #      SLOT_STALE_H (3): a waiting run names each slot holder (pid, age, command; <lock>.who) every SLOT_REPORT_S (300) s and
 #      flags a holder past this many hours, or one whose process is gone, so a stuck run is seen; it never kills it.
 #      A waiting run also says its place in the queue (<prefix>wait.<pid> files, oldest first).
+#      SLOT_CPU_KNOBS (set: the CPU budget is on), SLOT_CPU_SLOTS, SLOT_CPU_OVERRIDE, SLOT_CPU_CORES, SLOT_CPU_DOCKER,
+#      SLOT_CPU_THROTTLE, SLOT_CPU_WINDOW/DAYS/PCT/ZONE: the inputs of the per-slot CPU budget (tutti/slotcpus.py). Once the
+#      lock is held, right before the command, the budget is worked out from the heat and the hour as they are then, and
+#      exported as TUTTI_SLOT_CPUS plus each knob (NAME=template, {n} is the budget) the caller has not set. SLOT_NOW: the
+#      epoch second to use as the time (tests).
 #      THERMAL_GLOB (/sys/class/thermal/thermal_zone*/temp): where the millidegrees are read (tests point it elsewhere).
 prefix="${SLOT_LOCK_PREFIX:-/tmp/tutti-slot-}"
 locks=()
@@ -60,6 +65,56 @@ too_hot() {
 		return 0
 	fi
 	return 1
+}
+# the percent of the limited-hours window the machine is in at this moment (100 outside it); the hours are in SLOT_CPU_ZONE
+window_pct() {
+	[ -n "${SLOT_CPU_WINDOW:-}" ] || { echo 100; return; }
+	local a b h d now day
+	a=$((10#${SLOT_CPU_WINDOW%-*})); b=$((10#${SLOT_CPU_WINDOW#*-}))
+	now="@${SLOT_NOW:-$(date +%s)}"
+	read -r h d < <(TZ="${SLOT_CPU_ZONE:-UTC}" date -d "$now" '+%H %a')
+	h=$((10#$h)); d=$(echo "$d" | tr '[:upper:]' '[:lower:]')
+	day=$d
+	if [ "$a" -lt "$b" ]; then
+		if [ "$h" -lt "$a" ] || [ "$h" -ge "$b" ]; then echo 100; return; fi
+	elif [ "$h" -ge "$a" ]; then
+		:
+	elif [ "$h" -lt "$b" ]; then
+		day=$(TZ="${SLOT_CPU_ZONE:-UTC}" date -d "@$(( ${now#@} - 86400 ))" '+%a' | tr '[:upper:]' '[:lower:]')   # a window past midnight belongs to the day it started
+	else
+		echo 100; return
+	fi
+	case ",${SLOT_CPU_DAYS:-mon,tue,wed,thu,fri,sat,sun}," in
+		*",$day,"*) echo "${SLOT_CPU_PCT:-100}" ;;
+		*) echo 100 ;;
+	esac
+}
+# the slot's CPU budget now: its CPUs (SLOT_CPU_CORES or nproc), at most the docker runner's, at most the throttle at the heat
+# cap, at the window's share, divided among the slots (the same arithmetic as slotcpus.budget())
+cpu_budget() {
+	local n t low
+	if [ -n "${SLOT_CPU_OVERRIDE:-}" ]; then echo "$SLOT_CPU_OVERRIDE"; return; fi
+	n=${SLOT_CPU_CORES:-$(nproc 2>/dev/null || echo 1)}
+	if [ -n "${SLOT_CPU_DOCKER:-}" ] && [ "$n" -gt "$SLOT_CPU_DOCKER" ]; then n=$SLOT_CPU_DOCKER; fi
+	low=${SLOT_CPU_THROTTLE:-1}
+	if [ -n "${HEAT_CAP_C:-}" ] && [ "$n" -gt "$low" ]; then
+		t=$(temp_c)
+		if [ "$t" -gt 0 ] && [ "$t" -ge "$HEAT_CAP_C" ]; then n=$low; fi
+	fi
+	n=$(( n * $(window_pct) / 100 / ${SLOT_CPU_SLOTS:-1} ))
+	[ "$n" -ge 1 ] || n=1
+	echo "$n"
+}
+# export TUTTI_SLOT_CPUS and the worker knobs a caller has not set; the command and a docker -e both read this shell's environment
+export_cpu_budget() {
+	[ -n "${SLOT_CPU_KNOBS+x}" ] || return 0
+	local kv k v
+	[ -n "${TUTTI_SLOT_CPUS:-}" ] || TUTTI_SLOT_CPUS=$(cpu_budget)
+	export TUTTI_SLOT_CPUS
+	for kv in $SLOT_CPU_KNOBS; do
+		k=${kv%%=*}; v=${kv#*=}
+		[ -n "${!k:-}" ] || export "$k=${v//\{n\}/$TUTTI_SLOT_CPUS}"
+	done
 }
 # who holds each slot, with age; a holder past SLOT_STALE_H hours or with no live process is flagged (never killed)
 holders() {
@@ -122,6 +177,7 @@ while :; do
 			[[ -z "$queued" ]] || echo "slot.sh: got a slot" >&2
 			rm -f "$waitf"
 			echo "$$ $(date +%s) ${*:1:3}" | cut -c1-120 > "$lock.who" 2>/dev/null || true
+			export_cpu_budget   # after the lock, so the heat and the hour are the ones at the start, not at the queueing
 			"$@"
 			exit $?
 		fi

@@ -207,6 +207,8 @@ FIELDS = {
     'selfheal.every_seconds': field('Self-heal every', 'How often the self-heal checks run on each machine.', 'number',
                                     unit='seconds', min=30),
     'machines.*.slots': field('Slots', 'At most this many runs at once.', 'number', min=1),
+    'machines.*.slot_cpus': field('CPUs per slot', 'The CPUs one run may use (TUTTI_SLOT_CPUS and the '
+                                  'test tools\' workers); empty: the machine\'s CPUs divided by its slots.', 'number', min=1),
     'machines.*.min_free_gb': field('Free memory needed', 'A run starts only with this much memory free.', **GB),
     'machines.*.max_load_ratio': field('Load limit', 'Fit only while its load is under this share of its cores.', 'number', min=0, max=4,
                                    step=0.05),
@@ -548,6 +550,8 @@ FIELDS = {
     'delegate.base_check': field('Compare failures with the base', 'A check that fails on a run is run once on its base commit; one '
                                  'that fails there too is marked base_broken and not blamed on the worker.', 'switch', default=True),
     'test.prepare': field('Steps first', 'When a test command matches `when`, `run` goes in front.', **YAML),
+    'test.slot_cpu_env': field('CPU budget per run', 'Every `tutti test` run gets TUTTI_SLOT_CPUS and the '
+                               'worker settings of common test tools (not those already set).', 'switch', default=True),
     'test.no_coverage': field('Coverage off looks like', 'A regex for a run with coverage turned off.', 'text'),
     'translate.translator': field('Translator', 'The worker that translates.', 'select', choices_from='workers'),
     'translate.judge': field('Judge', 'A different model that checks the translation.', 'select', choices_from='workers'),

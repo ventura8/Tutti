@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from . import routing, tz, worktree
+from . import routing, slotcpus, tz, worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # a checkout or a release has scripts/ beside the package; a uv or pipx install ships them inside it (pyproject.toml)
@@ -649,9 +649,9 @@ def cpus_now(machine, cpus):
     return f'"$({probe}[ "${{t:-0}}" -ge {int(float(cap) * 1000)} ] && echo {low:g} || echo {cpus})"'
 
 
-def runner_command(machine, track, command, mount='', identity=None):
+def runner_command(machine, track, command, mount='', identity=None, cpu_env=False):
     """The line that runs `command` at the tree root: plain bash, or a capped container (memory, no extra swap, CPUs).
-    `mount` is extra docker -v arguments (a linked worktree's main .git)."""
+    `mount` is extra docker -v arguments (a linked worktree's main .git); `cpu_env` passes the slot's CPU budget (slotcpus) in."""
     r = machine['runner']
     command = rewrite(r, command)
     inner = f'{r["prelude"]} && {command}' if r.get('prelude') else command
@@ -662,6 +662,7 @@ def runner_command(machine, track, command, mount='', identity=None):
     # a None value passes the variable through from the shell (a wireless device's ANDROID_SERIAL is picked at run time)
     env = ' '.join(f'-e {shlex.quote(k if v is None else f"{k}={v}")}' for k, v in r.get('env', {}).items())
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
+    extra = f'{extra} {slotcpus.docker_args()}' if cpu_env else extra
     label = f'--label io.tutti.run={identity} ' if valid_run_identity(identity) else ''
     cpus = cpus_now(machine, r['cpus'])
     return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={cpus} {env} {extra} {label}'
@@ -669,15 +670,18 @@ def runner_command(machine, track, command, mount='', identity=None):
             f'{mount + " " if mount else ""}{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
 
 
-def slot_prefix(machine):
+def slot_prefix(machine, cpu_zone=None):
     """slot.sh's environment: the memory floor, the lock files and the heat limits, so a run that already waits in the queue
-    re-reads the temperature right before it starts (routing only looked when it was queued)."""
+    re-reads the temperature right before it starts (routing only looked when it was queued). With `cpu_zone` (the time zone
+    name) it also gets the slot CPU budget's inputs, which slot.sh turns into numbers once it holds its lock (slotcpus)."""
     locks = shlex.quote(' '.join(lock_files(machine)))
     heat = machine.get('heat') or {}
     names = {'stop_c': 'HEAT_STOP_C', 'cap_c': 'HEAT_CAP_C', 'hot_slots': 'HOT_SLOTS'}
     extra = ''.join(f' {names[k]}={int(float(heat[k]))}' for k in names if heat.get(k) is not None)
     if machine.get('household_shared'):
         extra += ' SLOT_SHARED=1'   # lock files every member's login can open (docs/HOUSEHOLD.md, shared machines)
+    if cpu_zone:
+        extra += ' ' + slotcpus.slot_env(machine, cpu_zone)
     return f'MIN_FREE_GB={int(machine["min_free_gb"])} SLOT_LOCKS={locks}{extra}'
 
 
@@ -762,7 +766,8 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
         require_track(track, remote_copy=False)
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     command = no_daemons(command)
-    slot = slot_prefix(machine)
+    cpu_env = slotcpus.enabled(cfg)
+    slot = slot_prefix(machine, tz.zone_name(cfg) if cpu_env else None)
     export, mount = inputs_env(inputs)
     if device:
         from . import devices
@@ -774,7 +779,7 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     if machine['transport'] == 'local':
         mount = ' '.join(x for x in (worktree.docker_mount(src), mount) if x)
         slot_sh = shlex.quote(bash_path(SLOT_SCRIPT))
-        launch = runner_command(machine, track, command, mount, os.environ.get('TUTTI_RUN_IDENTITY'))
+        launch = runner_command(machine, track, command, mount, os.environ.get('TUTTI_RUN_IDENTITY'), cpu_env)
         inner = device_wrap(device, f'{slot} bash {slot_sh} {launch}').replace('{slot}', slot_sh)
         script = f'cd {shlex.quote(bash_path(src))} && {export}{inner}'
         return tee(machine, script, out) if out else sh(machine, script).returncode
@@ -784,7 +789,7 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
            'git update-ref --no-deref HEAD FETCH_HEAD && git reset -q && ') if is_git else ''
     dirs = ' '.join(shlex.quote(d) for d in cfg['sync']['ensure_dirs'])
     mk = f'mkdir -p {dirs} && ' if dirs else ''
-    launch = runner_command(machine, track, command, mount, os.environ.get('TUTTI_RUN_IDENTITY'))
+    launch = runner_command(machine, track, command, mount, os.environ.get('TUTTI_RUN_IDENTITY'), cpu_env)
     inner = device_wrap(device, f'{slot} bash {root}/tutti-slot.sh {launch}')
     script = f'cd {root}/{track} && {git}{mk}{export}{inner.replace("{slot}", f"{root}/tutti-slot.sh")}'
     return tee(machine, script, out) if out else sh(machine, script).returncode

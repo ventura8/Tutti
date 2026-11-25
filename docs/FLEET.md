@@ -261,6 +261,25 @@ Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). I
 - **On a move:** `main: true` marks the main machine's own window, and `tutti move` carries it to the new main machine.
 - **Default:** a new household has no window.
 
+## Slot CPU budget
+
+Two `tutti test` runs on one 28-CPU machine each sized Playwright and Vitest from all 28 CPUs; with emulators alongside, load
+climbed until triggers ran minutes late and specs failed. Now every command `tutti test` runs gets a budget in its environment:
+
+- `TUTTI_SLOT_CPUS` = `max(1, floor(cpus / slots))`. The machine's CPUs are read with `nproc` there (or `machines.<m>.cores`);
+  a docker runner counts at most its `runner.cpus`; inside **Limited hours** the window's `pct` applies; at the heat cap
+  (`heat.cap_c`) the machine counts `heat.throttle_cpus`. `machines.<m>.slot_cpus: 4` overrides the whole computation.
+- Set from it, only when the caller has not set them: `PLAYWRIGHT_WORKERS`, `VITEST_MAX_THREADS` (`VITEST_MIN_THREADS=1`),
+  `VITEST_MAX_FORKS`, `JEST_WORKERS`, `PYTEST_XDIST_AUTO_NUM_WORKERS`, `CMAKE_BUILD_PARALLEL_LEVEL`, `MAKEFLAGS=-j<n>`,
+  `GOMAXPROCS`, `OMP_NUM_THREADS`. A docker runner receives them with `-e`.
+- It is worked out when the run starts, not when it was queued: `scripts/slot.sh` reads the heat and the limited-hours window
+  on the machine right after it takes its slot lock, so a long wait in the queue never uses stale numbers.
+- `test.slot_cpu_env: false` turns it all off.
+
+A Playwright config reads it: `workers: process.env.PLAYWRIGHT_WORKERS ? Number(process.env.PLAYWRIGHT_WORKERS) : undefined`
+(Playwright does not read the variable itself). Vitest: `poolOptions: { threads: { maxThreads: Number(process.env.VITEST_MAX_THREADS) || undefined } }`.
+Jest: `--maxWorkers=$JEST_WORKERS` (Jest has no standard variable).
+
 ## May it run
 
 A script or agent that reaches a machine itself (`ssh <machine> docker run …`) skips Tutti's routing, so a paused or hot

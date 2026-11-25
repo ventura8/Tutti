@@ -235,6 +235,7 @@ include tests/test_shift_to_cheap.py
 include tests/test_ship.py
 include tests/test_slot.py
 include tests/test_slot_holders.py
+include tests/test_slotcpus.py
 include tests/test_strangers.py
 include tests/test_subagents.py
 include tests/test_taskdeps.py
@@ -421,6 +422,7 @@ include tutti/share.py
 include tutti/sharing.py
 include tutti/ship.py
 include tutti/sleepwatch.py
+include tutti/slotcpus.py
 include tutti/spendrest.py
 include tutti/state.py
 include tutti/statebudget.py

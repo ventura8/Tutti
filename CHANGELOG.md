@@ -4,14 +4,17 @@
 
 ### Added
 
+- Slot CPU budget: every command `tutti test` runs gets `TUTTI_SLOT_CPUS` (the machine's CPUs divided by its slots, lower in
+  limited hours or at its heat cap) and, unless already set, `PLAYWRIGHT_WORKERS`, `VITEST_MAX_THREADS`/`VITEST_MIN_THREADS`,
+  `JEST_WORKERS`, `PYTEST_XDIST_AUTO_NUM_WORKERS`, `CMAKE_BUILD_PARALLEL_LEVEL`, `MAKEFLAGS`, `GOMAXPROCS` and
+  `OMP_NUM_THREADS`, on remote machines and in docker runners too. Two runs on a 28-CPU machine no longer each start 14
+  workers. `machines.<m>.slot_cpus` overrides it, `test.slot_cpu_env: false` turns it off (docs/FLEET.md, *Slot CPU budget*).
 - `tutti backlog show <id> [--json]` prints one task's full record (id, title, status, repo, size, priority, scope, check,
   depends_on, description, notes, and every attempt with its reason); an unknown id exits 2. `tutti run <worker> "<task>" --repo`
   now appends the full text (capped at 8000 characters each) of every backlog task the task text names (`t123`; ids that do not
   exist are ignored), under "Backlog task t123 (full text):", so a worker needs no tool call to read it.
 
 ## 0.31.27 (2026-11-25)
-
-### Added
 
 ### Fixed
 

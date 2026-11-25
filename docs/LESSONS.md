@@ -1,5 +1,10 @@
 # Lessons
 
+- **Slots share CPUs, tools do not know it** (2026-11-25): two `tutti test` runs on a 28-CPU machine each sized Playwright and
+  Vitest from all 28 visible CPUs (14 workers each); with emulators alongside, triggers ran minutes late and specs failed. A
+  slot divides memory by container cap but CPUs only by luck: hand every run `TUTTI_SLOT_CPUS` and the tools' worker
+  knobs (docs/FLEET.md, *Slot CPU budget*).
+
 - **Plex/NUC heat** (t444): Tutti `check.sh` in docker (`--cpus=8`) plus host HCM `npm run test:e2e` / Playwright
   (dozens of `chrome-headless-shell` gpu-processes) plus a stuck `ollama` runner (5d at 100%) took the Plex NUC to
   Package 105°C / load ~55. Killing leaf chrome is useless while the parent e2e/pipeline respawns it — stop the

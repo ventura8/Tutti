@@ -234,6 +234,7 @@ tests/test_shift_to_cheap.py
 tests/test_ship.py
 tests/test_slot.py
 tests/test_slot_holders.py
+tests/test_slotcpus.py
 tests/test_strangers.py
 tests/test_subagents.py
 tests/test_taskdeps.py
@@ -417,6 +418,7 @@ tutti/setup.py
 tutti/setupcmd.py
 tutti/shards.py
 tutti/share.py
+tutti/slotcpus.py
 tutti/sharing.py
 tutti/ship.py
 tutti/sleepwatch.py

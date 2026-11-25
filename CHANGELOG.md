@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Claude usage from every headless run: the weekly usage a claude's stream-json carries (`rate_limit_event`) is now recorded
+  while delegated runs, `tutti run claude` / `claude_task`, conduct rounds and Chat answers stream, through one helper
+  (`readers.UsageTap`, `readers.note_usage`), not only after `tutti run`. Chat gets `chat_output_format: claude-stream-json`
+  (opt-in); no command is changed, so plain-text output is untouched (docs/USAGE-PACING.md, docs/CHAT.md).
+
 ### Fixed
 
 - Self-update: a dashboard started from a release folder never saw a later `tutti self-update` (the code watch looks at the
@@ -67,10 +74,6 @@
 - Scouts: a scout's diff lands by itself: applied and checked in its own worktree when it arrives, a pass pushed as
   `grok/<task>` with a pull request (never merged by Tutti), a first failure sent back once with its output; a path in the diff that leaves the worktree is ignored
   (`scouts.<name>.patch_autoland`, on by default; docs/SCOUTS.md, *Patches*).
-- Claude usage from every headless run: the weekly usage a claude's stream-json carries (`rate_limit_event`) is now recorded
-  while delegated runs, `tutti run claude` / `claude_task`, conduct rounds and Chat answers stream, through one helper
-  (`readers.UsageTap`, `readers.note_usage`), not only after `tutti run`. Chat gets `chat_output_format: claude-stream-json`
-  (opt-in); no command is changed, so plain-text output is untouched (docs/USAGE-PACING.md, docs/CHAT.md).
 - TUI (t201): `tutti tui`, the dashboard's Overview, Tasks, Needs you, Hosts and Agents in a terminal: the keys in a footer on
   every screen, `?` for help, arrow and vim keys, readable at 80x24 and on resize, status as an icon and a word (never
   colour alone), NO_COLOR, a plain mode for screen readers; it reads the dashboard's last round so it fills at once

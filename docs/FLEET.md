@@ -121,6 +121,11 @@ decisional:
 
 ## The governor
 
+A cloud CLI worker (`kind: cli`, e.g. Codex with `machine: laptop`) is held only by the reasons that stop its machine running
+anything: paused by the owner, off, offline or yielding. Its CPU use is tiny and its checks are routed to other machines, so
+heat, load, busy slots, quiet hours and the memory floor do not hold it (`run auto`, the autopilot and conduct all use the
+same rule). The list below is for a local model, which keeps all of it.
+
 A local model takes nothing while any of these holds:
 
 - its machine is paused by the owner, off, offline (presence) or yielding (the PC to RoRadio);

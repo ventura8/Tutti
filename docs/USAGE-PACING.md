@@ -212,6 +212,12 @@ small, and stays simple enough to check by hand:
   the autopilot sends now (its trigger accounts) and the room `tutti run auto` sees. With several limits, the one that allows
   the fewest tasks binds (points of different limits do not compare). An account without limits gets its pace's room, never
   more than what is left after `reserve` and its background spend; when that is used, routing skips it.
+- **When the main agent is overspent** (`routing.shift_when_main_ahead`, default true): while the main agent's account
+  (`autopilot.main_accounts`, default claude) is `ahead` of its pace, the other accounts' even spread is lifted. A limited
+  account may spend the whole room left before its limit's target (`lead_hours`), a plain account everything under its
+  panic line, so a window's "used its share of agy-gemini-weekly" no longer blocks it and Codex and Gemini carry the work
+  Claude would have. Panic, a spent quota and the quiet hours still hold. The card says *main agent claude is ahead of pace:
+  agy-gemini may spend ahead*. Set the key to false to keep the even spread.
 - **Quiet hours** stop new dispatches at the current time too; finished runs are still collected.
 - **Reserve.** `reserve` (points, default 0) is left for work outside Tutti; the default assumes all work goes through it.
 - **Background spend.** `background: true` (Cursor: its own automatic security and dependency reviews spend it outside

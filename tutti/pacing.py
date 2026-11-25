@@ -238,11 +238,12 @@ def owner_readings(entries, names, now, weeks=4):
             if e['account'] in names and e.get('source') != 'estimate' and parse_time(e['at']) >= since]
 
 
-def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=None):
+def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=None, shift=None):
     """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
     `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window).
     With `accounts` (the config's), the planner (tutti/planner.py) adds its `plan`: an account's `limits` (a 5 h window's
-    weekly quota) bound it, and what expires soonest is spent first."""
+    weekly quota) bound it, and what expires soonest is spent first. `shift`: the main agent's overspent account, which lets
+    this one spend ahead of its even spread (planner.plan_limited)."""
     a = a or {}
     if accounts is not None:
         from tutti import owner as owner_mod
@@ -252,9 +253,9 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
         ctx = owner_mod.context(owner, owner_readings(entries, owner['accounts'], now), now) \
             if owner and name in owner['accounts'] else None
         if not a.get('limits'):
-            return planner.plan_alone(own, a, now, owner=ctx)
+            return planner.plan_alone(own, a, now, owner=ctx, shift=shift)
         lims = [account_state(n, accounts.get(n), entries, now) for n in a['limits'] if n in accounts]
-        return planner.bind(own, lims, a, accounts, quiet_hours, now, owner=ctx)
+        return planner.bind(own, lims, a, accounts, quiet_hours, now, owner=ctx, shift=shift)
     src = a.get('source', 'its dashboard')
     out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
            'tutti_browser': bool(a.get('usage_url') and not a.get('reader')),

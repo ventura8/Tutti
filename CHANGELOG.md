@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Runs (t256): a run's check log folder that is gone is made again, so `FileNotFoundError` in `quiet_check` no longer ends
+  the run after the worker finished.
+
 ## 0.31.21 (2026-11-25)
 
 ### Added

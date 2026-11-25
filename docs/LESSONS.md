@@ -2,6 +2,26 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Chromium's ResizeObserver notice looked like a dashboard crash (2026-11-17)
+
+**What happened.** Insights and self-improvement queued "Fix the crash dashboard in ?" (no frame). The outbox held three
+JavaScript events whose message was `ResizeObserver loop completed with undelivered notifications.` and an empty stack —
+Chromium fires that as `window.onerror` when a ResizeObserver callback nests another layout (the jobs column's fit
+watcher). Tutti recorded it as a crash named `dashboard`.
+
+**Rule.** Browser delivery notices that are not Tutti bugs are filtered at the page and again on the server before a
+crash is recorded; a crash with no frame still needs its scrubbed message before it becomes a task.
+
+## Tutti's own job env broke its check under autopilot (2026-11-17)
+
+**What happened.** Attempt 8 of t120 failed `scripts/check.sh` on two tests that were unrelated to the fix: a device job
+target gained `class:background` because `TUTTI_BACKGROUND` was set on the check process, and a compact-threshold test
+left a `sleep` child that the new process guard (2682862) then flagged.
+
+**Rule.** The test runner clears Tutti job markers (`TUTTI_BACKGROUND`, `TUTTI_HH_JOB`) so nested `tutti` calls see a
+clean process; a test that starts a helper whose terminate must stop it uses `exec` (or a process group) so no child
+outlives the kill.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

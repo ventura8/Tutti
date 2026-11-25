@@ -499,6 +499,26 @@ class Dashboard(Base):
         ev = [json.loads(x)['event'] for x in text.splitlines() if json.loads(x)['type'] == 'event'][0]
         self.assertEqual(ev['exception']['values'][0]['stacktrace']['frames'][-1]['filename'], '/app.js')
 
+    def test_a_resize_observer_loop_notice_is_not_a_crash(self):
+        # Chromium fires this as window.onerror when a ResizeObserver callback nests a layout; no stack, Insights said
+        # "dashboard in ?" (t120). It is browser noise, not a Tutti bug.
+        telemetry.set_consent(self.folder, True)
+        noise = 'ResizeObserver loop completed with undelivered notifications.'
+        older = 'ResizeObserver loop limit exceeded'
+        c = self.collector()
+        for message in (noise, older):
+            body = json.dumps({'error': {'type': 'Error', 'message': message, 'kind': 'error', 'stack': ''}})
+            self.assertEqual(dashtelemetry.save(c, body.encode())[0], 200)
+        self.assertEqual(telemetry.read_events(self.folder), [])
+        self.assertFalse(os.path.exists(os.path.join(self.folder, telemetry.OUTBOX)))
+        real = json.dumps({'error': {'type': 'TypeError', 'message': 'x is not a function', 'stack': ''}})
+        self.assertEqual(dashtelemetry.save(c, real.encode())[0], 200)
+        self.assertEqual(telemetry.read_events(self.folder)[-1]['kind'], 'crash')
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti', 'web', 'telemetry.js'),
+                  encoding='utf8') as f:
+            page = f.read()
+        self.assertIn('ResizeObserver loop', page)
+
     def test_panel_use_consent_and_bad_bodies(self):
         c = self.collector()
         self.assertEqual(dashtelemetry.save(c, b'{"use": {"panel": "usage", "control": "refresh"}}')[0], 200)

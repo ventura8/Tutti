@@ -5,6 +5,22 @@ cd "$(dirname "$0")/.."
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
 export TUTTI_NO_DAEMONS=1   # no real keep-awake loop, tunnel or sleep inhibitor outlives a check (tutti/procs.py)
+# the dev tools (Playwright, axe, shellcheck) from requirements-dev.txt: when this python3 lacks them (a machine's system Python, a
+# work-queue job), a venv of their own in the cache, installed with hashes and reused (t75/t76/t89, 2026-11-16)
+py="python3"
+if ! python3 -c 'import playwright, axe_playwright_python' 2> /dev/null || ! command -v shellcheck > /dev/null; then
+	venv="${XDG_CACHE_HOME:-$HOME/.cache}/tutti/check-venv"
+	[ -x "$venv/bin/python3" ] || python3 -m venv "$venv"
+	stamp="$venv/.requirements-dev.sha256"   # pip runs only when requirements-dev.txt changed
+	want="$(sha256sum requirements-dev.txt | cut -d' ' -f1)"
+	if [ "$(cat "$stamp" 2> /dev/null)" != "$want" ] || ! "$venv/bin/python3" -c 'import playwright, axe_playwright_python' 2> /dev/null; then
+		"$venv/bin/python3" -m pip install -q --require-hashes -r requirements-dev.txt
+		echo "$want" > "$stamp"
+	fi
+	PATH="$venv/bin:$PATH"
+	export PATH
+	py="$venv/bin/python3"
+fi
 shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
 # its own temp folder, removed at the end: a test's leftovers never reach /tmp (tests/run.py fails a test that leaves any)
@@ -14,8 +30,12 @@ trap 'rm -rf "$TMPDIR"' EXIT
 XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
-if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi
-XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
+if [ -n "${CI:-}" ]; then
+	out=$("$py" -m playwright install --with-deps chromium 2>&1) || { printf '%s\n' "$out" >&2; exit 1; }
+else
+	out=$("$py" -m playwright install chromium 2>&1) || { printf '%s\n' "$out" >&2; exit 1; }
+fi
+XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests "$py" -m unittest discover -s tests/e2e
 # smoke: the example config is valid and the commands that need no machine answer
 t="python3 bin/tutti --config tutti.config.example.yaml"
 $t config

@@ -11,6 +11,11 @@ from . import config, insights, scrub, selfimprove, telemetry
 PANELS = ('usage', 'attention', 'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts', 'controls', 'jobs',
           'insights', 'selfimprove', 'tiles', 'appbar', 'helper', 'page')
 LOCATION_RX = re.compile(r'(\S+):(\d{1,7}):(\d{1,7})')
+# Chromium reports these as window errors when a ResizeObserver callback causes another layout; not a Tutti bug (t120).
+RESIZE_OBSERVER_NOISE = (
+    'ResizeObserver loop completed with undelivered notifications',
+    'ResizeObserver loop limit exceeded',
+)
 _cache = {}
 
 
@@ -20,6 +25,12 @@ def body(raw):
     except ValueError:
         return None
     return data if isinstance(data, dict) else None
+
+
+def benign_page_error(err):
+    """True for browser noise the page must not record as a crash (no stack, Insights would show "dashboard in ?")."""
+    msg = str((err or {}).get('message') or '')
+    return any(n in msg for n in RESIZE_OBSERVER_NOISE)
 
 
 def js_frame(line):
@@ -60,6 +71,8 @@ def save(collector, raw):
         telemetry.set_consent(folder, data['consent'], 'dashboard')
         return 200, {'ok': True, 'send': data['consent']}
     if isinstance(data.get('error'), dict):
+        if benign_page_error(data['error']):
+            return 200, {'ok': True}
         telemetry.report(js_error_event(data['error']), 'crash', 'dashboard')
         return 200, {'ok': True}
     if isinstance(data.get('use'), dict):

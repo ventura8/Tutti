@@ -37,7 +37,10 @@ stored as `<other>`, so a task, a prompt or a path can never pass as a value.
   outcome and counts; a user only as `user`, 12 hex digits of
   SHA-256 of a random id, never a name: docs/HOUSEHOLD.md), handled errors by exception type.
 - **Dashboard**: which panel and which control was used (`usage` / `refresh-readings`): the card's heading id and the
-  control's id, never its text or a value; script errors and unhandled rejections of the page.
+  control's id, never its text or a value; script errors and unhandled rejections of the page. Chromium's
+  `ResizeObserver loop completed with undelivered notifications` / `ResizeObserver loop limit exceeded` notices are not
+  recorded (the layout's ResizeObserver can nest a paint; the browser reports that as `window.onerror` with no stack —
+  not a Tutti bug).
 - **Crashes** (Python and the dashboard's script): the exception type, its message scrubbed (below), and the stack frames
   as file, function and line number. Tutti's own files are named relative to the package (`tutti/cli.py`); any other file
   only by its last two path parts.

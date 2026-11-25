@@ -141,7 +141,7 @@ def strays(uid=None, proc=PROC):
     out = []
     for name in sorted((n for n in os.listdir(proc) if n.isdigit()), key=int):
         p = info(name, proc)
-        if p is None or p['uid'] != uid or p['pid'] == os.getpid():
+        if p is None or p['uid'] != uid or (proc == PROC and p['pid'] == os.getpid()):
             continue
         k = kind(p)
         reason = why_stray(p, proc) if k else ''

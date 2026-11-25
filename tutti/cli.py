@@ -730,15 +730,48 @@ def choose_worker(cfg, now, spread=True):
     return state.next_worker(cfg, accounts, machines, now, spread=spread)
 
 
-def cmd_run(cfg, a):
-    extra = []
+def shared_worker_args(cfg, worker, wanted, now):
+    """An explicit `tutti run <worker>` on a worker several accounts share (agy: agy-claude, agy-gemini) runs on one of
+    them with that account's args (its --model and --settings), never on the worker's bare defaults: `--account` when given,
+    else the linked account with room that run auto would pick. Returns (args, account), or ([], None) when the worker has
+    one account or none with args."""
+    linked = {n: acc for n, acc in cfg['accounts'].items() if (acc or {}).get('worker') == worker and (acc or {}).get('args')}
+    if len(linked) < 2 and wanted not in linked:
+        return [], None
+    if wanted in linked:
+        return list(linked[wanted]['args']), wanted
+    entries = pacing.read_log(usage_log_path(cfg))
+    states = [{**pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)), '_missing_limits': []} for n, x in linked.items()]
+    best, why = routing.pick_account(states)
+    if not best:
+        say(f'run {worker}: none of its accounts has room ({why}); running on {next(iter(linked))}\'s args anyway')
+        best = {'name': next(iter(linked))}
+    say(f'run {worker}: on account {best["name"]} (its args); pass --account <name> to choose')
+    return list(linked[best['name']]['args']), best['name']
+
+
+def run_target(cfg, a):
+    """The worker, account and account args a run uses (sets a.worker and a.account): run auto's pick, else the named
+    worker on one of its accounts when several share it. Returns the extra args, or None when run auto finds no room."""
+    now = datetime.now(timezone.utc)
     if a.worker == 'auto':
-        pick = choose_worker(cfg, datetime.now(timezone.utc), spread=not a.show)   # --show only prints: it records no pick
+        pick = choose_worker(cfg, now, spread=not a.show)   # --show only prints: it records no pick
         if not pick['worker']:
             say(f'run auto: {pick["reason"]}')
-            return 3
+            return None
         say(f'run auto: {pick["worker"]} {" ".join(pick["args"])} ({pick["reason"]})'.replace('  ', ' '))
-        a.worker, extra, a.account = pick['worker'], pick['args'], pick['account']
+        a.worker, a.account = pick['worker'], pick['account']
+        return pick['args']
+    extra, chosen = shared_worker_args(cfg, a.worker, getattr(a, 'account', None), now)
+    if chosen:
+        a.account = chosen
+    return extra
+
+
+def cmd_run(cfg, a):
+    extra = run_target(cfg, a)
+    if extra is None:
+        return 3
     if not (a.repo and cfg['workers'].get(a.worker, {}).get('kind') == 'ollama'):
         worker_of(cfg, a.worker, 'cli')   # a local model takes a delegated task through `tutti agent`'s loop
     if a.input and not a.on:
@@ -2173,7 +2206,7 @@ def parser():
     s.add_argument('--no-backlog', action='store_true', help='claude with --repo: run it untracked (no backlog task, no pacing)')
     s.add_argument('--size', default='S', choices=list(backlog.SIZES), help='claude with --repo: the task\'s size (default S)')
     s.add_argument('--remote-track', help=argparse.SUPPRESS)
-    s.add_argument('--account', help=argparse.SUPPRESS)   # the autopilot's account of a shared worker (agy-gemini, agy-claude)
+    s.add_argument('--account', help='with a worker several accounts share (agy): run on this account, with its args (--model, --settings)')
     s.add_argument('--id', help=argparse.SUPPRESS)
     s.add_argument('--extra', action='append', help=argparse.SUPPRESS)
     s = add('pr', cmd_pr, 'pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local '

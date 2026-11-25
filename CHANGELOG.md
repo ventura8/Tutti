@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- An explicit `tutti run agy` (a worker several accounts share) runs on one account with that account's args (`--model`,
+  `--settings`): `--account <name>`, else the linked account with room. Before, it ran on the worker's bare defaults, whose
+  narrow allow-list refused `npx vitest`, and its usage was charged to the wrong account.
+
 ## 0.31.29 (2026-11-25)
 
 ### Added

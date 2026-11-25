@@ -3,6 +3,7 @@ script against a fake adb, routing of a Termux machine, and `tutti test --device
 transport. No real phone: every adb answer comes from a fake on PATH."""
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -277,11 +278,34 @@ class DeviceRunTest(unittest.TestCase):
             json.dump({'project': {'state': os.path.join(t, 'state'), 'worktrees': t},
                        'machines': {'here': {'host': 'local', 'slots': 1, 'min_free_gb': 0, 'lock_prefix': os.path.join(t, 'slot-')}},
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
+        # Autopilot and household jobs set these; they must not leak into the job-record assertion below.
         self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
+        self.env.pop('TUTTI_BACKGROUND', None)
+        self.env.pop('TUTTI_HH_JOB', None)
 
     def tutti(self, *args, **kw):
-        return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
-                                env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p = subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
+                             env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             start_new_session=True)
+
+        def stop():
+            if p.poll() is not None:
+                return
+            try:
+                os.killpg(p.pid, signal.SIGTERM)
+            except OSError:
+                p.kill()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except OSError:
+                    p.kill()
+                p.wait(timeout=5)
+
+        self.addCleanup(stop)
+        return p
 
     def test_the_command_gets_the_serial_and_a_job_record(self):
         p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL')

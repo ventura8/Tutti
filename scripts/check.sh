@@ -14,8 +14,17 @@ trap 'rm -rf "$TMPDIR"' EXIT
 XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
-if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi
-XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
+py=python3
+if ! "$py" -c 'import playwright, axe_playwright_python' 2> /dev/null; then
+	venv="${XDG_CACHE_HOME:-$HOME/.cache}/tutti/check-venv"
+	py="$venv/bin/python3"
+	if [ ! -x "$py" ] || ! "$py" -c 'import playwright, axe_playwright_python' 2> /dev/null; then
+		python3 -m venv "$venv"
+		"$py" -m pip install -q --require-hashes -r requirements-dev.txt
+	fi
+fi
+if [ -n "${CI:-}" ]; then "$py" -m playwright install --with-deps chromium > /dev/null; else "$py" -m playwright install chromium > /dev/null; fi
+XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests "$py" -m unittest discover -s tests/e2e
 # smoke: the example config is valid and the commands that need no machine answer
 t="python3 bin/tutti --config tutti.config.example.yaml"
 $t config

@@ -558,6 +558,7 @@ class Sandbox(unittest.TestCase):
     @unittest.skipUnless(sys.platform.startswith('linux'), 'the isolated mode and its bridge are Linux only (systemd)')
     def test_the_bridge_relays_the_pipe_on_a_0660_socket(self):
         import grp
+        import signal
         import stat
         import subprocess
         d = tmp()
@@ -568,7 +569,8 @@ class Sandbox(unittest.TestCase):
             f.write('import json, os\nbuf = b""\nwhile True:\n    c = os.read(3, 65536)\n    if not c:\n        break\n    buf += c\n'
                     '    while b"\\0" in buf:\n        m, buf = buf.split(b"\\0", 1)\n        m = json.loads(m)\n'
                     '        os.write(4, json.dumps({"id": m["id"], "result": {"echo": m["method"]}}).encode() + b"\\0")\n')
-        p = subprocess.Popen([sys.executable, bridge, sock, grp.getgrgid(os.getgid()).gr_name, sys.executable, chrome])
+        p = subprocess.Popen([sys.executable, bridge, sock, grp.getgrgid(os.getgid()).gr_name, sys.executable, chrome],
+                             start_new_session=True)
         try:
             for _ in range(100):
                 if os.path.exists(sock):
@@ -579,8 +581,17 @@ class Sandbox(unittest.TestCase):
             self.assertEqual(cdp.call('Browser.getVersion'), {'echo': 'Browser.getVersion'})
             cdp.close()
         finally:
-            p.kill()
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             p.wait()
+            for _ in range(50):
+                try:
+                    os.killpg(p.pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.02)
 
     def test_isolate_refuses_a_chrome_the_sandbox_cannot_run(self):
         out = []

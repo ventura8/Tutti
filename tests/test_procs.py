@@ -36,6 +36,10 @@ class ReaperTest(unittest.TestCase):
         self.addCleanup(self.p.tmp.cleanup)
         self.home = tempfile.TemporaryDirectory()
         self.addCleanup(self.home.cleanup)
+        # In a container PID namespace os.getpid() can collide with fake pids (5..41).
+        pid_patch = mock.patch('tutti.procs.os.getpid', return_value=999999)
+        pid_patch.start()
+        self.addCleanup(pid_patch.stop)
 
     def test_strays_are_stopped_by_exact_pid_and_logged_and_owned_helpers_stay(self):
         h = self.home.name

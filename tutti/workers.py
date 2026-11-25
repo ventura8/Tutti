@@ -6,8 +6,10 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import time
 import urllib.request
 
 from . import config, inuse
@@ -169,6 +171,38 @@ def grant_tree(argv, cwd):
     return out
 
 
+def _killpg(pgid, sig, fallback=None):
+    try:
+        os.killpg(pgid, sig)
+    except OSError:
+        if fallback:
+            fallback()
+
+
+def _wait_group(pgid, timeout=1.0):
+    """Waits for remaining children in process group `pgid` to exit after the leader is reaped."""
+    _killpg(pgid, signal.SIGTERM)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except OSError:
+            return
+        time.sleep(0.02)
+    _killpg(pgid, signal.SIGKILL)
+
+
+def _stop_group(p):
+    """Stops a worker process and its children (process group started with start_new_session=True)."""
+    _killpg(p.pid, signal.SIGTERM, p.terminate)
+    try:
+        p.wait(timeout=TERM_WAIT)
+    except subprocess.TimeoutExpired:   # it ignored SIGTERM: the restart must not hang on it
+        _killpg(p.pid, signal.SIGKILL, p.kill)
+        p.wait()
+    _wait_group(p.pid)
+
+
 def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
     the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines); COMPACT_RC when it
@@ -184,18 +218,14 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)
     with inuse.using(config.state_dir(cfg), argv[0]), \
             subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, errors='replace', bufsize=1, env=env) as p:
+                             text=True, errors='replace', bufsize=1, env=env, start_new_session=True) as p:
         for line in p.stdout:
             out.write(line)
             out.flush()
             kept.append(line.rstrip('\n'))
             if watch.line(line) and p.poll() is None:   # only a run still going is stopped; a final status line is not
                 stopped = True
-                p.terminate()
-                try:
-                    p.wait(timeout=TERM_WAIT)
-                except subprocess.TimeoutExpired:   # it ignored SIGTERM: the restart must not hang on it
-                    p.kill()
+                _stop_group(p)
                 out.write(f'tutti: context at {watch.pct:g} % (autocompact.threshold_pct {watch.limit}): stopped, restarting '
                           'with a handoff\n')
                 break

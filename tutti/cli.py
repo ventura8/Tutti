@@ -722,10 +722,24 @@ def cmd_workers(cfg, a):
     return 0
 
 
+def shifted(cfg, accounts, entries, now):
+    """The account states run auto picks from, with the shift `tutti usage` and the dashboard apply: while a main account
+    is ahead of its pace (autopilot.main_overspent), every other ok account is planned with `shift`, so its per-window share
+    does not hold it back (it may spend ahead, up to its panic line)."""
+    main = autopilot.main_overspent(cfg, accounts)
+    if not main:
+        return accounts
+    skip = autopilot.main_accounts(cfg)
+    return [s if s['name'] in skip or s.get('state') != 'ok'
+            else pacing.account_state(s['name'], cfg['accounts'][s['name']], entries, now, *pacing.plan_args(cfg), shift=main)
+            for s in accounts]
+
+
 def choose_worker(cfg, now, spread=True):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
+    accounts = shifted(cfg, accounts, entries, now)   # the same shift the dashboard shows: an overspent main's share moves
     machines = state.machines_state(cfg, remote.probe) if any((w or {}).get('machine') for w in cfg['workers'].values()) else None
     return state.next_worker(cfg, accounts, machines, now, spread=spread)
 

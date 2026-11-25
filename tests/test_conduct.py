@@ -699,6 +699,19 @@ class RoleHandOffTest(Folder):
         self.assertIn('restored to agy (preferred; limit reset)', restored)
         self.assertEqual(conduct.current(self.cfg), 'agy')
 
+    def test_the_preferred_agent_back_by_itself_is_not_labelled_a_stand_in_and_auto_is_not_the_owner(self):
+        conduct.choose(self.cfg, 'auto')
+        self.assertEqual(conduct.chosen_by(self.cfg), 'auto')   # `main auto` is Tutti's, not a pin by the owner
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97})
+        conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [], chat_fn=lambda c, t: None)
+        back = self.states(**{'agy-claude': self.reserve(), 'agy-gemini': self.reserve()})
+        conduct.hand_off_role(self.cfg, back, connect_fn=lambda *a, **k: [], chat_fn=lambda c, t: None)
+        self.assertEqual((conduct.current(self.cfg), conduct.chosen_by(self.cfg)), ('agy', 'preferred'))
+        text = conduct._main_src(conduct.main_state(self.cfg, back))
+        self.assertIn('preferred, back by itself', text)
+        self.assertNotIn('stand-in', text)
+        self.assertNotIn('owner', text)
+
     def reserve(self, used=80):
         """A weekly reading below panic whose planner has no room left (the owner's reserve): the cause of t273's stand-in."""
         return {'used': used, 'verdict': 'ahead', 'panic': False,

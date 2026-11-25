@@ -114,12 +114,13 @@ def chosen(cfg):
 
 
 def chosen_by(cfg):
-    """Who made the current choice: 'owner' (a pin), 'auto' (a hand-off), or '' (none). A record written before this was kept
+    """Who made the current choice: 'owner' (a pin), 'auto' (a hand-off, or `main auto` itself), 'preferred' (the preferred
+    agent back by itself after a stand-in), or '' (none). A record written before this was kept
     counts as Tutti's own when it names the agent the last hand-off went to (so an old stand-in is not shown as a pin)."""
     c = choice_record(cfg)
     if c.get('agent') not in cfg['workers']:
         return ''
-    if c.get('by') in ('owner', 'auto'):
+    if c.get('by') in ('owner', 'auto', 'preferred'):
         return c['by']
     last = read_json(role_path(cfg)) or {}
     return 'auto' if last.get('to') == c['agent'] else 'owner'
@@ -178,11 +179,11 @@ def set_auto(cfg, now=None):
     if want:
         cfg['main']['preferred'] = want
     if want in cfg['workers']:
-        _write_choice(cfg, want, now)
+        _write_choice(cfg, want, now, 'auto')
     return AUTO
 
 
-def choose(cfg, agent, now=None, owner=True):
+def choose(cfg, agent, now=None, owner=True, by=None):
     """Records the current main agent; a running conductor hands over to it at its next check.
     Owner switches (`owner=True`) also set preferred main and leave auto; automatic hand-offs leave preferred and auto alone.
     `agent` may be `auto` (same as `tutti main auto`)."""
@@ -192,7 +193,7 @@ def choose(cfg, agent, now=None, owner=True):
         names = ', '.join([AUTO, *candidates(cfg)]) if candidates(cfg) else AUTO
         raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be {names}')
     now = now or datetime.now(timezone.utc)
-    _write_choice(cfg, agent, now, 'owner' if owner else 'auto')
+    _write_choice(cfg, agent, now, by or ('owner' if owner else 'auto'))
     if owner:
         from . import users
         users.write(config.state_dir(cfg), main_agent=agent, preferred_main=agent)
@@ -911,8 +912,10 @@ def main_state(cfg, states):
 
 
 def _main_src(m):
-    if m['chosen'] and m.get('chosen_by') == 'auto':
-        return f' (automatic stand-in: returns to {m["preferred"]} when it has room)' if m.get('preferred') else ' (automatic stand-in)'
+    if m['chosen'] and m.get('chosen_by') == 'preferred':
+        return ' (preferred, back by itself)'
+    if m['chosen'] and m.get('chosen_by') == 'auto' and m.get('preferred') and m['preferred'] != m['agent']:
+        return f' (automatic stand-in: returns to {m["preferred"]} when it has room)'
     if m['chosen'] and not m['auto']:
         return ' (pinned by the owner: `tutti main auto` lets Tutti pick)'
     return ' (auto)' if m['auto'] else ' (main.agent in the config)'
@@ -1089,9 +1092,9 @@ def keep_preferred(cfg, agent):
         users.write(folder, preferred_main=agent)
 
 
-def take_role(cfg, to, connect_fn=None):
+def take_role(cfg, to, connect_fn=None, by=None):
     """Persists the current MAIN AGENT ROLE on `to` (preferred and auto unchanged), connects it. Returns the connect note."""
-    choose(cfg, to, owner=False)
+    choose(cfg, to, owner=False, by=by)
     return connect_role(cfg, to, connect_fn)
 
 
@@ -1105,7 +1108,7 @@ def restore_preferred(cfg, states, connect_fn=None, chat_fn=None, now=None, mach
         return None
     if not limit_reset(cfg, want, states, machines, now):
         return None
-    connect_note = take_role(cfg, want, connect_fn)
+    connect_note = take_role(cfg, want, connect_fn, by='preferred')
     text = restore_note(cur, want, connect_note)
     (chat_fn or deliver_role_note)(cfg, text)
     clear_role_record(cfg)

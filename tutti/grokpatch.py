@@ -36,8 +36,16 @@ AUTO_PER_DAY = 3          # "a few tasks a day" (the contract)
 AUTO_OPEN = 1             # patch requests waiting for an answer at once
 
 
+RETRY_AFTER = 3600        # seconds a task waits after its scout could not be reached (a real rejection is not retried)
+FRESH_APPLYING = 7200     # an `applying` mark younger than this means somebody is on it
+
+
 class PatchError(ValueError):
     pass
+
+
+class NotReached(PatchError):
+    """The scout could not be reached (webhook down, timeout): the task is fine, the try is worth repeating later."""
 
 
 # ---- pure
@@ -127,20 +135,20 @@ def eligible(task, now=None):
     or whose first diff failed the check and has not gone back once."""
     p = task.get('patch') or {}
     scope = task.get('scope') or []
-    if task.get('status') != 'queued':
-        return False, 'not queued'
-    if p.get('request') or p.get('diff'):
-        return False, 'a scout already has it'
-    if p.get('error'):
-        return False, 'its diff was refused once; the workers take it'
-    if p.get('second'):
-        return False, 'the scout had its tries'
-    if task.get('size', 'S') not in AUTO_SIZES:
-        return False, f'size {task.get("size")} is over {AUTO_SIZES[-1]}'
-    if not scope or any(s.endswith('/') for s in scope):
-        return False, 'its scope is not a list of files'
-    if task.get('depends_on') or float(task.get('not_before') or 0) > (now or 0):
-        return False, 'blocked or waiting'
+    now = now or 0
+    refusals = (
+        (task.get('status') != 'queued', 'not queued'),
+        (bool(p.get('request') or p.get('diff')), 'a scout already has it'),
+        (float(p.get('retry_after') or 0) > now, 'its scout could not be reached a moment ago; tried again later'),
+        (bool(p.get('error')), 'its diff was refused once; the workers take it'),
+        (bool(p.get('second')), 'the scout had its tries'),
+        (task.get('size', 'S') not in AUTO_SIZES, f'size {task.get("size")} is over {AUTO_SIZES[-1]}'),
+        (not scope or any(s.endswith('/') for s in scope), 'its scope is not a list of files'),
+        (bool(task.get('depends_on')) or float(task.get('not_before') or 0) > now, 'blocked or waiting'),
+    )
+    for refused, why in refusals:
+        if refused:
+            return False, why
     return True, 'fits'
 
 
@@ -156,9 +164,10 @@ def pick(tasks, sent_today, waiting, now=None, per_day=AUTO_PER_DAY, open_max=AU
 
 
 def to_apply(tasks, now=0):
-    """Ids of tasks whose diff is kept and not being applied (a start older than 2 h counts as lost)."""
+    """Ids of tasks whose diff is kept and not being applied (a start older than 2 h counts as lost; a fresh mark is never
+    applied over: nothing is applied twice)."""
     return [t['id'] for t in tasks if t.get('status') == 'queued' and (t.get('patch') or {}).get('diff')
-            and (not t['patch'].get('applying') or now - float(t['patch']['applying']) > 7200)]
+            and (not t['patch'].get('applying') or now - float(t['patch']['applying']) > FRESH_APPLYING)]
 
 
 # ---- I/O
@@ -217,7 +226,7 @@ def ask(cfg, tid, via, gh_fn=scouts.gh, post_fn=scouts.post, env=None, failure=N
             r.update(patch_for=tid, base=base)
             scouts.send(sc, r, url, key, gh_fn, post_fn, now)
         if r['status'] == 'failed':
-            raise PatchError(f'patch: {via} was not reached: {r.get("why")}')
+            raise NotReached(f'patch: {via} was not reached: {r.get("why")}; the next round tries again')
         task['patch'] = {'scout': via, 'request': r['id'], 'base': base, 'url': r.get('url'), 'at': now,
                          'second': bool(failure)}
         task['notes'] = [*task.get('notes', []), f'Sent to {via} as a patch task ({r["id"]}, {r.get("url")}); waits for its diff.']
@@ -225,9 +234,18 @@ def ask(cfg, tid, via, gh_fn=scouts.gh, post_fn=scouts.post, env=None, failure=N
 
 
 def holds(tasks):
-    """{task id: why} of queued tasks waiting for a scout's diff: no worker takes them meanwhile."""
-    return {t['id']: f'waits for {t["patch"]["scout"]}\'s diff ({t["patch"]["request"]})' for t in tasks
-            if t.get('status') == 'queued' and (t.get('patch') or {}).get('request') and not t['patch'].get('diff')}
+    """{task id: why} of queued tasks waiting for a scout's diff, or holding one not yet applied: no worker takes them
+    meanwhile (a worker would do the same task twice)."""
+    out = {}
+    for t in tasks:
+        p = t.get('patch') or {}
+        if t.get('status') != 'queued':
+            continue
+        if p.get('diff'):
+            out[t['id']] = f'its diff from {p.get("scout")} is kept and waits to be applied and checked'
+        elif p.get('request'):
+            out[t['id']] = f'waits for {p["scout"]}\'s diff ({p["request"]})'
+    return out
 
 
 def answered(sdata):
@@ -367,16 +385,50 @@ def patch_file(cfg, path):
     return full if full.startswith(root + os.sep) and os.path.isfile(full) else None
 
 
-def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None):
+def _find(data, tid):
+    """The task, or None when it is gone (backlog.find raises)."""
+    try:
+        return backlog.find(data, tid)
+    except backlog.BacklogError:
+        return None
+
+
+def mark_applying(cfg, tid, now=None):
+    """Marks task `tid`'s kept diff as being applied (so nothing applies it twice and a restart can tell); False when it is gone."""
+    with backlog.locked(cfg) as data:
+        t = _find(data, tid)
+        if not t or not isinstance(t.get('patch'), dict):
+            return False
+        t['patch']['applying'] = now or time.time()
+    return True
+
+
+def clear_applying(cfg, tid):
+    with backlog.locked(cfg) as data:
+        t = _find(data, tid)
+        if t and isinstance(t.get('patch'), dict):
+            t['patch'].pop('applying', None)
+
+
+def _may_send(cfg, via):
+    """Raises ScoutError while the scout's allowance is used (the same guard as a direct send)."""
+    scouts.guard(cfg, scouts.settings(cfg, via))
+
+
+def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None, guard_fn=None):
     """A kept diff applied and checked; a pass pushed as grok/<task> with a pull request for a person to review and merge (never
-    merged here); a first failure sent back to the scout once with its output. Returns one event line."""
-    ok, wt, out = (apply_fn or apply)(cfg, tid, run)
-    if not ok:
-        t = backlog.find(backlog.load(cfg), tid)
-        if (t.get('patch') or {}).get('second'):
-            return f'{tid}: the second diff failed its check too: left for a person (worktree {wt})'
-        (ask_fn or ask)(cfg, tid, via, failure=t['patch'].get('failure'))
-        return f'{tid}: the diff failed its check: sent back to {via} with the output (second try)'
+    merged here); a first failure sent back to the scout once with its output, while the scout's allowance has room. The task
+    is marked `applying` meanwhile (cleared at the end whatever happens), so a restart retries it and no worker takes it.
+    Returns one event line."""
+    mark_applying(cfg, tid)
+    try:
+        return _autoland(cfg, tid, via, run, apply_fn, ask_fn, guard_fn)
+    finally:
+        clear_applying(cfg, tid)
+
+
+def _package_new_files(cfg, tid, wt):
+    """Commits the allowlist entries for the new test and doc files a landed diff brings (the packaging guard needs them)."""
     saved = patch_file(cfg, (backlog.find(backlog.load(cfg), tid).get('patch') or {}).get('diff'))
     with open(saved, encoding='utf8') if saved else contextlib.nullcontext(None) as f:
         new = [p for p in paths(f.read() if f else '') if p.startswith(('tests/', 'docs/'))]
@@ -384,6 +436,21 @@ def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None):
         _git(wt, 'add', '-A')
         _git(wt, '-c', 'user.name=Tutti', '-c', 'user.email=tutti@localhost', 'commit', '-q', '-m',
              f'chore: package the new files ({tid})')
+
+
+def _autoland(cfg, tid, via, run, apply_fn, ask_fn, guard_fn):
+    ok, wt, out = (apply_fn or apply)(cfg, tid, run)
+    if not ok:
+        t = backlog.find(backlog.load(cfg), tid)
+        if (t.get('patch') or {}).get('second'):
+            return f'{tid}: the second diff failed its check too: left for a person (worktree {wt})'
+        try:
+            (guard_fn or _may_send)(cfg, via)
+        except scouts.ScoutError as e:   # the allowance is used: the failure stays on the task, a later round sends it back
+            return f'{tid}: the diff failed its check; not sent back to {via} yet: {e}'
+        (ask_fn or ask)(cfg, tid, via, failure=t['patch'].get('failure'))
+        return f'{tid}: the diff failed its check: sent back to {via} with the output (second try)'
+    _package_new_files(cfg, tid, wt)
     _git(wt, 'push', '-q', '-u', 'origin', f'grok/{tid}')
     t = backlog.find(backlog.load(cfg), tid)
     body = (f'Drafted by the {via} scout ({t["patch"].get("request")}) as one diff, applied at its base and checked by Tutti '
@@ -400,20 +467,50 @@ def autoland(cfg, tid, via, run=subprocess.run, apply_fn=None, ask_fn=None):
 
 def land_in_background(cfg, tids, via, thread=None):
     """autoland for each task in a thread of its own (a check may take minutes); each outcome goes to the log."""
-    import sys
     import threading
+
+    for tid in tids:
+        mark_applying(cfg, tid)   # before the thread starts: the round's own recovery step must not apply it too
 
     def work():
         for tid in tids:
             try:
                 line = autoland(cfg, tid, via)
-            except (PatchError, OSError, subprocess.SubprocessError, KeyError) as e:
+            except (PatchError, scouts.ScoutError, backlog.BacklogError, OSError, subprocess.SubprocessError, KeyError, TypeError) as e:
                 line = f'{tid}: landing the diff failed ({e}); `tutti scout apply {tid}` tries by hand'
             sys.stderr.write(f'tutti: scouts: {line}\n')
     t = (thread or threading.Thread)(target=work, daemon=True, name='tutti-patch-land')
     t.start()
     return t
 
+
+
+def _recover(cfg, tasks, now, spawn):
+    """Starts `tutti scout apply` (detached: the check can take long) for each kept diff nobody is applying; event lines."""
+    # kept diffs nobody is applying (a restart, a timeout): applied again, but never one that a fresh `applying` mark covers
+    events = []
+    for tid in to_apply(tasks, now):
+        if not re.fullmatch(r't\d+', str(tid)):   # the id names a log file: never a path from the backlog
+            events.append(f'patch: skipped a task id that is not like t123 ({tid!r})')
+            continue
+        tid = f't{int(str(tid)[1:])}'
+        try:
+            if not mark_applying(cfg, tid, now):
+                events.append(f'{tid}: its diff vanished from the backlog; skipped')
+                continue
+            try:
+                log = os.path.join(config.state_dir(cfg), 'patches', f'apply-{tid}.log')
+                os.makedirs(os.path.dirname(log), exist_ok=True)
+                with open(log, 'a', encoding='utf8') as f:
+                    spawn([sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bin', 'tutti'),
+                           'scout', 'apply', tid], stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+            except BaseException:   # the mark must not outlive a spawn that never happened
+                clear_applying(cfg, tid)
+                raise
+            events.append(f'{tid}: the diff is being applied and checked ({log})')
+        except (OSError, ValueError, TypeError, KeyError) as e:
+            events.append(f'{tid}: the kept diff could not be applied by itself ({e}); `tutti scout apply {tid}` tries by hand')
+    return events
 
 
 def auto(cfg, sc, acc, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None, spawn=subprocess.Popen):
@@ -423,23 +520,8 @@ def auto(cfg, sc, acc, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None,
     now = now or time.time()
     if 'drafting' not in (sc.get('skills') or []):
         return []
-    events = []
     data = backlog.load(cfg)
-    # with autoland on (the default), scouts.tick already applies, checks and opens the PR for each kept diff: never twice
-    for tid in ([] if sc.get('patch_autoland', True) else to_apply(data['tasks'], now)):
-        if not re.fullmatch(r't\d+', str(tid)):   # the id names a log file: never a path from the backlog
-            events.append(f'patch: skipped a task id that is not like t123 ({tid!r})')
-            continue
-        tid = f't{int(str(tid)[1:])}'
-        with backlog.locked(cfg) as d:
-            t = backlog.find(d, tid)
-            t['patch']['applying'] = now
-        log = os.path.join(config.state_dir(cfg), 'patches', f'apply-{tid}.log')
-        os.makedirs(os.path.dirname(log), exist_ok=True)
-        with open(log, 'a', encoding='utf8') as f:
-            spawn([sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bin', 'tutti'),
-                   'scout', 'apply', tid], stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
-        events.append(f'{tid}: the diff is being applied and checked ({log})')
+    events = _recover(cfg, data['tasks'], now, spawn)
     ok, why = scouts.allowance(acc)
     if not ok:
         return events + [f'patch: nothing sent to {sc["name"]}: {why}']
@@ -450,13 +532,32 @@ def auto(cfg, sc, acc, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None,
     tid = pick(data['tasks'], today, waiting, now)
     if not tid:
         return events
-    task = backlog.find(data, tid)
+    task = _find(data, tid)
+    if not task:
+        return events + [f'{tid}: gone from the backlog; skipped']
     try:
         r = ask(cfg, tid, sc['name'], gh_fn, post_fn, env, failure=(task.get('patch') or {}).get('failure'), now=now)
-    except (PatchError, scouts.ScoutError) as e:   # never stops the round; the next one tries the next task
-        with backlog.locked(cfg) as d:
-            t = backlog.find(d, tid)
-            t['patch'] = {**(t.get('patch') or {}), 'error': str(e)[:300], 'request': None}
-            t['notes'] = [*t.get('notes', []), f'The scout could not take it: {e}']
+    except (NotReached, scouts.ScoutError) as e:   # the scout, not the task: tried again after RETRY_AFTER, never marked refused
+        _note_problem(cfg, tid, f'The scout could not take it now: {e}', retry_after=now + RETRY_AFTER)
+        return events + [f'{tid}: not sent to {sc["name"]} (tried again in {RETRY_AFTER // 3600} h): {e}']
+    except PatchError as e:   # a real rejection (scope, size): the workers take it
+        _note_problem(cfg, tid, f'The scout could not take it: {e}', error=str(e)[:300])
+        return events + [f'{tid}: not sent to {sc["name"]}: {e}']
+    except (OSError, ValueError, TypeError, KeyError, backlog.BacklogError) as e:   # never stops the scout round
         return events + [f'{tid}: not sent to {sc["name"]}: {e}']
     return events + [f'{tid}: sent to {sc["name"]} as a patch task ({r["id"]})']
+
+
+def _note_problem(cfg, tid, note, error=None, retry_after=None):
+    """Says on the task why the scout did not take it: a permanent `error` (the workers take it) or a `retry_after` time."""
+    with backlog.locked(cfg) as d:
+        t = _find(d, tid)
+        if not t:
+            return
+        patch = {**(t.get('patch') or {}), 'request': None}
+        if error:
+            patch['error'] = error
+        if retry_after:
+            patch['retry_after'] = retry_after
+        t['patch'] = patch
+        t['notes'] = [*t.get('notes', []), note]

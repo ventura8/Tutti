@@ -84,6 +84,13 @@ class Cards(unittest.TestCase):
         self.assertEqual(sum(c['main_now'] for c in cards.values()), 1)
         self.assertFalse(any(c['main_now'] for c in agentsview.cards(example(), {})))   # no main block: nothing is marked
 
+    def test_a_preferred_agent_back_by_itself_says_so_even_in_auto_mode(self):
+        snap = {'main': {'agent': 'agy', 'preferred': 'agy', 'auto': True, 'chosen_by': 'preferred'}}
+        cards = {c['name']: c for c in agentsview.cards(example(), snap)}
+        self.assertEqual(cards['agy']['main_by'], 'preferred')
+        snap['main']['chosen_by'] = 'auto'   # a stand-in or plain auto keeps the old label
+        self.assertEqual({c['name']: c for c in agentsview.cards(example(), snap)}['agy']['main_by'], 'auto')
+
     def test_an_agent_the_config_gives_no_role_gets_none(self):
         cfg = {'workers': {'spare': {'kind': 'unknown'}}, 'accounts': {}}
         self.assertEqual(agentsview.cards(cfg, {})[0]['roles'], [])

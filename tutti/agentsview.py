@@ -167,8 +167,15 @@ def main_marks(snap, name):
     card is the main agent now, and whether the owner pinned it or Tutti put it there while the preferred one is out."""
     m = snap.get('main') or {}
     now = bool(m.get('agent')) and m['agent'] == name
-    return {'main_now': now, 'main_preferred': bool(m.get('preferred')) and m['preferred'] == name,
-            'main_by': ('auto' if m.get('auto') else m.get('chosen_by') or 'config') if now else ''}
+    by = ''
+    if now:
+        if m.get('chosen_by') == 'preferred':
+            by = 'preferred'
+        elif m.get('auto'):
+            by = 'auto'
+        else:
+            by = m.get('chosen_by') or 'config'
+    return {'main_now': now, 'main_preferred': bool(m.get('preferred')) and m['preferred'] == name, 'main_by': by}
 
 
 def cards(cfg, snap):

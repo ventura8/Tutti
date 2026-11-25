@@ -982,11 +982,17 @@ function mainOptions(m) {
     return [el('option', { value: 'auto', selected: Boolean(m.auto), text: autoLabel }), ...agents];
 }
 
+function mainSource(m) {
+    if (m.chosen && m.chosen_by === 'preferred') return 'preferred, back by itself';
+    if (m.auto) return 'auto';
+    return m.chosen ? 'pinned by the owner' : 'from the config';
+}
+
 function renderMain(s) {
     const m = s.main;
     if (!m) return;
     const standIn = m.chosen && m.chosen_by === 'auto' && m.preferred && m.preferred !== m.agent;
-    const src = standIn ? `stand-in chosen by Tutti, returns to ${m.preferred}` : (m.auto ? 'auto' : (m.chosen ? 'pinned by the owner' : 'from the config'));
+    const src = standIn ? `stand-in chosen by Tutti, returns to ${m.preferred}` : mainSource(m);
     $('main-meta').textContent = m.preferred && m.preferred !== m.agent && !standIn
         ? `Main now: ${m.agent} · ${src} · preferred ${m.preferred}` : `Main now: ${m.agent} · ${src}`;
     const pick = $('main-pick');

@@ -1,6 +1,7 @@
 """`tutti run auto` spreads work: every account with room takes a turn (owner, 2026-11-24: use Codex, save Claude)."""
 import os
 import unittest
+from unittest import mock
 
 import tmpdirs
 
@@ -32,6 +33,28 @@ class Spread(unittest.TestCase):
         self.assertEqual(state.last_picks(cfg), {'codex': 5.0})
         with open(os.path.join(d, state.AUTO_PICKS), 'w', encoding='utf8') as f:
             f.write('{broken')
+        self.assertEqual(state.last_picks(cfg), {})
+
+    def test_next_worker_with_spread_records_the_pick_under_a_lock_and_without_spread_does_not(self):
+        d = tmpdirs.mkdtemp()
+        cfg = {'project': {'state': d}, 'accounts': {'codex': {'worker': 'codex'}}, 'workers': {'codex': {}}, 'routing': {}}
+        with mock.patch.object(state.routing, 'pick_account', return_value=(acc('codex'), 'ok')), \
+                mock.patch('tutti.autopilot.main_in_panic', return_value=False), \
+                mock.patch('tutti.tiers.choose', return_value={'args': [], 'label': 'x'}), \
+                mock.patch.object(state, 'worker_accounts', return_value=['codex']):
+            state.next_worker(cfg, [acc('codex')], now=None, spread=False)
+            self.assertEqual(state.last_picks(cfg), {})
+            state.next_worker(cfg, [acc('codex')], now=None, spread=True)
+        self.assertEqual(list(state.last_picks(cfg)), ['codex'])
+        self.assertTrue(os.path.isfile(os.path.join(d, state.AUTO_PICKS + '.lock')))
+        self.assertEqual([f for f in os.listdir(d) if f.endswith('.tmp')], [])   # the temp file is gone
+
+    def test_an_unwritable_state_folder_still_picks(self):
+        cfg = {'project': {'state': os.path.join(tmpdirs.mkdtemp(), 'file')}}
+        with open(cfg['project']['state'], 'w', encoding='utf8') as f:
+            f.write('x')   # a file where the folder should be
+        with state.picks_locked(cfg):
+            state.note_pick(cfg, 'codex', 1.0)
         self.assertEqual(state.last_picks(cfg), {})
 
 

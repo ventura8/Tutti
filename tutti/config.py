@@ -546,8 +546,8 @@ def _worker_errors(name, w):
         if selector is not None and (not isinstance(selector, str) or not selector.startswith('-') or selector == '-' or '=' in selector):
             errors.append(f'workers.{name}.chat_account_selector is {selector!r}: use a flag such as --model, without a value')
         fmt = w.get('chat_output_format', 'text')
-        if fmt not in ('text', 'cursor-stream-json'):
-            errors.append(f'workers.{name}.chat_output_format is {fmt!r}: use text or cursor-stream-json')
+        if fmt not in ('text', 'cursor-stream-json', 'claude-stream-json'):
+            errors.append(f'workers.{name}.chat_output_format is {fmt!r}: use text, cursor-stream-json or claude-stream-json')
         return errors
     if kind == 'ollama':
         return [f'workers.{name}.{k} is missing' for k in ('host', 'model') if not w.get(k)]

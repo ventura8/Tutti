@@ -323,8 +323,15 @@ and win over the config's.
   its own the account is `unreadable`: the error lists the buckets the answer has, the account is left out of pacing
   (`reader_problem`), and the other accounts go on.
 - **Claude piggyback.** A headless `claude` run whose output is stream-json (`--output-format stream-json --verbose`) carries
-  `rate_limit_event` messages with `unifiedWindows.seven_day.utilization` (a fraction of the weekly quota). After `tutti run`,
-  Tutti writes it into the `reading_file` of the account that runs the worker (other accounts in the file are kept), so the
-  reading stays fresh without an interactive terminal's statusline.
+  `rate_limit_event` messages with `unifiedWindows.seven_day.utilization` (a fraction of the weekly quota). Tutti writes it into
+  the `reading_file` of the account that runs the worker (other accounts in the file are kept), so the reading stays fresh
+  without an interactive terminal's statusline. Every place Tutti runs claude headless feeds the same helper
+  (`readers.UsageTap` while the output streams, `readers.note_usage` after): delegated runs and `tutti run claude` /
+  `claude_task` (the worker's command), the conduct rounds (`main.commands`), and Chat's answers (`workers.<n>.chat_output_format:
+  claude-stream-json`, docs/CHAT.md). Tutti adds no flags itself: a command that prints plain text (the default
+  `[claude, -p, "{prompt}"]` that `tutti setup` writes, and Chat's default) records nothing, and nothing that reads its text
+  breaks. To turn it on for a worker or a conduct round, add `--output-format stream-json --verbose` to that command, and for
+  Chat set the format above. The reviewers, `tutti fill` and the brain's online fallback read the answer as plain text and
+  stay plain.
 - **Spend-by lead.** Every account's `lead_hours` (default 1) already sets the spend-by time to the reset minus that many
   hours: `lead_hours: 2` finishes a quota two hours before its reset.

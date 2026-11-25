@@ -352,6 +352,24 @@ class RunCliTest(Folder):
         with open(self.run['progress'], encoding='utf8') as f:
             self.assertEqual(conduct.sections(f.read())['done'], '- first step')
 
+    def test_a_claude_round_records_the_usage_its_stream_carried(self):
+        f = os.path.join(self.dir, 'u.json')
+        event = json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'unifiedWindows': {'seven_day': {'utilization': 0.3}}}})
+        self.cfg['accounts']['claude-acct'] = {'worker': 'agy', 'reading_file': f}
+        self.cfg['main']['commands'] = {'agy': [*SH, f"echo '{event}'; echo 'DONE: x'", '{prompt}']}
+        watch = conduct.Watch(self.cfg, 'agy', None, lambda n: '', 60)
+        conduct.run_cli(self.cfg, 'agy', 'p', self.run, watch, out=io.StringIO())
+        with open(f, encoding='utf8') as fh:
+            self.assertEqual(json.load(fh)['claude-acct']['used'], 30.0)
+
+    def test_a_round_without_usage_in_its_output_writes_no_reading(self):
+        f = os.path.join(self.dir, 'u.json')
+        self.cfg['accounts']['claude-acct'] = {'worker': 'agy', 'reading_file': f}
+        self.cfg['main']['commands'] = {'agy': [*SH, 'echo plain', '{prompt}']}
+        watch = conduct.Watch(self.cfg, 'agy', None, lambda n: '', 60)
+        conduct.run_cli(self.cfg, 'agy', 'p', self.run, watch, out=io.StringIO())
+        self.assertFalse(os.path.exists(f))
+
     def test_panic_while_it_runs_stops_it(self):
         self.cfg['main']['commands'] = {'agy': [*SH, 'sleep 30', '{prompt}']}
         watch = conduct.Watch(self.cfg, 'agy', None, lambda n: 'agy-claude: panic', 0.05)

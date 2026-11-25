@@ -1653,6 +1653,39 @@ class CursorStream(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(chatrun.CursorStreamUncertain):
                 list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, lines=bad, **_kw: Process(lines)))
 
+    def test_claude_stream_json_answers_with_the_result_and_feeds_the_usage_tap(self):
+        from tutti import chatrun, readers
+        class Process:
+            returncode = 0
+            def __init__(self, lines):
+                self.stdout = iter(lines)
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        rate = json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'unifiedWindows': {'seven_day': {'utilization': 0.42}}}})
+        done = json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hi'})
+        worker = {'command': ['claude', '-p', '--output-format', 'stream-json', '--verbose', '{prompt}'],
+                  'chat_output_format': 'claude-stream-json'}
+        tap = readers.UsageTap()
+        events = [json.dumps({'type': 'system'}), rate, done]
+        self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events), tap=tap)),
+                         ['Hi'])
+        self.assertEqual(tap.got, (42.0, None))
+        for bad in ([], [rate], [json.dumps({'type': 'result', 'subtype': 'error_max_turns', 'is_error': True})], ['not json']):
+            with self.subTest(bad=bad), self.assertRaises(chatrun.CursorStreamUncertain):
+                list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, lines=bad, **_kw: Process(lines)))
+        plain = dict(worker, command=['claude', '-p', '{prompt}'])
+        with self.assertRaises(ValueError):   # the format needs the flags that make claude print it
+            list(chatrun.cli_stream(plain, [], threading.Event(), popen=lambda *_a, **_kw: Process([])))
+
+    def test_a_chat_answer_records_the_usage_when_its_stream_ends(self):
+        from tutti import chatrun
+        calls = []
+        with mock.patch('tutti.readers.note_usage', side_effect=lambda cfg, worker, tap: calls.append(worker)):
+            self.assertEqual(list(chatrun.noting_usage({}, 'claude', None, iter(['a', 'b']))), ['a', 'b'])
+        self.assertEqual(calls, ['claude'])
+
     def test_progress_only_is_not_an_answer_and_never_runs_tool_payload(self):
         from tutti import chatrun
         job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})

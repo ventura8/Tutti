@@ -663,11 +663,31 @@ def rate_limit_used(lines):
     return found
 
 
+class UsageTap:
+    """Watches the lines of a headless claude run as they stream by and keeps the last weekly usage its stream-json carried
+    (rate_limit_used). Every place Tutti runs claude headless feeds one and then calls note_usage, so they all record the same
+    reading. A line without `rate_limit_event` costs one substring test; plain-text output never matches."""
+
+    def __init__(self):
+        self.got = None
+
+    def feed(self, line):
+        if 'rate_limit_event' in line:
+            self.got = rate_limit_used([line]) or self.got
+        return self
+
+    def feed_all(self, lines):
+        for line in lines:
+            self.feed(line)
+        return self
+
+
 def piggyback(cfg, worker, lines, now):
-    """The usage a headless claude run carried on its own messages, written into the reading file of the account that runs the
-    worker (accounts.<n>.reading_file): the reader's fallback, so a quota that only an interactive statusline fed keeps a
-    fresh reading. Returns the account's name, or None when the output carried none or no account has a reading file."""
-    got = rate_limit_used(lines)
+    """The usage a headless claude run carried on its own messages (`lines`: its output, or a UsageTap), written into the reading
+    file of the account that runs the worker (accounts.<n>.reading_file): the reader's fallback, so a quota that only an
+    interactive statusline fed keeps a fresh reading. Returns the account's name, or None when the output carried none or no
+    account has a reading file."""
+    got = lines.got if isinstance(lines, UsageTap) else rate_limit_used(lines)
     if not got:
         return None
     for name, a in cfg['accounts'].items():
@@ -688,6 +708,17 @@ def piggyback(cfg, worker, lines, now):
         os.replace(tmp, f)
         return name
     return None
+
+
+def note_usage(cfg, worker, source, say=None, now=None):
+    """The one call after any headless claude run: its usage (a UsageTap, or the output's lines) into the reading file of the
+    worker's account. A reading file that cannot be written is said, never raised: a usage reading must not fail a run."""
+    say = say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))
+    try:
+        return piggyback(cfg, worker, source, now or datetime.now(timezone.utc))
+    except (OSError, KeyError, TypeError) as e:
+        say(f'could not record the usage {worker} reported into its reading file ({e}); check accounts.<n>.reading_file')
+        return None
 
 
 def parse_reading_file(text, account=None):

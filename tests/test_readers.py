@@ -370,6 +370,37 @@ class RetryAndPiggybackTest(unittest.TestCase):
         self.assertFalse(os.path.exists(f))
 
 
+    def test_the_tap_keeps_the_last_usage_of_a_stream_and_ignores_plain_text(self):
+        tap = readers.UsageTap().feed_all(['hello', self.event(0.2), 'rate_limit_event {', self.event(0.4), 'bye'])
+        self.assertEqual(tap.got, (40.0, None))
+        self.assertIsNone(readers.UsageTap().feed_all(['plain', 'text']).got)
+
+    def test_note_usage_says_a_reading_file_it_cannot_write_and_never_raises(self):
+        cfg = {'accounts': {'claude': {'worker': 'claude', 'reading_file': os.path.join(self.tmp.name, 'no-such-folder', 'u.json')}}}
+        said = []
+        self.assertIsNone(readers.note_usage(cfg, 'claude', readers.UsageTap().feed_all([self.event(0.5)]), said.append, NOW))
+        self.assertIn('check accounts.<n>.reading_file', said[0])
+
+    def test_a_delegated_claude_worker_records_its_usage_as_it_streams(self):
+        f = os.path.join(self.tmp.name, 'u.json')
+        script = os.path.join(self.tmp.name, 'fake-claude')
+        with open(script, 'w', encoding='utf8') as fh:
+            fh.write(f'import sys\nprint({self.event(0.25)!r})\nprint("done")\n')
+        cfg = cfg_of(self.tmp.name, {'claude': {'worker': 'claude', 'reading_file': f}},
+                     {'claude': {'kind': 'cli', 'command': [sys.executable, script, '{prompt}']}})
+        rc, _lines = workers.run(cfg, 'claude', 'task', out=io.StringIO())
+        self.assertEqual(rc, 0)
+        with open(f, encoding='utf8') as fh:
+            self.assertEqual(json.load(fh)['claude']['used'], 25.0)
+
+    def test_a_plain_text_claude_worker_writes_no_reading(self):
+        f = os.path.join(self.tmp.name, 'u.json')
+        cfg = cfg_of(self.tmp.name, {'claude': {'worker': 'claude', 'reading_file': f}},
+                     {'claude': {'kind': 'cli', 'command': [sys.executable, '-c', 'print("hi")', '{prompt}']}})
+        self.assertEqual(workers.run(cfg, 'claude', 'task', out=io.StringIO())[0], 0)
+        self.assertFalse(os.path.exists(f))
+
+
 class ReadersTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

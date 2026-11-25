@@ -10,7 +10,7 @@ import subprocess
 import sys
 import urllib.request
 
-from . import config, inuse
+from . import config, inuse, readers
 
 STANDING = ['Work only inside the current directory.', 'Do not commit, push or deploy: leave your edits uncommitted for review.',
             'Do not read or print secrets (.env files, tokens, keys).',
@@ -222,24 +222,29 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None, reads
     argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd, [*guide_files(task), *reads])
     env = {**worker_env(cfg), **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
+    tap = readers.UsageTap()   # a claude worker whose command prints stream-json reports the weekly usage as it works
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)
     with inuse.using(config.state_dir(cfg), argv[0]), \
             subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, errors='replace', bufsize=1, env=env, start_new_session=os.name != 'nt') as p:
         try:
-            stopped = pass_through(p, out, kept, watch)
+            stopped = pass_through(p, out, kept, watch, tap)
         except KeyboardInterrupt:   # its own session gets no Ctrl-C from the terminal: it is ended with us
             stop_tree(p)
             raise
+        finally:
+            readers.note_usage(cfg, name, tap)
     return (COMPACT_RC if stopped else p.returncode), list(kept)
 
 
-def pass_through(p, out, kept, watch):
+def pass_through(p, out, kept, watch, tap=None):
     """The CLI's output passed through and kept; True when it was stopped at the autocompact threshold."""
     for line in p.stdout:
         out.write(line)
         out.flush()
         kept.append(line.rstrip('\n'))
+        if tap:
+            tap.feed(line)
         if watch.line(line) and p.poll() is None:   # only a run still going is stopped; a final status line is not
             stop_tree(p)   # the CLI and everything it started: no child outlives the stop (t128)
             try:

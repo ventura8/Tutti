@@ -148,5 +148,5 @@ main:
 subagent in `~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`. A subagent is live while its transcript has not
 ended (no final answer, no delivered report) and was written to within `agents.subagent_active_seconds` (default 900, so one that
 waits on background work still counts, and a crashed one stops counting after a quarter of an hour). It is a heuristic from files,
-not an API. Without `--session` it takes the newest session of the current directory's project. It prints each live subagent and
+not an API. Without `--session` it counts the calling session (`CLAUDE_CODE_SESSION_ID`, set in every command a Claude Code session runs); only outside a session does it take the newest session of the current directory's project. It prints each live subagent and
 a verdict, and exits 0 under the limit, 1 at or over it, 2 when no session is found. Start a new subagent only on exit 0.

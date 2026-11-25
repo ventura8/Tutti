@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- `tutti agents count` counts the calling Claude Code session (`CLAUDE_CODE_SESSION_ID`), not the newest transcript of
+  the current directory, which could be another session.
 - agy's read grant for a guide file named in a brief (`workers.guide_files`) also takes `$HOME/...` and paths relative to the
   repo (`.tutti-state/runs/x.log`, tried against the worktree and the checkout it belongs to), with the same safety: the real
   path under a `.tutti-state` folder, no `..`, an existing file, an allowed suffix, read only.

@@ -112,6 +112,7 @@ include tests/test_audit_lows.py
 include tests/test_auth.py
 include tests/test_auto_spread.py
 include tests/test_autopilot.py
+include tests/test_backlog_show.py
 include tests/test_backup.py
 include tests/test_brain.py
 include tests/test_brain_more.py

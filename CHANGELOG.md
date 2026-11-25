@@ -1,6 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `tutti backlog show <id> [--json]` prints one task's full record (id, title, status, repo, size, priority, scope, check,
+  depends_on, description, notes, and every attempt with its reason); an unknown id exits 2. `tutti run <worker> "<task>" --repo`
+  now appends the full text (capped at 8000 characters each) of every backlog task the task text names (`t123`; ids that do not
+  exist are ignored), under "Backlog task t123 (full text):", so a worker needs no tool call to read it.
+
 ## 0.31.27 (2026-11-25)
+
+### Added
 
 ### Fixed
 

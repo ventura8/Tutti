@@ -1667,17 +1667,18 @@ usage: tutti handoff [-h] {done,next} text
 
 ### `tutti backlog`
 
-the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> (FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, accept <id> (a suggested candidate)
+the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> (FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, accept <id> (a suggested candidate), show <id> [--json] (the full record)
 
 ```text
 usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
-                     [--all] [--on ON] [--with TOGETHER] [--merged-into MERGED_INTO]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board} [repo] [title]
+                     [--all] [--json] [--on ON] [--with TOGETHER] [--merged-into MERGED_INTO]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board,show} [repo]
+                     [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board}` |  |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board,show}` |  |  |
 | `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |
@@ -1687,6 +1688,7 @@ usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,
 | `--source` |  | `orchestrator` |
 | `--note` | a note for the worker (retry: the reviewer's notes) |  |
 | `--all` | list: also done and dropped tasks |  |
+| `--json` | show: the task record as JSON |  |
 | `--on` | link: the tasks it depends on, comma-separated ("" clears) (t243) |  |
 | `--with` | link: the tasks that go together with it, comma-separated ("" clears) |  |
 | `--merged-into` | link: the task it was folded into ("" clears) |  |

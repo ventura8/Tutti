@@ -27,9 +27,12 @@ One queue in `<state>/backlog.json`, a task per line of work:
 | `attempts` | Every run: the step (account or worker), pass or fail, the failure's signature and words, its diff stat and output tail. |
 | `notes` | The reviewer's notes; every later attempt gets them. |
 
+Brief text that names a task (`t123`) in `tutti run <worker> "..." --repo <repo>` gets that task's full text appended under "Backlog task t123 (full text):" (8000 characters at most each; ids not in the backlog are ignored), so the worker needs no tool call to read it.
+
 ```bash
 tutti backlog add <repo> "<title>" --scope <path> --check "<command>" --size S
 tutti backlog list [--all]
+tutti backlog show <id> [--json]          # the full record: description, notes, every attempt with its reason
 tutti backlog seed <repo>                 # the repo's safe sources, each once
 tutti backlog retry <id> --note "<what to change>"   # back to the queue, a needs-person or review task too
 tutti backlog done <id>                   # accepted (you merged it)

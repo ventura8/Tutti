@@ -22,6 +22,11 @@
 - Chat: the model picker groups related models under one heading (local by machine, online by `workers.<name>.provider`
   or account), so models of one provider are easy to find and compare (t405, docs/CHAT.md).
 
+### Added
+
+- Dashboard: a Needs you view, first in the menu, with a count badge; the dashboard opens on it while it has items, and on Chat
+  otherwise (docs/DASHBOARD.md).
+
 ### Fixed
 
 - Base-broken detection never blames the base for an error in a file the worker added: such a failure goes back to the worker

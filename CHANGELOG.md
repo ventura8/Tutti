@@ -2,6 +2,11 @@
 
 ## 0.31.23 (2026-11-25)
 
+### Added
+
+- Dashboard: a Needs you view, first in the menu, with a count badge; the dashboard opens on it while it has items, and on Chat
+  otherwise (docs/DASHBOARD.md).
+
 ### Fixed
 
 - A worker's stream-json output (claude `--output-format stream-json`) is read as data by the limit scanner: an event line that
@@ -23,9 +28,6 @@
   or account), so models of one provider are easy to find and compare (t405, docs/CHAT.md).
 
 ### Added
-
-- Dashboard: a Needs you view, first in the menu, with a count badge; the dashboard opens on it while it has items, and on Chat
-  otherwise (docs/DASHBOARD.md).
 
 ### Fixed
 

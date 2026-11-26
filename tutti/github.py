@@ -436,9 +436,9 @@ class Done:
 
 
 VALUE_FLAGS = {'--repo', '--title', '--body', '--base', '--head', '--match-head-commit', '--json', '--jq', '--label',
-               '--body-file'}
+               '--body-file', '--state', '--limit', '--search', '--author'}
 SHORT = {'-R': '--repo', '-t': '--title', '-b': '--body', '-B': '--base', '-H': '--head', '-q': '--jq', '-l': '--label',
-         '-F': '--body-file'}
+         '-F': '--body-file', '-s': '--state', '-L': '--limit', '-S': '--search', '-A': '--author'}
 
 
 def flags(args):
@@ -485,6 +485,8 @@ def _pr(c, verb, f, pos, cwd):
         repo = f.get('--repo') or repo_of_worktree(cwd)
         return pr_create(c, repo, f.get('--head'), f.get('--base'), f.get('--title') or '', f.get('--body') or '',
                          bool(f.get('--draft'))) + '\n'
+    if verb not in ('ready', 'merge', 'view'):
+        raise NotCovered(verb)
     repo, number = _target(f, pos, cwd)
     if verb == 'ready':
         pr_ready(c, repo, number)

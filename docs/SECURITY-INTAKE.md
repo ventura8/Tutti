@@ -41,5 +41,6 @@ severity, the top reports, the bot pull requests and links to each repo's pull r
 
 - Dependabot alerts off, or `gh` without the `security_events` scope: the card names the repo and links
   `https://github.com/<o>/<r>/settings/security_analysis`, or says to run `gh auth refresh -s security_events`.
-- Code scanning not set up is not an error; the Security tab link leads to its setup.
+- GitHub's “no analysis found” response counts as zero code-scanning reports; other unreadable responses keep existing tasks.
+- An unreadable response names the source and suggests checking the response and retrying the scan.
 - Cursor's and Greptile's reviews appear only where their GitHub apps are installed on the repository.

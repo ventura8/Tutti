@@ -149,6 +149,11 @@ class GitHubTest(unittest.TestCase):
     def test_flags_and_an_unpinned_merge(self):
         self.assertEqual(github.flags(['--auto', 'https://x', '-R', 'o/r', '--json=state']),
                          ({'--auto': True, '--repo': 'o/r', '--json': 'state'}, ['https://x']))
+        # --state open must not become a positional PR number (the old int('open') failure)
+        f, pos = github.flags(['-R', 'o/r', '--state', 'open', '--limit', '500', '--json', 'number,title'])
+        self.assertEqual(f['--state'], 'open')
+        self.assertEqual(f['--limit'], '500')
+        self.assertEqual(pos, [])
         self.connect()
         seen = []
 
@@ -158,6 +163,11 @@ class GitHubTest(unittest.TestCase):
         github.run(['gh', 'pr', 'merge', 'https://github.com/o/r/pull/7', '--squash'], cfg=self.cfg, sub='u1', http=self.fake,
                    clock=self.clock, fallback=fallback)
         self.assertEqual(len(seen), 1)   # never merged through the API without the reviewed commit
+        argv = ['gh', 'pr', 'list', '-R', 'o/r', '--state', 'open', '--limit', '500', '--json', 'number,title']
+        got = github.run(argv, cfg=self.cfg, sub='u1', http=self.fake, clock=self.clock, fallback=fallback)
+        self.assertEqual(got.returncode, 0)
+        self.assertNotIn('invalid literal for int()', got.stderr)
+        self.assertEqual(seen[-1], argv)  # unsupported list goes to gh, even with an App connection
         bad = github.run(['gh', 'pr', 'ready', 'not-a-number'], cfg=self.cfg, sub='u1', http=self.fake, clock=self.clock,
                          fallback=fallback)
         self.assertEqual(bad.returncode, 1)

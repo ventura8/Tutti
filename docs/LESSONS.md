@@ -1,5 +1,9 @@
 # Lessons
 
+GitHub command adapters must reject unsupported verbs before parsing verb-specific arguments: `pr list --state open`
+has no pull request number. Flags that take a value (`--state`, `--limit`) belong in the value-flag set so their
+argument is not treated as a pull request number. Exercise the adapter and a real `gh pr list --json` answer together.
+
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
 ## Untrusted text reached a command by a side door (security audit, 2026-11)

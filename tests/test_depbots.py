@@ -72,12 +72,76 @@ class DepbotsTest(unittest.TestCase):
         self.assertEqual(traversal['sources'], ['cursor', 'greptile'])         # one finding reported twice is one task
         self.assertEqual(scan['problems'], [])
 
+    def test_report_counts_for_each_repository(self):
+        scans = {name: {'slug': f'o/{name}', **depbots.read_repo(f'o/{name}', S, fake_gh())} for name in ('one', 'two')}
+        result = depbots.summary(scans, 1)
+        self.assertEqual([len(repo['prs']) for repo in result['repos']], [4, 4])
+        self.assertEqual([repo['alerts'] for repo in result['repos']], [3, 3])
+        self.assertEqual([sum(a['kind'] == 'dependabot' for a in scan['alerts']) for scan in scans.values()], [1, 1])
+
+    def test_real_gh_pr_list_json_is_parsed(self):
+        # Shape captured from `gh pr list --json number,title,headRefName,author,url,labels,statusCheckRollup`
+        # (names and urls rewritten to example placeholders; CheckRun fields kept as gh emits them).
+        raw = json.dumps([
+            {'author': {'id': 'BOT_ID', 'is_bot': True, 'login': 'app/dependabot', 'name': 'dependabot'},
+             'headRefName': 'dependabot/pip/ruff-0.17.4',
+             'labels': [{'id': 'LA_1', 'name': 'dependencies', 'description': 'Pull requests that update a dependency file',
+                         'color': '0366d6'}],
+             'number': 41,
+             'statusCheckRollup': [
+                 {'__typename': 'CheckRun', 'completedAt': '2026-11-17T12:44:51Z', 'conclusion': 'SUCCESS',
+                  'detailsUrl': 'https://github.com/o/r/actions/runs/1/job/1', 'name': 'test',
+                  'startedAt': '2026-11-17T12:42:30Z', 'status': 'COMPLETED', 'workflowName': 'CI'}],
+             'title': 'Bump ruff from 0.17.2 to 0.17.4', 'url': 'https://github.com/o/r/pull/41'},
+            {'author': {'id': 'BOT_ID2', 'is_bot': True, 'login': 'cursor[bot]', 'name': 'cursor'},
+             'headRefName': 'cursor/anybump-lodash', 'labels': [], 'number': 42,
+             'statusCheckRollup': [
+                 {'__typename': 'CheckRun', 'completedAt': '2026-11-17T12:45:04Z', 'conclusion': 'FAILURE',
+                  'detailsUrl': 'https://github.com/o/r/actions/runs/2/job/2', 'name': 'lint',
+                  'startedAt': '2026-11-17T12:42:29Z', 'status': 'COMPLETED', 'workflowName': 'CI'}],
+             'title': 'Upgrade lodash to fix CVE-2026-1', 'url': 'https://github.com/o/r/pull/42'},
+            {'author': {'id': 'USER_ID', 'is_bot': False, 'login': 'someone', 'name': 'Someone'},
+             'headRefName': 'feat/docs', 'labels': [], 'number': 43, 'statusCheckRollup': [],
+             'title': 'docs: clarify the security card', 'url': 'https://github.com/o/r/pull/43'},
+        ])
+
+        def gh_fn(args):
+            if args[0] == 'pr':
+                self.assertEqual(args[1:6], ['list', '-R', 'o/r', '--state', 'open'])
+                return 0, raw, ''
+            return fake_gh(dep=[])(args)
+
+        scan = depbots.read_repo('o/r', S, gh_fn)
+        self.assertEqual([p['number'] for p in scan['prs']], [41, 42])
+        self.assertEqual([p['bot'] for p in scan['prs']], ['dependabot', 'cursor'])
+        self.assertTrue(scan['prs'][1]['failing'])
+        self.assertIn('prs', scan['read'])
+        self.assertEqual(scan['problems'], [])
+        self.assertEqual(sum(a['kind'] == 'dependabot' for a in scan['alerts']), 0)
+
+    def test_non_list_pr_response_is_not_an_auth_error(self):
+        def bad_pr(args):
+            return (0, '{"message":"bad response"}', '') if args[0] == 'pr' else fake_gh()(args)
+
+        scan = depbots.read_repo('o/r', S, bad_pr)
+        self.assertNotIn('prs', scan['read'])
+        self.assertIn('expected a list', scan['problems'][0])
+        self.assertNotIn('gh auth', scan['problems'][0])
+        parse_err = depbots.problem('pull requests', 'o/r', "invalid literal for int() with base 10: 'open'")
+        self.assertIn('invalid literal', parse_err)
+        self.assertNotIn('gh auth', parse_err)
+
     def test_unreadable_alerts_name_the_fix(self):
         scan = depbots.read_repo('o/r', S, fake_gh({'dependabot': 'HTTP 403: Dependabot alerts are disabled',
                                                    'code-scanning': 'HTTP 404: no analysis found'}))
         self.assertEqual(len(scan['problems']), 1)
         self.assertIn('https://github.com/o/r/settings/security_analysis', scan['problems'][0])
         self.assertFalse(scan['code_scanning'])
+        self.assertIn('code-scanning', scan['read'])
+        self.assertEqual(len(scan['alerts']), 1)  # the review finding; no code-scanning reports
+        missing = depbots.read_repo('o/r', S, fake_gh({'code-scanning': 'HTTP 404: Not Found'}))
+        self.assertNotIn('code-scanning', missing['read'])
+        self.assertTrue(missing['problems'])
 
     def test_tasks_group_trivial_and_drop_when_gone(self):
         with tempfile.TemporaryDirectory() as d:
@@ -147,6 +211,7 @@ class PartialReadTest(unittest.TestCase):
         scan = depbots.read_repo('o/r', S, broken)
         self.assertNotIn('prs', scan['read'])
         self.assertIn('unreadable', scan['problems'][0])
+        self.assertNotIn('gh auth', scan['problems'][0])
         tidy = [{'user': {'login': 'cursor[bot]'}, 'body': 'A high-level note on the CVE-2026-2 handling', 'position': 1}]
         self.assertEqual(depbots.from_comments(tidy, S['scanners'])[0]['severity'], 2)   # "high-level" is not a label
         pr = {'title': 'Update the README', 'headRefName': 'cursor/update-readme', 'author': {'login': 'cursor[bot]'}}

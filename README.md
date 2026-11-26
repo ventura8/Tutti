@@ -161,6 +161,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md): several users in one household: users, the coordinator, leases, fair shares, the threat model and the migration.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.
+- [docs/HOSTS.md](docs/HOSTS.md): single-board computers and Raspberry Pi host setup and roles.
 - [docs/GITHUB.md](docs/GITHUB.md): Connect GitHub, the token, which connection a call uses, the official App.
 - [docs/REPORT.md](docs/REPORT.md): Report a problem, what the report holds and where it goes.
 - [docs/PRIVACY.md](docs/PRIVACY.md) and [docs/TERMS.md](docs/TERMS.md): the privacy policy and terms (also on <https://ventura8.github.io/Tutti/>).

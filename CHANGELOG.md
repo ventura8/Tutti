@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- Raspberry Pi host support: `tutti/remote.py` probes `vcgencmd measure_temp` and `vcgencmd get_throttled` when available,
+  `routing.parse_probe` parses the trailing throttling flag without shifting existing probe fields, and `docs/HOSTS.md`
+  documents Pi setup and roles.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

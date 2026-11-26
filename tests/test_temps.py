@@ -16,6 +16,22 @@ class TempsTest(unittest.TestCase):
         self.assertEqual(routing.parse_probe('1 0.5 8 0 0 -').hottest(), (None, ''))
         self.assertIsNone(routing.parse_probe('1 0.5 8 0 0 junk').gpu_temp)
 
+    def test_the_probe_line_carries_throttling(self):
+        p = routing.parse_probe('1 0.5 8 0 71000 58 4.0 - 20.0 1')
+        self.assertTrue(p.throttling)
+        self.assertEqual(p.mem_gb, 4.0)
+        self.assertEqual(p.disk_gb, 20.0)
+        self.assertFalse(routing.parse_probe('1 0.5 8 0 0 - 4.0 - 20.0 0').throttling)
+        self.assertIsNone(routing.parse_probe('1 0.5 8 0 0 - 4.0 - 20.0 -').throttling)
+        self.assertIsNone(routing.parse_probe('1 0.5 8 0 0 - 4.0 - 20.0 junk').throttling)
+        self.assertIsNone(routing.parse_probe('1 0.5 8 0 0 -').throttling)
+
+    def test_probe_script_checks_vcgencmd(self):
+        m = {'slots': 1, 'yield_file': '~/.tutti-yield', 'lock_dir': '/tmp/tutti-locks', 'lock_prefix': 'tutti-slot-'}
+        script = remote.probe_script(m)
+        self.assertIn('vcgencmd measure_temp', script)
+        self.assertIn('vcgencmd get_throttled', script)
+
     def test_a_hot_gpu_refuses_a_run(self):
         m = {'slots': 2, 'heat': {'cap_c': 85, 'stop_c': 98}}
         self.assertIn('too hot: GPU 99 C', routing.unfit(m, routing.parse_probe('2 0.1 8 0 40000 99')))

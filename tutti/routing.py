@@ -22,6 +22,7 @@ class Probe:
     mem_gb: float | None = None    # free memory (MemAvailable) in GB, None when unreadable
     idle_s: float | None = None    # seconds since a person last used it (graphical session, Windows console); None: nobody
     disk_gb: float | None = None   # the least free space on its work disks (home, a WSL machine's C:), None when unreadable
+    throttling: bool | None = None  # whether the CPU is throttled (e.g. Raspberry Pi)
 
     def hottest(self):
         """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""
@@ -77,18 +78,27 @@ def without_gpu_text(parts):
     return parts[:5] + ['-'] + parts[end:]
 
 
+def _opt_float(parts, index):
+    return float(parts[index]) if len(parts) > index and parts[index] != '-' else None
+
+
+def _opt_flag(parts, index):
+    return parts[index] == '1' if len(parts) > index and parts[index] in ('0', '1') else None
+
+
 def parse_probe(text):
-    """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees> [<GPU degrees or ->]]`; anything else means
-    the machine did not answer. The temperatures are optional: an older probe (or a machine without sensors) leaves them out."""
+    """The probe script prints `<free> <load> <cores> <yield 0|1>` followed by optional
+    `[<millidegrees> [<GPU degrees or -> [<mem> [<idle> [<disk> [<throttled>]]]]]]`;
+    anything else means the machine did not answer. Trailing fields are optional: an older probe leaves them out."""
     parts = without_gpu_text((text or '').split())
     try:
         temp = parse_temp(parts[4] if len(parts) > 4 else None)
         gpu = parse_gpu_temp(parts[5] if len(parts) > 5 else None)
-        mem = float(parts[6]) if len(parts) > 6 and parts[6] != '-' else None
-        idle = float(parts[7]) if len(parts) > 7 and parts[7] != '-' else None
-        disk = float(parts[8]) if len(parts) > 8 and parts[8] != '-' else None
-        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp, gpu_temp=gpu, mem_gb=mem,
-                     idle_s=idle, disk_gb=disk)
+        return Probe(
+            True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp,
+            throttling=_opt_flag(parts, 9), gpu_temp=gpu, mem_gb=_opt_float(parts, 6),
+            idle_s=_opt_float(parts, 7), disk_gb=_opt_float(parts, 8),
+        )
     except (IndexError, ValueError):
         return Probe()
 

@@ -159,6 +159,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/INSTALL.md](docs/INSTALL.md): the one-line install per OS, `tutti setup`, updates, uv and pipx, and the interface `household join` uses.
 - [docs/NETWORK.md](docs/NETWORK.md): the LAN, your own VPN, or the optional Tailscale or WireGuard setup; adb transports; never public.
 - [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md): several users in one household: users, the coordinator, leases, fair shares, the threat model and the migration.
+- [docs/HOUSEHOLD_SIGNALS.md](docs/HOUSEHOLD_SIGNALS.md): whole-household and small-office signal audit, detection methods, aggregation plan, and privacy/security boundaries.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.
 - [docs/GITHUB.md](docs/GITHUB.md): Connect GitHub, the token, which connection a call uses, the official App.

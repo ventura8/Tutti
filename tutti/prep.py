@@ -321,6 +321,9 @@ def idle_seconds(device):
 def person_watch(device):
     """A background loop that notices a person: `getevent` sees only physical touches and keys (the test's own taps and
     Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
+    from . import procs
+    if not procs.daemons_allowed():
+        return ''
     p = person_path(device)
     one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
     loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'

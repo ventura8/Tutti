@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.23.7 (2026-11-17)
+
+### Fixed
+
+- Windows: LibreHardwareMonitor's winget install is pinned to 0.9.6 with SHA-256 hash verification;
+  presence helper tolerates minor Windows clock skew instead of falling back to query user.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

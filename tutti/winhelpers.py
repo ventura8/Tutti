@@ -4,16 +4,24 @@
   `%LOCALAPPDATA%\\tutti\\idle.txt` (`<seconds since last input> <locked 0|1> <unix time>`) every 30 s. GetLastInputInfo only
   answers for the session that calls it, and `query user` reports IDLE TIME `none` for a console session no matter how long
   nobody touched it (w5090, 2026-11-16: always "someone is at its keyboard"), so both the ssh session and `query user` are wrong;
-- LibreHardwareMonitor (winget, else choco), started minimised to the tray at logon by a scheduled task with highest
-  privileges (created once from the elevated ssh session: no prompt), with its web server on 127.0.0.1:8085 only, whose
-  data.json gives the CPU package temperature and power (0.9.x dropped the WMI namespace).
+  tolerates minor Windows clock skew instead of falling back to `query user`;
+- LibreHardwareMonitor (winget pinned to a specific version with hash verification, else choco), started minimised
+  to the tray at logon by a scheduled task with highest privileges (created once from the elevated ssh session: no prompt),
+  with its web server on 127.0.0.1:8085 only, whose data.json gives the CPU package temperature and power (0.9.x dropped WMI).
 
 `ensure(machine)` is idempotent and runs at most once an hour per machine."""
 import base64
 import json
+import logging
 import re
 import subprocess
 import time
+
+log = logging.getLogger('tutti.winhelpers')
+
+LHM_VERSION = '0.9.6'
+LHM_HASH = 'FE216A48A48A6048156A133A39B960437D781A4C9214E5ABC0F26F666F61BA22'
+LHM_ZIP_HASH = '086D9F1B5A99E643EDC2CFAAAC16051685B551E4C5AC0B32A57C58C0E529C001'
 
 IDLE_PS1 = r'''Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -35,7 +43,7 @@ LHM_CONFIG = ('<?xml version="1.0" encoding="utf-8"?><configuration><appSettings
               '<add key="minCloseMenuItem" value="true" /><add key="runWebServerMenuItem" value="true" />'
               '<add key="listenerIp" value="127.0.0.1" /><add key="listenerPort" value="8085" /></appSettings></configuration>')
 
-SETUP = r'''$ErrorActionPreference = 'Continue'; $ProgressPreference = 'SilentlyContinue'
+SETUP_TEMPLATE = r'''$ErrorActionPreference = 'Continue'; $ProgressPreference = 'SilentlyContinue'
 $d = Join-Path $env:LOCALAPPDATA 'tutti'; New-Item -ItemType Directory -Force $d | Out-Null
 $ps1 = Join-Path $d 'idle.ps1'
 [IO.File]::WriteAllText($ps1, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__IDLE__')))
@@ -55,11 +63,18 @@ function FindLhm { Get-ChildItem -Recurse -Filter LibreHardwareMonitor.exe -Erro
     "$env:ProgramData\chocolatey\lib" | Select-Object -First 1 -ExpandProperty FullName }
 $exe = FindLhm
 if (-not $exe) {
-    winget install --id LibreHardwareMonitor.LibreHardwareMonitor -e --silent --source winget --disable-interactivity `
-        --accept-package-agreements --accept-source-agreements | Out-Null
-    if ($LASTEXITCODE -ne 0 -and (Get-Command choco -ErrorAction SilentlyContinue)) {
-        choco install librehardwaremonitor -y --no-progress | Out-Null }
+    winget install --id LibreHardwareMonitor.LibreHardwareMonitor --version __LHM_VER__ -e --silent --source winget `
+        --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        winget pin add --id LibreHardwareMonitor.LibreHardwareMonitor --version __LHM_VER__ | Out-Null
+    } else {
+        'winget version __LHM_VER__ not found or failed'
+        if (Get-Command choco -ErrorAction SilentlyContinue) {
+            choco install librehardwaremonitor -y --no-progress | Out-Null }
+    }
     $exe = FindLhm
+    if ($exe -and (Get-FileHash $exe -Algorithm SHA256).Hash -ne '__LHM_HASH__') {
+        'LibreHardwareMonitor hash mismatch'; $exe = $null }
 }
 if ($exe) {
     $cfg = Join-Path (Split-Path $exe) 'LibreHardwareMonitor.config'
@@ -74,11 +89,14 @@ if ($exe) {
 } else { 'no LibreHardwareMonitor: winget and choco failed' }
 '''
 
+SETUP = SETUP_TEMPLATE.replace('__LHM_VER__', LHM_VERSION).replace('__LHM_HASH__', LHM_HASH)
+
 READ_LHM = 'curl.exe -s --max-time 5 http://127.0.0.1:8085/data.json'
 READ_IDLE = 'type "%LOCALAPPDATA%\\tutti\\idle.txt"'
 EVERY = 3600
 RETRY = 600
 STALE = 120
+SKEW = 3600
 _done = {}
 
 
@@ -89,20 +107,34 @@ def setup_script():
     return f"iex ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{base64.b64encode(body.encode()).decode()}')))\n"
 
 
+def _run_setup(machine, run):
+    from . import remote
+    run = run or subprocess.run
+    try:
+        # on stdin: the encoded form is longer than cmd.exe's 8191-character line
+        return run([*remote.SSH, *remote.QUICK, machine['host'],
+                    'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -'],
+                   input=setup_script(), capture_output=True, text=True, timeout=600, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _log_lines(machine_name, text):
+    if isinstance(text, str):
+        for line in text.splitlines():
+            s = line.strip()
+            if s:
+                log.info('%s: %s', machine_name, s)
+
+
 def ensure(machine, run=None, clock=time.time):
     """Install and start the presence helper and LibreHardwareMonitor on the machine's Windows side; at most once an hour."""
     if clock() - _done.get(machine['name'], -EVERY) < EVERY:
         return None
     _done[machine['name']] = clock()
-    from . import remote
-    run = run or subprocess.run
-    try:
-        # on stdin: the encoded form is longer than cmd.exe's 8191-character line
-        r = run([*remote.SSH, *remote.QUICK, machine['host'], 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -'],
-                input=setup_script(), capture_output=True, text=True, timeout=600, check=False)
-    except (OSError, subprocess.SubprocessError):
-        r = None
-    if r is None or r.returncode != 0:
+    r = _run_setup(machine, run)
+    _log_lines(machine['name'], getattr(r, 'stdout', None))
+    if not r or r.returncode != 0:
         _done[machine['name']] = clock() - EVERY + RETRY   # failed: try again in RETRY s, not an hour
         return None
     return r.returncode
@@ -110,13 +142,13 @@ def ensure(machine, run=None, clock=time.time):
 
 def parse_idle(text, now):
     """Seconds since the console person's last input from idle.txt; None when locked (away) or the file is stale/missing;
-    False when nothing usable was read (fall back to `query user`)."""
+    False when nothing usable was read (fall back to `query user`). Tolerates minor Windows clock skew."""
     parts = (text or '').split()
     try:
         idle, locked, at = float(parts[0]), parts[1] == '1', float(parts[2])
     except (IndexError, ValueError):
         return False
-    if now - at > STALE:
+    if not (-SKEW <= now - at <= STALE + SKEW):
         return False
     return None if locked else idle
 

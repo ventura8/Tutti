@@ -1288,7 +1288,7 @@ def backlog_change(cfg, a, data):
     if a.action == 'add':
         repo = repo_of(cfg, a.repo)
         task, new = backlog.add(data, backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
-                                                       a.source, a.note or []))
+                                                       a.source, a.note or [], difficulty=a.difficulty, runner=a.runner))
         print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
     elif a.action == 'seed':
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
@@ -1312,9 +1312,12 @@ def task_change(task, a):
     elif a.action == 'retry':
         task['notes'] = [*task.get('notes', []), *(a.note or [])]
         task.update(status='queued', parked=None)
+    elif a.action == 'update':
+        backlog.update(task, difficulty=a.difficulty, runner=a.runner)
     else:
         task.update(status='dropped' if a.action == 'rm' else 'done', closed_at=time.time())
-    print(f'{task["id"]}: {task["status"]}')
+    print(f'{task["id"]}: {task["status"]}' +
+          (f' difficulty={task.get("difficulty")} runner={task.get("runner")}' if a.action == 'update' else ''))
 
 
 def session_change(task, a):
@@ -1966,14 +1969,16 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
-    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
-                                           'the task id')
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'update'])
+    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, '
+                                           'release, note, update: the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
     s.add_argument('title', nargs='?')
     s.add_argument('--scope', action='append', metavar='PATH', help='a path the task may change (repeat it)')
     s.add_argument('--check', help='the acceptance check (default: the repo\'s check)')
     s.add_argument('--size', default='S', choices=list(backlog.SIZES))
+    s.add_argument('--difficulty', choices=['easy', 'medium', 'hard'])
+    s.add_argument('--runner', choices=['local', 'online', 'both'])
     s.add_argument('--source', default='orchestrator')
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')

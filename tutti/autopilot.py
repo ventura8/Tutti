@@ -272,11 +272,13 @@ def _candidates(cfg, t, over='', machines=()):
         # another member's project, adopted for spare room (accounts.<n>.share_spare): only the accounts whose room would
         # otherwise be lost at their reset (docs/HOUSEHOLD.md)
         return list(cfg.get('_spare_accounts', ()))
-    locals_ = fleet.order(cfg, [n for n in steps if is_local(cfg, n)], t, machines) if has_files(t) else []
+    runner = t.get('runner') or 'both'
+    locals_ = fleet.order(cfg, [n for n in steps if is_local(cfg, n)], t, machines) if has_files(t) and runner != 'online' else []
     if not t['attempts']:
         trig = trigger_accounts(cfg)
         online = [n for n in steps if n in trig] + [n for n in trig if n not in steps]
-        return locals_ + online if over else online + locals_
+        local_first = bool(over) or (t.get('difficulty') == 'easy' and runner == 'local')
+        return locals_ + online if local_first else online + locals_
     last = t['attempts'][-1]
     if is_local(cfg, last['step']) and not last['ok']:
         return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]

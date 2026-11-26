@@ -70,13 +70,45 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
-def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
+DIFFICULTIES = ('easy', 'medium', 'hard')
+RUNNERS = ('local', 'online', 'both')
+_SIZE_DIFF = {'S': 'easy', 'M': 'medium', 'L': 'hard'}
+_EASY_WORDS = ('test', 'lint', 'fix', 'readme', 'typo', 'doc', 'comment', 'typos', 'probe')
+_HARD_WORDS = ('refactor', 'new feature', 'design', 'architecture', 'migration', 'rework')
+_ONLINE_WORDS = ('browser', 'visual', 'screenshot', 'judgement', 'oauth', 'login')
+
+
+def _classify_task(title, size):
+    """Heuristic task classification into (difficulty, runner)."""
+    low = title.lower()
+    difficulty = _SIZE_DIFF.get(size, 'medium')
+    runner = 'local' if size == 'S' else 'both'
+    if any(k in low for k in _HARD_WORDS):
+        difficulty, runner = 'hard', 'both'
+    elif any(k in low for k in _EASY_WORDS):
+        difficulty = 'easy'
+    if any(k in low for k in _ONLINE_WORDS):
+        runner = 'online'
+    return difficulty, runner
+
+
+def _validate_classification(difficulty, runner):
+    if difficulty is not None and difficulty not in DIFFICULTIES:
+        raise BacklogError(f'difficulty "{difficulty}": use easy, medium, or hard')
+    if runner is not None and runner not in RUNNERS:
+        raise BacklogError(f'runner "{runner}": use local, online, or both')
+
+
+def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=(), difficulty=None, runner=None):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
     if not title.strip():
         raise BacklogError('a task needs a title that says what to change')
+    _validate_classification(difficulty, runner)
+    d, r = _classify_task(title, size)
     return {'repo': repo, 'title': title.strip()[:300], 'scope': [s for s in scope if s], 'check': check, 'size': size,
-            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time()}
+            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time(),
+            'difficulty': difficulty or d, 'runner': runner or r}
 
 
 def add(data, task):
@@ -97,6 +129,15 @@ def find(data, task_id):
     raise BacklogError(f'no task "{task_id}" in the backlog: `tutti backlog list --all` shows every id')
 
 
+def update(task, difficulty=None, runner=None):
+    """Updates the difficulty or runner of a task."""
+    _validate_classification(difficulty, runner)
+    if difficulty is not None:
+        task['difficulty'] = difficulty
+    if runner is not None:
+        task['runner'] = runner
+
+
 def is_question(t):
     """A research question for a scout (its title starts with `scout:` or `research:`): never a worker's task
     (tutti/spendrest.py). The autopilot's "needs research" items are added this way."""
@@ -114,7 +155,9 @@ def listing(data, show_all=False):
         if not show_all and t['status'] in ('done', 'dropped'):
             continue
         tries = len(t['attempts'])
-        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s)  {t["title"][:90]}')
+        diff = t.get('difficulty', '?')
+        run = t.get('runner', '?')
+        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s) {diff:6} {run:6} {t["title"][:70]}')
         if t.get('parked'):
             rows.append(f'      needs a person: {t["parked"]}')
     return '\n'.join(rows) or 'the backlog is empty: tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>'

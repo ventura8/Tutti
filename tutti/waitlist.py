@@ -12,7 +12,7 @@ import time
 
 from . import autopilot, backlog, config, dispatch, scouts
 
-ACTIONS = ('run', 'move', 'cancel', 'up', 'down')
+ACTIONS = ('run', 'move', 'cancel', 'up', 'down', 'classify')
 
 
 def _project(cfg, name):
@@ -30,7 +30,8 @@ def task_items(cfg, tasks, last):
         steps = autopilot.candidates(cfg, t) if t['repo'] in autopilot.settings(cfg)['repos'] else []
         to = t.get('prefer') or (steps[0] if steps else 'no ladder step')
         out.append({**_project(cfg, config.project_of_repo(cfg, t['repo'])), 'kind': 'task', 'id': t['id'], 'title': t['title'][:160],
-                    'size': t.get('size') or 'S', 'to': to, 'eta': 'the next round' if not waiting.get(t['id']) else 'when it clears',
+                    'size': t.get('size') or 'S', 'difficulty': t.get('difficulty', '?'), 'runner': t.get('runner', '?'),
+                    'to': to, 'eta': 'the next round' if not waiting.get(t['id']) else 'when it clears',
                     'why': waiting.get(t['id']) or reason, 'rank': t.get('rank', 0), 'urgent': bool(t.get('urgent')),
                     'actions': list(ACTIONS)})
     return out
@@ -101,36 +102,62 @@ def view(cfg, where=None, running=0, can_act=True, now=None):
             'header': f'{running} running · {len(items)} queued'}
 
 
+def _cancel_scout(cfg, tid):
+    with scouts.locked(cfg) as d:
+        r = next((x for x in d['requests'] if x['id'] == tid and x['status'] == 'queued'), None)
+        if not r:
+            return 404, {'error': f'no queued scout question {tid}: it may have gone out already (refresh the page)'}
+        r.update(status='dropped', why='cancelled from the dashboard')
+    return 200, {'ok': True}
+
+
+def _move_task(cfg, t, tid, to):
+    names = [n for n in autopilot.candidates(cfg, {**t, 'prefer': None})]   # only where the task may really go now
+    if to not in names:
+        return 400, {'error': f'move {tid} to one of {", ".join(dict.fromkeys(names)) or "(no ladder step)"}'}
+    t['prefer'] = to
+    return None
+
+
+def _classify_task(t, data):
+    try:
+        backlog.update(t, difficulty=data.get('difficulty'), runner=data.get('runner'))
+    except backlog.BacklogError as e:
+        return 400, {'error': str(e)}
+    return None
+
+
+def _apply_task_action(cfg, t, tid, action, data):
+    if action == 'move':
+        return _move_task(cfg, t, tid, data.get('to'))
+    if action == 'classify':
+        return _classify_task(t, data)
+    if action == 'cancel':
+        t['status'] = 'dropped'
+        t['notes'] = [*t.get('notes', []), 'cancelled from the dashboard\'s Queued list']
+    elif action == 'run':
+        t['urgent'] = True
+    else:
+        t['rank'] = t.get('rank', 0) + {'up': -1, 'down': 1}[action]
+    return None
+
+
 def act(cfg, data):
-    """(status, answer) of an admin's action: {kind: task, id, action: run|move|cancel|up|down, to?} or {kind: scout, id,
+    """(status, answer) of an admin's action: {kind: task, id, action: run|move|cancel|up|down|classify, to?} or {kind: scout, id,
     action: cancel}."""
     kind, tid, action = (data or {}).get('kind'), (data or {}).get('id'), (data or {}).get('action')
     if kind == 'scout' and action == 'cancel':
-        with scouts.locked(cfg) as d:
-            r = next((x for x in d['requests'] if x['id'] == tid and x['status'] == 'queued'), None)
-            if not r:
-                return 404, {'error': f'no queued scout question {tid}: it may have gone out already (refresh the page)'}
-            r.update(status='dropped', why='cancelled from the dashboard')
-        return 200, {'ok': True}
+        return _cancel_scout(cfg, tid)
     if kind != 'task' or action not in ACTIONS:
-        return 400, {'error': 'send {"kind": "task", "id": "t12", "action": "run|move|cancel|up|down", "to": "<account>"} '
+        return 400, {'error': 'send {"kind": "task", "id": "t12", "action": "run|move|cancel|up|down|classify", "to": "<account>"} '
                               'or {"kind": "scout", "id": "s3", "action": "cancel"}'}
     with backlog.locked(cfg) as d:
         t = next((x for x in d['tasks'] if x['id'] == tid and x['status'] == 'queued'), None)
         if not t:
             return 404, {'error': f'no queued task {tid}: it may have started or finished (refresh the page)'}
-        if action == 'move':
-            names = [n for n in autopilot.candidates(cfg, {**t, 'prefer': None})]   # only where the task may really go now
-            if data.get('to') not in names:
-                return 400, {'error': f'move {tid} to one of {", ".join(dict.fromkeys(names)) or "(no ladder step)"}'}
-            t['prefer'] = data['to']
-        elif action == 'cancel':
-            t['status'] = 'dropped'
-            t['notes'] = [*t.get('notes', []), 'cancelled from the dashboard\'s Queued list']
-        elif action == 'run':
-            t['urgent'] = True
-        else:
-            t['rank'] = t.get('rank', 0) + (-1 if action == 'up' else 1)
+        err = _apply_task_action(cfg, t, tid, action, data)
+        if err:
+            return err
     return 200, {'ok': True, 'task': tid, 'action': action}
 
 

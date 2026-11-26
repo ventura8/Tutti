@@ -133,7 +133,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/devices/move` | `{"to": "build1", "devices": ["pixel"], "dry_run": true}` | The plan (dry run, the default) or the move started (`tutti devices move`). |
 | `/api/move` | `{"action": "plan", "to": "build1"}`, `{"action": "move", "to": "build1", "jobs": "wait"\|"handover"}`, `{"action": "rollback"}` | Tutti itself to another machine (`tutti move`, docs/MOVE.md): the plan, or 202 when it started. |
 | `/api/work/move` | `{"job": "<id>", "to": "<target>"\|"auto", "bump": false}` or `{"evacuate": "<machine>"}` | `{"ok": true, "done": [...]}`; 409 when the job cannot move. |
-| `/api/queue` | `{"kind": "task", "id": "t12", "action": "run"\|"move"\|"cancel"\|"up"\|"down", "to": "<account>"}` or `{"kind": "scout", "id": "s3", "action": "cancel"}` | The Queued list's actions. 404: no such queued item. |
+| `/api/queue` | `{"kind": "task", "id": "t12", "action": "run"\|"move"\|"cancel"\|"up"\|"down"\|"classify", "to": "<account>", "difficulty": "easy"\|"medium"\|"hard", "runner": "local"\|"online"\|"both"}` or `{"kind": "scout", "id": "s3", "action": "cancel"}` | The Queued list's actions. 404: no such queued item. |
 | `/api/vpn` | `{"action": "status"}`, `{"action": "qr", "phone": "<name>"}`, `{"action": "router"}`, `{"action": "open-port", "consent": true}` | The private network card (`tutti vpn`). |
 | `/api/machine-limit` | `{"machine": "build1", "window": "18-01"\|"off", "pct": 60}` | A machine's limited-usage window, saved in the config. |
 | `/api/ai-assist` | `{"switch": "enabled", "on": true}` or `{"undo": "u1"}` | AI assist's switches and undo (`tutti ai-assist`). |

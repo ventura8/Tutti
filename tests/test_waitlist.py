@@ -77,7 +77,37 @@ let TOKEN = '', refresh = async () => {}, showBanner = () => {};
         self.assertIn('Waiting: agy-claude weekly binding until 12:55 (UTC+2)', out[0])
         self.assertIn('Tutti · priority 0 · 2 queued', out[0])
         self.assertIn('Run now', out[0])
+        self.assertIn('easy · local', out[0])
         self.assertEqual(out[1], '1 running · 3 queued')
+
+    def test_classification_defaults_overrides_and_ladder_routing(self):
+        t_easy = backlog.new_task('tutti', 'Fix typo in README', scope=['README.md'], size='S')
+        self.assertEqual((t_easy['difficulty'], t_easy['runner']), ('easy', 'local'))
+        t_hard = backlog.new_task('tutti', 'Refactor routing architecture', size='L')
+        self.assertEqual((t_hard['difficulty'], t_hard['runner']), ('hard', 'both'))
+        t_online = backlog.new_task('tutti', 'Visual browser check', size='S')
+        self.assertEqual(t_online['runner'], 'online')
+        with self.assertRaises(backlog.BacklogError):
+            backlog.new_task('tutti', 'Bad diff', difficulty='impossible')
+        with self.assertRaises(backlog.BacklogError):
+            backlog.new_task('tutti', 'Bad runner', runner='quantum')
+
+        code, _ = waitlist.act(self.cfg, {'kind': 'task', 'id': 't1', 'action': 'classify', 'difficulty': 'hard', 'runner': 'online'})
+        self.assertEqual(code, 200)
+        t1 = waitlist.view(self.cfg)['groups'][1]['items'][0]
+        self.assertEqual((t1['difficulty'], t1['runner']), ('hard', 'online'))
+        self.assertEqual(waitlist.act(self.cfg, {'kind': 'task', 'id': 't1', 'action': 'classify', 'difficulty': 'nope'})[0], 400)
+
+        local_cfg = config.normalise({
+            'project': {'state': os.path.join(self.tmp.name, 'state')},
+            'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']},
+                        'pc': {'kind': 'ollama', 'model': 'qwen', 'url': 'http://127.0.0.1:11434'}},
+            'accounts': {'agy-gemini': {'worker': 'agy'}},
+            'autopilot': {'enabled': True, 'accounts': ['agy-gemini'], 'ladder': ['agy-gemini', 'pc'],
+                          'repos': {'tutti': {'path': self.tmp.name, 'check': 'true'}}}})
+        self.assertEqual(autopilot.candidates(local_cfg, t_easy)[0], 'pc')
+        t_online_scoped = {**t_online, 'scope': ['README.md']}
+        self.assertNotIn('pc', autopilot.candidates(local_cfg, t_online_scoped))
 
 
 if __name__ == '__main__':

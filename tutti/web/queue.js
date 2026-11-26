@@ -24,14 +24,29 @@ function queueMove(it, ladder) {
         onclick: () => queueAction({ kind: it.kind, id: it.id, action: 'move', to: pick.value }, `${it.id} was not moved.`) })];
 }
 
+const DIFFICULTIES = ['easy', 'medium', 'hard'];
+const RUNNERS = ['local', 'online', 'both'];
+
+function queueClassify(it) {
+    const diff = el('select', { class: 'pick', 'aria-label': `Difficulty for ${it.id}` },
+        ...DIFFICULTIES.map((d) => el('option', { value: d, text: d, selected: d === it.difficulty })));
+    const run = el('select', { class: 'pick', 'aria-label': `Runner for ${it.id}` },
+        ...RUNNERS.map((r) => el('option', { value: r, text: r, selected: r === it.runner })));
+    return [diff, run, el('button', { class: 'btn btn--text', type: 'button', text: 'Save',
+        onclick: () => queueAction({ kind: it.kind, id: it.id, action: 'classify', difficulty: diff.value, runner: run.value },
+            `${it.id} was not updated.`) })];
+}
+
 function queueItem(it, ladder) {
-    const acts = (it.actions || []).filter((a) => a !== 'move').map((a) => el('button', { class: 'btn btn--text', type: 'button',
-        'data-queue-action': a, text: QUEUE_ACTIONS[a],
-        onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
+    const acts = (it.actions || []).filter((a) => a !== 'move' && a !== 'classify').map((a) => el('button',
+        { class: 'btn btn--text', type: 'button', 'data-queue-action': a, text: QUEUE_ACTIONS[a],
+            onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
     if ((it.actions || []).includes('move') && ladder.length) acts.push(...queueMove(it, ladder));
+    if ((it.actions || []).includes('classify')) acts.push(...queueClassify(it));
+    const cls = it.difficulty ? ` · ${it.difficulty} · ${it.runner}` : '';
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
         el('div', { class: 'row__name', text: `${it.title}` }),
-        el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · goes to ${it.to} · starts ${it.eta}` }),
+        el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size}${cls} · goes to ${it.to} · starts ${it.eta}` }),
         el('p', { class: 'row__note', 'data-why': '', text: `Waiting: ${it.why}` }),
         acts.length ? el('div', { class: 'row__stats' }, ...acts) : '');
 }

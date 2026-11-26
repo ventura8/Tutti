@@ -29,6 +29,15 @@ XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.e
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
 echo "check: installing Playwright's headless Chromium and system dependencies when needed"
+pw_has_chromium() {
+	python3 -c 'import os; from playwright.sync_api import sync_playwright; p = sync_playwright().start(); path = p.chromium.executable_path; p.stop(); raise SystemExit(0 if os.path.exists(path) else 1)' 2> /dev/null
+}
+if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && ! pw_has_chromium; then
+	if ! mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" 2> /dev/null || [ ! -w "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+		PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
+		export PLAYWRIGHT_BROWSERS_PATH
+	fi
+fi
 bash scripts/check-browser-install.sh
 echo "check: running dashboard browser tests"
 XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e

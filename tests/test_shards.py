@@ -163,7 +163,7 @@ class JudgeTest(Base):
             f.write('tutti: device ready\n')
         open(beat, 'w').close()
         cfg['dispatch']['call_poll_seconds'] = 0.05
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(1)'], start_new_session=True)
         lease = {'kind': 'android', 'name': 'tablet'}
         rc = dispatch.supervise(cfg, lease, dispatch.suites(cfg)[0], child, beat, look=lambda c, d: 0, log=log)
         self.assertTrue(rc.startswith(shards.REQUEUE))
@@ -178,7 +178,7 @@ class JudgeTest(Base):
             f.write('tutti: device ready\n')   # every device run is wrapped (devices.external_wrap) and prints it
         open(beat, 'w').close()
         cfg['dispatch']['call_poll_seconds'] = 0.05
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(1)'], start_new_session=True)
         rc = dispatch.supervise(cfg, {'kind': 'android', 'name': 'phone'}, dispatch.suites(cfg)[0], child, beat,
                                 look=lambda c, d: 0, log=log)
         self.assertTrue(rc.startswith(shards.REQUEUE))

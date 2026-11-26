@@ -210,6 +210,10 @@ class LeaseTest(Base):
                 os.remove(self.claim(w))
         self.bash(prep.release_script(self.d))
 
+    def test_lease_script_clears_lapsed_leases_under_the_lock(self):
+        script = prep.lease_script(self.d, self.claim(), 60, 'roradio')
+        self.assertLess(script.index('until mkdir '), script.index('tutti: device released'))
+
 
 class PersonTest(Base):
     """A person picks the device up during a run: Tutti stops, requeues, sends nothing, and undoes nothing of theirs."""

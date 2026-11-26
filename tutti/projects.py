@@ -1,8 +1,8 @@
 """The projects Tutti's work belongs to, for the dashboard: each job's folder (its working directory, its worktree) leads to a
 git repository, named by its remote (`.../bucurestiuldisparut.github.io.git` -> that name) or its folder. Every machine is
 also looked at, read-only, for processes working inside a git repository (a peer session's tests, its agent), its yield flag
-and its GPU, so a project Tutti did not start (another session's) still shows with its activity. Nothing is started or
-stopped here.
+and its GPU, so a project Tutti did not start (another session's) still shows with its activity. The look-around script runs
+inside remote.probe's one ssh call; probe_activity reads that stashed round. Nothing is started or stopped here.
 
 `projects:` in the config can name a project and say what belongs to it:
     projects: {RoRadio: {match: roradio, machines: [w5090], containers: [roradio-], windows: {w5090: 'C:\\Users\\me\\RoRadio'}}}
@@ -236,7 +236,10 @@ def parse_activity(text):
 
 
 def probe_activity(machine, timeout=25):
-    """What one machine is working on, or {'error': why}. Read-only."""
+    """What one machine is working on, from the last remote.probe() round, or a one-off ssh. Read-only."""
+    cached = remote.round_activity(machine)
+    if cached is not None:
+        return cached
     try:
         r = remote.sh(machine, activity_script(), capture=True, timeout=timeout, ssh_opts=('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes'))
     except (OSError, subprocess.SubprocessError) as e:

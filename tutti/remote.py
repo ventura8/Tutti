@@ -320,7 +320,60 @@ def windows_idle(machine, clock=time.time, timeout=20):
     return value
 
 
-def probe_script(machine):
+# Activity (projects) and power (energy) left by the last probe() per machine name: one ssh call carries all three.
+_probe_round = {}
+
+
+def stash_round(machine, activity, power):
+    name = machine.get('name')
+    if name:
+        _probe_round[name] = {'activity': activity, 'power': power}
+
+
+def round_activity(machine):
+    """Activity left by probe() for this machine, or None when it was not probed this round."""
+    hit = _probe_round.get(machine.get('name'))
+    return None if hit is None else hit['activity']
+
+
+def round_power(machine):
+    """Power reading left by probe() for this machine, or None when it was not probed this round."""
+    hit = _probe_round.get(machine.get('name'))
+    return None if hit is None else hit['power']
+
+
+def line_kind(line, in_power):
+    """('meta'|'activity'|'power', still_in_power) for one stdout line of the combined probe script."""
+    if line.startswith('== '):
+        return 'power', line.strip() != '== end'
+    if in_power:
+        return 'power', True
+    if line.startswith(('W\t', 'R\t')) or line.startswith('G '):
+        return 'activity', False
+    return 'meta', False
+
+
+def classify_body(body):
+    """(meta_lines, activity_text, power_text) from every line before the probe summary."""
+    meta, activity, power, in_power = [], [], [], False
+    for line in body:
+        kind, in_power = line_kind(line, in_power)
+        (power if kind == 'power' else activity if kind == 'activity' else meta).append(line)
+    return meta, '\n'.join(activity), '\n'.join(power)
+
+
+def split_round_stdout(text):
+    """(summary, meta_lines, activity_text, power_text) from a combined probe script's stdout."""
+    lines = (text or '').strip().splitlines()
+    if not lines:
+        return '', [], '', ''
+    meta, activity, power = classify_body(lines[:-1])
+    return lines[-1], meta, activity, power
+
+
+def probe_script(machine, ollama=''):
+    """Heat, idle, zone, containers; then projects.activity_script and energy.power_script; summary line last."""
+    from . import energy, projects
     y = home_path(machine['yield_file'])
     locks = ' '.join(shlex.quote(p) for p in lock_files(machine))
     return (f'n=0; for l in {locks}; do flock -n "$l" true 2>/dev/null && n=$((n+1)); done; '
@@ -336,7 +389,17 @@ def probe_script(machine):
             # free memory in GB (MemAvailable), `-` when unreadable: the autopilot's limit and the dashboard show it
             'm=$(awk \'/MemAvailable/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
             f'{IDLE}'
+            # projects + energy in the same call: their readers take these from round_activity / round_power.
+            # Both in subshells: activity's `exit 0` must not skip the summary; power_script's snap() sets `n` (hwmon
+            # name) without `local`, which would overwrite the free-slot count used on the summary line.
+            f'({projects.activity_script()}); '
+            f'({energy.power_script(ollama)}); '
             f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}} ${{i:--}}"')
+
+
+def probe_ollama(machine, ollama=''):
+    """The Ollama host:port to read on that machine for probe_script, explicit first."""
+    return ollama or str(machine.get('ollama') or '')
 
 
 def termux_readings(machine):
@@ -431,24 +494,39 @@ def household_probe(machine):
     return routing.Probe(True, int(m.get('grant', 0)), 0.0, int(m.get('slots') or 1))
 
 
-def probe(machine, timeout=20, windows_fn=None, idle_fn=None):
+def fill_round(p, machine, meta, activity_text, power_text):
+    """Containers, zone, Termux readings, activity and power from one probe script; stash for energy/projects."""
+    from . import devices, energy, projects
+    p.containers = [line[2:].strip() for line in meta if line.startswith('C ')]
+    p.zone = next((tz.parse_remote(line[2:]) for line in meta if line.startswith('Z ')), '')
+    if machine['transport'] == 'android':
+        p.readings = devices.parse_readings('\n'.join(meta), prefix='R ')
+    activity = projects.parse_activity(activity_text)
+    power = energy.parse_power(power_text) if '== end' in (power_text or '') else None
+    p.activity, p.power = activity, power
+    stash_round(machine, activity, power)
+    return p
+
+
+def probe(machine, timeout=40, windows_fn=None, idle_fn=None, ollama=''):
+    """One ssh call: heat/idle plus the activity and power readings energy and projects used to fetch alone."""
     if machine['transport'] == 'household':
         return household_probe(machine)
     if machine.get('via') and machine.get('_state'):   # only a client of this host reaches it (docs/MOVE.md, *The bridge*)
         from . import bridge
         return bridge.probe({'project': {'state': machine['_state']}}, machine['via'], machine.get('as') or machine['name'])
     try:
-        r = sh(machine, probe_script(machine), capture=True, timeout=timeout, ssh_opts=QUICK)
-    except (OSError, subprocess.SubprocessError):
+        r = sh(machine, probe_script(machine, probe_ollama(machine, ollama)), capture=True, timeout=timeout, ssh_opts=QUICK)
+    except (OSError, subprocess.SubprocessError) as e:
+        stash_round(machine, {'error': f'not looked at ({type(e).__name__}): the machine did not answer in {timeout} s'}, None)
         return routing.Probe()
+    if r.returncode != 0:
+        why = (r.stderr or '').strip()[:200]
+        stash_round(machine, {'error': f'the look-around script exited {r.returncode}: {why}'}, None)
+        return routing.Probe()
+    summary, meta, activity_text, power_text = split_round_stdout(r.stdout)
+    p = fill_round(routing.parse_probe(summary), machine, meta, activity_text, power_text)
     windows_fn = windows_fn or windows_temp
-    lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
-    p = routing.parse_probe(lines[-1] if lines else '')
-    p.containers = [line[2:].strip() for line in lines[:-1] if line.startswith('C ')]
-    p.zone = next((tz.parse_remote(line[2:]) for line in lines[:-1] if line.startswith('Z ')), '')
-    if machine['transport'] == 'android':
-        from . import devices
-        p.readings = devices.parse_readings('\n'.join(lines[:-1]), prefix='R ')
     if p.reachable and p.temp is None and machine['transport'] == 'wsl':
         p.temp, p.temp_note = windows_fn(machine)
     if p.reachable and machine['transport'] == 'wsl':   # the person is at Windows' console, not in WSL
@@ -633,8 +711,10 @@ def yield_note(machine):
 
 
 def power_readings(machine, ollama='', timeout=40):
-    """The machine's GPU and CPU power, read-only (tutti/energy.py, power_script); None when it does not answer."""
+    """The machine's GPU and CPU power from the last probe() round, else a one-off power_script ssh call."""
     from . import energy
+    if machine.get('name') in _probe_round:
+        return round_power(machine)
     try:
         r = sh(machine, energy.power_script(ollama), capture=True, timeout=timeout, ssh_opts=QUICK)
     except (OSError, subprocess.SubprocessError):

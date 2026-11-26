@@ -55,6 +55,32 @@ def wasted(events):
     return sorted(({'who': k, **v, 'minutes': round(v['minutes'], 1)} for k, v in out.items()), key=lambda x: -x['minutes'])
 
 
+def scheduling_gaps(events):
+    """Idle-with-work-queued gaps recorded on slot waits, autopilot gaps or delegated runs."""
+    count, total, peak = 0, 0.0, 0.0
+    for e in events:
+        if e.get('kind') != 'feature':
+            continue
+        gap = float(e.get('wait_minutes') or e.get('gap_minutes') or 0)
+        if gap > 0:
+            count += 1
+            total += gap
+            peak = max(peak, gap)
+    return {'count': count, 'minutes': round(total, 1), 'max_minutes': round(peak, 1)}
+
+
+def wasted_reruns(events):
+    """Repeated failed attempts on the same task or target: counts extra reruns beyond the first failure."""
+    out = defaultdict(lambda: {'runs': 0, 'minutes': 0.0})
+    for e in events:
+        if e.get('kind') == 'feature' and e.get('name') in ('autopilot.attempt', 'run.delegated') and e.get('outcome') != 'passed':
+            k = str(e.get('task') or e.get('account') or e.get('worker_kind') or 'unknown')
+            out[k]['runs'] += 1
+            out[k]['minutes'] += float(e.get('minutes') or 0)
+    rows = ({'target': k, 'reruns': v['runs'] - 1, 'minutes': round(v['minutes'], 1)} for k, v in out.items() if v['runs'] > 1)
+    return sorted(rows, key=lambda x: (-x['reruns'], -x['minutes']))
+
+
 def causes(events, names, field):
     return Counter(str(e.get(field) or 'unknown') for e in events if e.get('kind') == 'feature' and e.get('name') in names)
 
@@ -74,6 +100,8 @@ def summary(events, days=7, now=None):
         'slowest': [{'name': n, 'median_s': round(m, 1), 'p90_s': round(p, 1), 'runs': k} for n, m, p, k in slow[:TOP]],
         'most_failing': [{'name': n, 'failed': f, 'runs': r} for n, f, r in failing[:TOP]],
         'wasted': wasted(events)[:TOP],
+        'scheduling_gaps': scheduling_gaps(events),
+        'wasted_reruns': wasted_reruns(events)[:TOP],
         'stalls': [{'cause': c, 'count': k} for c, k in causes(events, ('wait.stall', 'job.stall'), 'cause').most_common(TOP)],
         'parked': [{'cause': c, 'count': k} for c, k in causes(events, ('autopilot.park',), 'cause').most_common(TOP)],
         'escalations': sum(1 for e in events if e.get('name') == 'autopilot.escalate'),
@@ -93,6 +121,9 @@ def lines(s):
     block('Slowest (median, p90)', s['slowest'], lambda r: f'{r["name"]}: {r["median_s"]} s, {r["p90_s"]} s over {r["runs"]} run(s)')
     block('Most failing', s['most_failing'], lambda r: f'{r["name"]}: {r["failed"]} of {r["runs"]}')
     block('Wasted quota (failed runs)', s['wasted'], lambda r: f'{r["who"]}: {r["runs"]} run(s), {r["minutes"]} min')
+    g = s.get('scheduling_gaps') or {'count': 0, 'minutes': 0.0, 'max_minutes': 0.0}
+    out.append(f'Scheduling gaps: {g["count"]} event(s), {g["minutes"]} min total, {g["max_minutes"]} min max')
+    block('Wasted reruns', s.get('wasted_reruns') or [], lambda r: f'{r["target"]}: {r["reruns"]} rerun(s), {r["minutes"]} min')
     block('Stall causes', s['stalls'], lambda r: f'{r["cause"]}: {r["count"]}')
     block('Parked tasks', s['parked'], lambda r: f'{r["cause"]}: {r["count"]}')
     out.append(f'Escalations up the ladder: {s["escalations"]}')

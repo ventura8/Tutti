@@ -75,7 +75,10 @@ while :; do
 		fi
 		exec 9< "$lock"   # flock needs no write access: the file is never truncated or written
 		if flock -n 9; then
-			until [ "$(avail_gb)" -ge "${MIN_FREE_GB:-6}" ]; do sleep 20; done
+			if [ "$(avail_gb)" -lt "${MIN_FREE_GB:-6}" ]; then
+				exec 9>&-
+				break
+			fi
 			if why=$(too_hot "$lock"); then
 				# said once per kind (too hot / hot), not at every degree
 				[ "${why%%:*}" = "$said" ] || echo "slot.sh: waiting, $why; it starts when the machine cools down" >&2
@@ -85,8 +88,24 @@ while :; do
 			fi
 			# the dashboard reads these two lines: queued (progress 0, "waiting for a slot"), then out of the queue
 			[[ -z "$queued" ]] || echo "slot.sh: got a slot" >&2
+			audit_script="$(dirname "$0")/audit.sh"
+			audit_pid=""
+			cleanup_audit() {
+				if [ -n "$audit_pid" ]; then
+					kill "$audit_pid" 2>/dev/null || true
+					wait "$audit_pid" 2>/dev/null || true
+					audit_pid=""
+				fi
+			}
+			if [ -x "$audit_script" ]; then
+				"$audit_script" $$ 9<&- >&2 &
+				audit_pid=$!
+				trap cleanup_audit EXIT TERM INT
+			fi
 			"$@"
-			exit $?
+			rc=$?
+			cleanup_audit
+			exit $rc
 		fi
 	done
 	if [[ -z "$queued" && -z "$said" ]]; then

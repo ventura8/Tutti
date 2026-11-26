@@ -73,18 +73,32 @@ def _touches(x, words):
     return any(w in text for w in words)
 
 
+def _brightness_value(device):
+    pct = device.get('brightness_pct')
+    return int((30 if pct is None else pct) / 100 * 255 + 0.5)
+
+
+def _apply_brightness(items_list, device, names):
+    if 'screen_brightness' in names:
+        return items_list
+    val = _brightness_value(device)
+    return [{**x, 'value': val} if x.get('setting') == 'system screen_brightness' else x for x in items_list]
+
+
 def wanted(device, night=None):
     """The device's prep list: the defaults of its kind, then its own `prep:` (an item with a default's name replaces it);
     at night (night_now) the brightness and volume items give way to NIGHT."""
     own = list(device.get('prep') or [])
+    names = {x.get('name') or str(x.get('setting', '')).split(None, 1)[-1] for x in own}
     if device.get('prep_defaults') is False:
         base = []
     else:
-        names = {x.get('name') or str(x.get('setting', '')).split(None, 1)[-1] for x in own}
         base = [x for x in DEFAULTS.get(device.get('kind') or 'phone', []) if (x.get('name') or x['setting'].split()[-1]) not in names]
     out = base + own
     if night_now(device) if night is None else night:
         out = [x for x in out if not _touches(x, ('screen_brightness', '--stream', 'volume'))] + NIGHT
+    else:
+        out = _apply_brightness(out, device, names)
     from . import devclass
     rules = devclass.rules_of(device)
     return [x for x in out if not devclass.denied(rules, ' '.join(str(x.get(k, '')) for k in ('setting', 'set', 'read')))]
@@ -118,6 +132,12 @@ def all_items(device):
             seen.add(it['key'])
             out.append(it)
     return out
+
+
+def brightness_error(where, value):
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100):
+        return [f'{where}.brightness_pct is {value!r}: a percentage from 0 to 100 (default 30)']
+    return []
 
 
 def errors(where, prep):
@@ -289,16 +309,18 @@ def lease_script(device, claim, minutes, who):
             f'{{ {person_recent(device)} || [ $k = 0 ]; }} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
             f'sleep {KEEP_AWAKE_SECONDS}; done')
     # a person's touch noticed while the lease's loop lives (it ends with the loop's pid file): Tutti then sends no key
+    # and puts the device's own settings back right away
     watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
-             f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
+             f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; '
+             f'{_person_restore(device)}fi; sleep 1; done')
     tag = q(f'{procs.MARK}=claim:{device["name"]}')   # the reaper's marker (tutti/procs.py)
     awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 & '
              f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 & fi; ') if procs.daemons_allowed() else ''
     take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
             f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
             f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')
-    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
-            f'mkdir -p {u}; {take}others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
+    return (f'mkdir -p {u}; {take}{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
+            f'others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then rmdir {lock}; echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
             f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; rmdir {lock}; '
             f'{prep_script(device) or ":"}; {unlock(device)}; {awake}'
@@ -318,12 +340,18 @@ def idle_seconds(device):
     return int(float(device.get('idle_minutes', IDLE_MINUTES)) * 60)
 
 
+def _person_restore(device):
+    script = restore_script(device)
+    return f'{script}; ' if script else ''
+
+
 def person_watch(device):
     """A background loop that notices a person: `getevent` sees only physical touches and keys (the test's own taps and
-    Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
+    Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path and restores the
+    device's own settings right away."""
     p = person_path(device)
     one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
-    loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'
+    loop = f'while :; do if {one}; then date +%s > {p}; {_person_restore(device)}fi; sleep 1; done'
     return f'mkdir -p "$(dirname {p})"; {{ {loop} & }}; '
 
 

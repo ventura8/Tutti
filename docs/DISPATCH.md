@@ -215,8 +215,8 @@ Every device run is a device session (`devices.external_wrap`, `tutti/prep.py`).
    a saved file already there (another user still has the device prepared, or a crash) is kept as it is, so prepared
    values never become the "originals". The defaults of its kind, then its own `prep:` list (an item with a default's
    name replaces it; `prep_defaults: false` turns the defaults off):
-   - phone and tablet: brightness about 30 % (`system screen_brightness` 77, manual mode), media volume (Cast plays
-     on it) about 10 % (2 steps, only lowered);
+   - phone and tablet: brightness about 30 % (`system screen_brightness` 77, manual mode; `devices.<d>.brightness_pct`,
+     default 30), media volume (Cast plays on it) about 10 % (2 steps, only lowered);
    - TV: screensaver off, screen on for 30 min, media volume (Cast plays on it) about 10 %.
 3. **Awake and unlocked.** The screen is woken and a swipe lock dismissed; while the run is active a harmless key
    (`input keyevent KEYCODE_UNKNOWN`) goes every 15 s, because the phone's admin policy caps the screen timeout at 5 min.

@@ -77,7 +77,8 @@ def _write(path, data):
 
 def _mtime(path):
     try:
-        return os.stat(path).st_mtime_ns
+        s = os.stat(path)
+        return (s.st_mtime_ns, s.st_ino, s.st_size)
     except OSError:
         return None
 

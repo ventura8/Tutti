@@ -79,6 +79,7 @@ def errors(cfg):
         errs += hours.errors(where, d.get('hours'))
         from . import prep
         errs += prep.errors(where, d.get('prep'))
+        errs += prep.brightness_error(where, d.get('brightness_pct'))
         if d.get('kind', 'phone') not in KINDS:
             errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet or tv (a Cast receiver: only suites with targets: [tv] use it)')
         if 'calls' in d and not isinstance(d['calls'], bool):
@@ -297,7 +298,8 @@ def external_wrap(found, command, who='tutti'):
     awake = refresh + ''.join(f'{{ {prep.keep_awake(d)} & }}; ' for d in found)
     # each background loop and its waiting `sleep` child: a loop killed alone left its sleep behind for a minute
     # the loop first (else it goes on to its next key), then the children it had: listed before, by exact pid
-    stop = 'for j in $(jobs -p); do c=$(pgrep -P "$j"); kill "$j" 2>/dev/null; [ -n "$c" ] && kill $c 2>/dev/null; done'
+    stop = ('for j in $(jobs -p); do kill -STOP "$j" 2>/dev/null; c=$(pgrep -P "$j"); '
+            'kill -TERM "$j" $c 2>/dev/null; kill -CONT "$j" 2>/dev/null; wait "$j" 2>/dev/null; done')
     release = '; '.join(x for x in (stop, f'rm -f {users}', f'rm -f {files}' if have else '',
                                      *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]

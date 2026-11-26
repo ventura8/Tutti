@@ -123,6 +123,34 @@ class PrepTest(unittest.TestCase):
         self.assertIn('"<global|secure|system> <key>"', errs[0])
         self.assertEqual(prep.errors('devices.tv', None), [])
 
+    def test_brightness_is_configurable_and_does_not_mutate_defaults(self):
+        device = {'name': 'test-phone', 'kind': 'phone', 'brightness_pct': 50}
+        out = prep.wanted(device, night=False)
+        brightness_item = next(item for item in out if item.get('setting') == 'system screen_brightness')
+        self.assertEqual(brightness_item['value'], 128)
+        default_out = prep.wanted({'name': 'default-phone', 'kind': 'phone'}, night=False)
+        default_item = next(item for item in default_out if item.get('setting') == 'system screen_brightness')
+        self.assertEqual(default_item['value'], 77)
+        self.assertEqual(prep.wanted({'name': 'no-defaults', 'kind': 'phone', 'prep_defaults': False}, night=False), [])
+
+    def test_bad_brightness_pct_is_refused(self):
+        self.assertEqual(prep.brightness_error('devices.ph', None), [])
+        self.assertEqual(prep.brightness_error('devices.ph', 30), [])
+        for bad in (-1, 101, True, '30'):
+            errs = prep.brightness_error('devices.ph', bad)
+            self.assertEqual(len(errs), 1)
+            self.assertIn('brightness_pct', errs[0])
+
+    def test_person_watch_restores_settings_on_interruption(self):
+        device = {'name': 'ph', 'serial': 's1', 'kind': 'phone', 'adb': 'adb'}
+        script = prep.person_watch(device)
+        self.assertIn('getevent -qc 1', script)
+        self.assertIn('restored screen_brightness', script)
+        self.assertIn('restored media volume', script)
+        with mock.patch('tutti.procs.daemons_allowed', return_value=True):
+            lease = prep.lease_script(device, '/tmp/x/claim-1', 10, 'test')
+        self.assertIn('getevent -qc 1', lease)
+        self.assertIn('restored screen_brightness', lease)
 
 
 class TvGetsNoKeepAwakeKey(unittest.TestCase):

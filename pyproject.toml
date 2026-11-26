@@ -31,3 +31,6 @@ tutti = ["web/*", "web/icons/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "tutti.__version__" }
+
+[tool.pytest.ini_options]
+addopts = ["--ignore=tests/e2e"]

@@ -359,6 +359,13 @@
                     <p class="card__meta" id="setup-meta"></p>
                 </header>
                 <ul id="setup" class="list" aria-label="What setup found and what is left"></ul>
+                <h3 class="card__sub" id="host-setup-h">Set up a host or device</h3>
+                <form id="host-setup-form" class="row" aria-labelledby="host-setup-h">
+                    <label class="row__stats">Address <input id="host-setup-address" type="text" placeholder="user@host.example" autocomplete="off" required></label>
+                    <label class="row__stats">One-time password (never saved) <input id="host-setup-password" type="password" autocomplete="off"></label>
+                    <span class="row__stats"><button class="btn btn--filled" type="submit" id="host-setup-submit">Set up</button></span>
+                    <output class="row__note" id="host-setup-status" aria-live="polite"></output>
+                </form>
             </section>
 
             <section class="card span-full" aria-labelledby="controls-h">

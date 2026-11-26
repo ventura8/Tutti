@@ -676,6 +676,16 @@ POSTS = ('/api/reading', '/api/refresh',
 BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
+def _save_setup_host(data, home):
+    from . import hostsetup
+    address = str((data or {}).get('address') or '').strip()
+    password = (data or {}).get('password') or None
+    if not hostsetup.is_address(address):
+        return 400, {'error': 'send a host or device address such as user@host.example or adb:<serial>'}
+    result = hostsetup.setup_host(address, password=password, home=home)
+    return (200 if result['status'] == 'connected' else 409), result
+
+
 def save_connect(collector, body, home=None):
     """(status, answer) for POST /api/connect {"action": "status"|"connect"|"undo"|"test", "agent": <name>} (docs/CONNECT.md):
     the "Connect your agent" card. status lists every agent; test starts the agent's configured server and lists its tools."""
@@ -686,6 +696,8 @@ def save_connect(collector, body, home=None):
     action, name = (data or {}).get('action'), (data or {}).get('agent')
     if action == 'status':
         return 200, {'agents': connect.status_all(home, cfg_path=collector.cfg['_path'])}
+    if action == 'setup_host':
+        return _save_setup_host(data, home)
     if action not in ('connect', 'undo', 'test') or name not in connect.AGENTS:
         return 400, {'error': 'send {"action": "status"}, or {"action": "connect"|"undo"|"test", "agent": one of '
                               f'{", ".join(connect.AGENTS)}}}'}

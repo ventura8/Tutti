@@ -60,3 +60,34 @@ function renderSetup(s) {
     $('setup').replaceChildren(...rows.map(setupRow),
         el('li', {}, el('button', { class: 'btn btn--small', type: 'button', text: 'Check again', onclick: (e) => runSetup(e.target) })));
 }
+
+async function runHostSetup(e) {
+    e.preventDefault();
+    const addr = $('host-setup-address').value.trim();
+    const passInput = $('host-setup-password');
+    const password = passInput.value;
+    const btn = $('host-setup-submit');
+    const status = $('host-setup-status');
+    passInput.value = '';
+    btn.disabled = true;
+    status.textContent = `Setting up ${addr}…`;
+    try {
+        const res = await fetch('/api/connect', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+            body: JSON.stringify({ action: 'setup_host', address: addr, password: password || undefined }),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.note || answer.error || `the dashboard answered ${res.status}`);
+        status.textContent = answer.note || `${addr}: connected`;
+        refresh();
+    } catch (err) {
+        status.textContent = err.message;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = $('host-setup-form');
+    if (form) form.addEventListener('submit', (e) => { void runHostSetup(e); });
+});

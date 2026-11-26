@@ -352,6 +352,11 @@ def resolve(names):
 def connect_all(cfg_path, home=None, names=None, **kw):
     """`tutti setup` calls this: every installed agent connected; agents not installed are skipped. A list of results."""
     out = []
+    if names and len(names) == 1:
+        from . import hostsetup
+        if hostsetup.is_address(names[0]):
+            out.append(hostsetup.setup_host(names[0], home=home))
+            return out
     for n in resolve(names):
         try:
             out.append(apply(n, cfg_path, True, home, **kw))
@@ -561,7 +566,8 @@ def test(name, home=None, **kw):
 
 
 def print_result(r, out):
-    out.write(f'{AGENTS[r["agent"]]["label"]}: {r["status"]}\n')
+    label = AGENTS.get(r['agent'], {}).get('label', r['agent'])
+    out.write(f'{label}: {r["status"]}\n')
     for c in r['changed']:
         out.write(f'  changed {c["file"]}' + (f' (backup {c["backup"]})' if c.get('backup') else '') + '\n')
     if r.get('note'):
@@ -596,10 +602,30 @@ def connect_repo(a, out):
     return 0
 
 
+def _wants_host_setup(a):
+    flags = (a.all, a.status, a.test, a.undo)
+    return bool(a.agent and not any(flags))
+
+
+def _connect_host(a, out):
+    from . import hostsetup
+    if not (_wants_host_setup(a) and hostsetup.is_address(a.agent)):
+        return None
+    results = [hostsetup.setup_host(a.agent)]
+    if a.json:
+        out.write(json.dumps(results, indent=2) + '\n')
+    else:
+        print_result(results[0], out)
+    return 1 if results[0]['status'] == 'error' else 0
+
+
 def cmd(cfg, a, out=None):
     out = out or sys.stdout
     if isinstance(getattr(a, 'repo', None), str) and a.repo:
         return connect_repo(a, out)
+    host_rc = _connect_host(a, out)
+    if host_rc is not None:
+        return host_rc
     names = resolve(['all'] if a.all or not a.agent else [a.agent])
     if a.status or a.test:
         rows = status_all(cfg_path=cfg['_path']) if a.agent is None else [heal(status(n), cfg_path=cfg['_path']) for n in names]

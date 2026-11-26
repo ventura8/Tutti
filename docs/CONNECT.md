@@ -7,6 +7,7 @@ just talk to your agent ("hand the flaky test fix to Tutti", "what should I offl
 ```bash
 tutti connect --all          # every installed agent (the same as plain `tutti connect`)
 tutti connect cursor         # one agent
+tutti connect user@host.example   # set up a remote SSH host (key install, Tutti install, service detection)
 tutti connect --status       # what is connected; --test also starts each agent's server and lists its tools
 tutti connect --undo codex   # take Tutti out of one agent (or --undo alone: all of them)
 ```

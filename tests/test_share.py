@@ -142,20 +142,27 @@ class RemoteIdle(Base):
         row = state.machine_state(m, routing.Probe(True, 4, 0.1, 16), 1, NIGHT.replace(hour=12), idle_s=10)
         self.assertEqual((row['use_pct'], row['free']), (0, 0))   # a person there: no new work
 
-    def idle_in(self, shell, sessions):
-        """The IDLE script run by `shell` with a fake loginctl: {session: (type, hint, since_us)}."""
+    def idle_in(self, shell, sessions, gdbus_out=''):
+        """The IDLE script run by `shell` with a fake loginctl: {session: (type, hint, since_us[, locked])}."""
         with tempfile.TemporaryDirectory() as d:
             fake = os.path.join(d, 'loginctl')
-            cases = ' '.join(f'{n}) case "$4" in Type) echo {t};; IdleHint) echo {h};; IdleSinceHint) echo {u};; esac;;'
-                             for n, (t, h, u) in sessions.items())
+            cases = []
+            for n, vals in sessions.items():
+                t, h, u = vals[0], vals[1], vals[2]
+                locked = vals[3] if len(vals) > 3 else 'no'
+                cases.append(f'{n}) case "$4" in Type) echo {t};; IdleHint) echo {h};; IdleSinceHint) echo {u};; '
+                             f'LockedHint) echo {locked};; esac;;')
             with open(fake, 'w', encoding='utf8') as f:
                 f.write('#!/bin/sh\nif [ "$1" = list-sessions ]; then printf "%s\\n" ' + ' '.join(sessions) + '; exit 0; fi\n'
-                        'case "$2" in ' + cases + ' esac\n')
+                        'case "$2" in ' + ' '.join(cases) + ' esac\n')
             os.chmod(fake, 0o755)
-            nogdbus = os.path.join(d, 'gdbus')   # no GNOME idle monitor in these cases
-            with open(nogdbus, 'w', encoding='utf8') as f:
-                f.write('#!/bin/sh\nexit 1\n')
-            os.chmod(nogdbus, 0o755)
+            gdbus = os.path.join(d, 'gdbus')
+            with open(gdbus, 'w', encoding='utf8') as f:
+                if gdbus_out:
+                    f.write('#!/bin/sh\ncat <<\'EOF\'\n' + gdbus_out + '\nEOF\n')
+                else:
+                    f.write('#!/bin/sh\nexit 1\n')
+            os.chmod(gdbus, 0o755)
             env = {**os.environ, 'PATH': d + os.pathsep + os.environ['PATH']}
             r = subprocess.run([shell, '-c', remote.IDLE + 'echo "$i"'], env=env, capture_output=True, text=True, check=False)
             return r.returncode, r.stdout.strip(), r.stderr
@@ -169,7 +176,21 @@ class RemoteIdle(Base):
             self.assertTrue(95 <= int(out) <= 130, out)
             self.assertEqual(self.idle_in(shell, {'3': ('x11', 'no', 0)})[1], '-')   # never set the hint: not known
 
+    def test_the_idle_script_reads_a_locked_screen_as_away(self):
+        for shell in ('sh', 'bash'):
+            rc, out, err = self.idle_in(shell, {'3': ('wayland', 'no', 0, 'yes')})
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(out, '86400')
+
+    def test_the_idle_script_parses_mutter_uint64_without_stripping_digits(self):
+        for shell in ('sh', 'bash'):
+            rc, out, err = self.idle_in(shell, {'3': ('x11', 'no', 0)}, gdbus_out='(uint64 64000,)')
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(out, '64')
+
     def test_the_idle_script_skips_a_desktop_that_never_sets_the_hint(self):
         self.assertIn('IdleSinceHint', remote.IDLE)
+        self.assertIn('LockedHint', remote.IDLE)
+        self.assertIn('uint64', remote.IDLE)
         self.assertIn('${i:--}', remote.probe_script({'yield_file': '~/y', 'name': 'n', 'transport': 'ssh', 'slots': 1,
                                                       'lock_prefix': '/tmp/x-'}))

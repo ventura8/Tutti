@@ -65,11 +65,12 @@ to 100). At each probe the score is scaled by the headroom now (load per core, f
 Tutti's share: quiet, presence and limited hours) into the effective power.
 
 The dispatcher orders free targets by how likely they are to stay, then by effective power. A heavy shard (kind or key
-e2e, build, suite, full, docker, integration, or `minutes` of 15 or more) goes to a strong machine first, a light one to a
+e2e, build, full, docker, integration, or `minutes` of 15 or more) goes to a strong machine first, a light one to a
 weak machine first (a machine whose effective power is under half the strongest usable machine's). A weak machine under
 30 % free takes no heavy shard: it waits for a stronger one, and the blocked line says so. Each lease keeps why it went
 where it did; the Machines card shows the power, the free share and the effective power, and the running shards' reasons.
-Until a machine is measured its score is 0 and the old order holds.
+Until a machine is measured its score is 0 and it is treated as weak once any machine is measured (light shards first; heavy
+ones wait for a stronger machine when free share is under 30 %).
 
 ## Leases and the heartbeat
 

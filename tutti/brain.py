@@ -34,7 +34,8 @@ _lock = threading.Lock()
 # ---- ranking (pure)
 
 def quant_factor(quant):
-    """How much of a model's size its quantisation keeps: 8 bits or more 1.0, 5-6 bits 0.95, 4 bits 0.9, fewer 0.8; unknown 0.9."""
+    """How much of a model's size its quantisation keeps: 8 bits or more 1.0,
+    5-6 bits 0.95, 4 bits 0.9, fewer than 4 bits 0.8; unknown 0.9."""
     hit = QUANT_BITS.search(str(quant or ''))
     bits = int(hit.group(1)) if hit else 4
     for least, factor in ((8, 1.0), (5, 0.95), (4, 0.9)):

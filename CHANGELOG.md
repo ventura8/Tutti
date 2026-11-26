@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-17
+
+### Fixed
+
+- Autopilot retry: cleared stale `picked` and `model` from earlier attempts when an ollama step finds no fitting model.
+- Shard power: heavy matching splits on tokens (`/`, `-`, `_`, `:`, whitespace) so `fullscreen`, `rebuild`, and `suite/`
+  prefixes no longer falsely trigger heavy classification; removed generic `suite` from heavy kinds.
+- Model tiers: docstring updated to reflect that sub-4-bit (2-3 bit) quantisations count one tier down.
+- Dispatch power: unmeasured machines (score 0) are documented and treated as weak once any machine is measured.
+- Quiet mode: SIGSTOP own jobs on low memory alone (a person need not be present); drop stale `.pid` files whose process is
+  gone or is not `quiet.sh` so a reused pid is never reniced or stopped; `calm` documents that nice/ionice are kept until
+  the job ends; remote idle reads `LockedHint` as away and parses Mutter's `uint64` without stripping digits; `tutti quiet
+  wait` validates its seconds argument, and `tutti quiet -- <cmd>` runs a command named status, wait or guard.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

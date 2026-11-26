@@ -15,6 +15,7 @@ Pure: parse_bench, score, headroom, effective, heavy, weak, difficulty, model_ti
 refresh (a background thread per stale machine), the state file."""
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -23,13 +24,14 @@ from . import config
 
 FILE = 'power.json'
 BENCH_DAYS = 7
-HEAVY_KINDS = ('e2e', 'build', 'suite', 'full', 'docker', 'integration')
+HEAVY_KINDS = ('e2e', 'build', 'full', 'docker', 'integration')
 HEAVY_MINUTES = 15
 WEAK_SHARE = 0.5      # a machine under half the strongest free machine's effective power is weak
 LOW_HEADROOM = 0.3    # under this a weak machine takes no heavy shard at all
 SIZE_LEVEL = {'S': 0, 'M': 1, 'L': 2}
 TIER_NAMES = ('light', 'mid', 'strong')
 MIN_RUNS = 4
+TOKEN_SPLIT = re.compile(r'[/_\-:\s]+')
 # One line, `B <cores> <threads> <mem GB> <cpu MB/s> <disk MB/s> <VRAM GB> <npu 0|1>`; read-only but a temp file it removes
 BENCH_SCRIPT = (
     'ns(){ date +%s%N; }; c=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || nproc); '
@@ -101,14 +103,16 @@ def effective(power, room):
 
 
 def heavy(w):
-    """A heavy shard: an e2e, build, docker or full suite, or one that usually takes HEAVY_MINUTES or more."""
+    """A heavy shard: kind or key token e2e, build, full, docker or integration, or minutes of HEAVY_MINUTES or more."""
     text = f'{w.get("kind") or ""} {w.get("key") or ""}'.lower()
-    return any(k in text for k in HEAVY_KINDS) or float(w.get('minutes') or 0) >= HEAVY_MINUTES
+    tokens = set(TOKEN_SPLIT.split(text))
+    return bool(tokens & set(HEAVY_KINDS)) or float(w.get('minutes') or 0) >= HEAVY_MINUTES
 
 
 def weak(t, best):
     """A target is weak when its effective power (measured power times headroom now) is under WEAK_SHARE of the strongest
-    usable machine's measured power (devices: never weak here, their own policy decides)."""
+    usable machine's measured power (devices: never weak here, their own policy decides; an unmeasured machine has score 0
+    and is treated as weak once any machine is measured)."""
     if t.get('kind') != 'machine' or not best:
         return False
     return float(t.get('effective') or 0) < WEAK_SHARE * best
@@ -166,9 +170,8 @@ def pass_rates(tasks):
 
 
 def model_tier(m, rates=None):
-    """(tier 0..2, why): the size class (fleet.TIERS rank: small 0, normal 1, strong 2; a 4-bit or smaller quantisation of a
-    model at the edge of its class counts one down), then its measured pass rate: 75 % or more over MIN_RUNS attempts up
-    one, 25 % or less down one."""
+    """(tier 0..2, why): the size class (fleet.TIERS rank: small 0, normal 1, strong 2; a 2-3 bit (under 4 bits) quantisation
+    counts one down), then its measured pass rate: 75 % or more over MIN_RUNS attempts up one, 25 % or less down one."""
     from . import brain, fleet
     tier = fleet.TIERS[m.get('tier') or 'normal']['rank']
     why = [f'{m.get("params_b") or "?"}B {m.get("tier") or "normal"}']

@@ -227,7 +227,7 @@ flowchart LR
     mem["MemAvailable"] --> st
     st -- yes --> share["share 0 %: no new work here,<br/>it goes to the NUC or the PC"]
     st -- yes --> calm["own jobs: nice 19, idle I/O<br/>(exact pids from quiet/*.pid)"]
-    st -- "yes, low memory" --> stop["SIGSTOP own jobs<br/>SIGCONT when back"]
+    st -- "yes, free memory under reserve" --> stop["SIGSTOP own jobs<br/>SIGCONT when memory is back"]
     st -- "person here" --> ollama["unload local Ollama models"]
     st -- yes --> wrap["tutti quiet cmd: systemd-run scope,<br/>CPUQuota, nice, ionice"]
     st --> sig["tutti quiet status<br/>exit 0 quiet / 1 free"]

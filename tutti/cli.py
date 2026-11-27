@@ -790,6 +790,12 @@ def note_limits(cfg, worker, lines):
                 + (f' until {reset.isoformat()}' if reset else ' (no reset time in its message)') + '; send new work to other workers')
 
 
+def cmd_linear_sync(cfg, a):
+    from . import linearsync
+    linearsync.sync(cfg)
+    return 0
+
+
 def cmd_pr(cfg, a):
     """`tutti pr review <n>`: reviewers, the wait, the fallback review."""
     repo = review.repo_of(a.repo)
@@ -2105,6 +2111,7 @@ def parser():
                    help='serve on http://127.0.0.1:PORT/mcp with a bearer token instead of stdio (default port: mcp.http_port, 4779)')
     s.add_argument('--bind', help='with --http: a loopback, LAN or VPN address to listen on (default 127.0.0.1, or mcp.bind); '
                                   'a public address is refused: Tutti is never exposed to the internet')
+    s = add('linear', cmd_linear_sync, 'sync between Tutti\'s backlog and Linear issues (work in progress)')
     s = add('connect', connect.cmd, 'wire Tutti into your main agents (Claude Code, Claude Desktop, Codex, Antigravity, Cursor, '
                                     'Copilot, VS Code, Gemini): the MCP server plus a short instruction; --undo takes it out')
     s.add_argument('agent', nargs='?', help=f'one agent: {", ".join(connect.AGENTS)} (default: every installed one)')

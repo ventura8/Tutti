@@ -131,14 +131,15 @@ def consent(folder):
     return data
 
 
+_consent_cache = {}
+
+
 def set_consent(folder, on, by='cli'):
     data = consent(folder)
     data.update(send=bool(on), at=now_iso(), by=scrub.category(by))
     write_json(os.path.join(folder, CONSENT), data)
+    _consent_cache.pop(folder, None)
     return data
-
-
-_consent_cache = {}
 
 
 def sending(folder):

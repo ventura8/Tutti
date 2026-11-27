@@ -122,7 +122,8 @@ class Round(WqBase):
         with open(os.path.join(path, 'a.txt'), 'w', encoding='utf8') as f:
             f.write('x\n')
         subprocess.run(['git', '-C', path, 'add', '-A'], check=True)
-        subprocess.run(['git', '-C', path, '-c', 'user.email=t@example', '-c', 'user.name=t', 'commit', '-qm', 'x'], check=True)
+        subprocess.run(['git', '-C', path, '-c', 'user.email=t@example', '-c', 'user.name=t',
+                        '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', 'commit', '-qm', 'x'], check=True)
         return path
 
     def test_a_round_starts_collects_reruns_and_files_the_failure(self):

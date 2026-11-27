@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-22
+
+### Added
+
+- `tutti ui [screen]` and `tutti setup --tui` (docs/TUI.md): keyboard-first terminal user interface covering all five
+  screens (machines & devices, needs attention, dispatch & queue, chat & agents, setup wizard) with consistent header
+  and footer keybindings, arrow/vim navigation, scrollable help (`?`) and details, compact layouts, `NO_COLOR` and
+  16/256/truecolor fallbacks, colorblind-safe `[icon text]` status badges, and screen-reader friendly `--plain` mode.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

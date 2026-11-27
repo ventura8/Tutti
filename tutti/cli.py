@@ -161,12 +161,41 @@ def cmd_update(cfg, a):
 
 def cmd_setup(cfg, a):
     """`tutti setup`: the guided first run (docs/INSTALL.md); works before any config exists."""
+    if getattr(a, 'tui', False):
+        plain = getattr(a, 'plain', False)
+        return cmd_ui(cfg, argparse.Namespace(screen='setup', plain=plain, no_color=False, once=getattr(a, 'once', False)))
     from . import setupcmd
     try:
         return setupcmd.run(a)
     except config.ConfigError as e:
         say(str(e))
         return 1
+
+
+def _load_ui_cfg(cfg, a):
+    if cfg is not None:
+        return cfg
+    try:
+        return config.load(getattr(a, 'config', None))
+    except (config.ConfigError, OSError):
+        return None
+
+
+def cmd_ui(cfg, a):
+    """`tutti ui [screen]`: interactive terminal UI for machines, needs, dispatch, chat, setup."""
+    from . import tui
+    cfg = _load_ui_cfg(cfg, a)
+    color_mode = 'none' if getattr(a, 'no_color', False) else tui.detect_color_mode()
+    screen = getattr(a, 'screen', None) or 'machines'
+    plain = getattr(a, 'plain', False)
+    if getattr(a, 'once', False):
+        state = tui.TuiState(cfg=cfg, screen=screen, color_mode=color_mode)
+        lines = tui.render_plain(state) if plain else tui.render_screen(state, 80, 24, color_mode=color_mode)
+        print('\n'.join(lines))
+        return 0
+    if plain or not sys.stdout.isatty():
+        return tui.run_plain(cfg=cfg, screen=screen, color_mode=color_mode)
+    return tui.run_curses(cfg=cfg, screen=screen, color_mode=color_mode)
 
 
 def cmd_self_update(cfg, a):
@@ -1757,6 +1786,15 @@ def parser():
                                                                                'server (`tutti connect --all`)')
     s.add_argument('--from-dashboard', action='store_true', help='run by the dashboard\'s Set up card: the login service is '
                                                                  'enabled for the next login, not started next to that dashboard')
+    s.add_argument('--tui', action='store_true', help='open the setup wizard in the terminal UI')
+    s.add_argument('--plain', action='store_true', help='with --tui: screen-reader friendly plain text mode')
+    s.add_argument('--once', action='store_true', help='with --tui: render screen snapshot once and exit')
+    s = add('ui', cmd_ui, 'terminal user interface (TUI): machines/devices, needs, dispatch, chat, setup')
+    s.add_argument('screen', nargs='?', choices=['machines', 'needs', 'dispatch', 'chat', 'setup'],
+                   default='machines', help='the screen to open (default: machines)')
+    s.add_argument('--plain', action='store_true', help='plain text mode for screen readers (no curses)')
+    s.add_argument('--no-color', action='store_true', help='disable ANSI colors (honors NO_COLOR env var)')
+    s.add_argument('--once', action='store_true', help='render screen snapshot once and exit')
     s = add('self-update', cmd_self_update, 'install the newest signed and checksummed release of Tutti (release installs)')
     s.add_argument('--insecure-skip-verify', action='store_true',
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
@@ -2201,7 +2239,7 @@ def main(argv=None):
     real = argv is None
     argv = sys.argv[1:] if argv is None else argv
     a = parser().parse_args(argv)
-    if a.fn in (cmd_doctor, cmd_setup, cmd_self_update):  # they must work before any config exists
+    if a.fn in (cmd_doctor, cmd_setup, cmd_self_update, cmd_ui):  # they must work before any config exists
         return a.fn(None, a)
     # secrets are read from their files at the point of use, never inherited (docs/ARCHITECTURE.md, t116); the dashboard runs
     # again without them so its own /proc environ holds none

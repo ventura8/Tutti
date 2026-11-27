@@ -204,6 +204,8 @@ class ExternalLockTest(Base):
             os.killpg(child.pid, 9)
             child.wait()
             raise
+        finally:
+            subprocess.run(['pkill', '-9', '-s', str(child.pid)], check=False)
         with open(out, encoding='utf8') as f:
             return SimpleNamespace(returncode=rc, stdout=f.read())
 

@@ -3,6 +3,7 @@ transport into temp folders (rsync and the stream fallback, resume, skip, damage
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -131,6 +132,7 @@ class SendTest(unittest.TestCase):
         with open(os.path.join(self.src, rel), 'rb') as a, open(os.path.join(self.cache, rel), 'rb') as b:
             return a.read() == b.read()
 
+    @unittest.skipUnless(shutil.which('rsync'), 'rsync not installed')
     def test_rsync_sends_a_file_and_a_folder_verified_then_skips_them(self):
         base, out = self.send([self.archive, os.path.join(self.src, 'set')], use_rsync=True)
         self.assertEqual(base, self.cache)

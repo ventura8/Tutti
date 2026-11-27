@@ -3,6 +3,7 @@ script against a fake adb, routing of a Termux machine, and `tutti test --device
 transport. No real phone: every adb answer comes from a fake on PATH."""
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -279,9 +280,30 @@ class DeviceRunTest(unittest.TestCase):
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
         self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
 
+    def _kill_group(self, p, tag):
+        from tutti import procs
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        if p.poll() is None:
+            p.wait(timeout=5)
+        if os.path.isdir('/proc'):
+            for name in (n for n in os.listdir('/proc') if n.isdigit()):
+                info = procs.info(name)
+                if info and info['pid'] != os.getpid() and info['env'].get('TUTTI_DEV_TEST') == tag:
+                    try:
+                        os.kill(info['pid'], signal.SIGKILL)
+                    except OSError:
+                        pass
+
     def tutti(self, *args, **kw):
-        return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
-                                env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        tag = f'{os.getpid()}-{id(args)}-{len(self._cleanups)}'
+        p = subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
+                             env={**self.env, 'TUTTI_DEV_TEST': tag, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             start_new_session=True)
+        self.addCleanup(self._kill_group, p, tag)
+        return p
 
     def test_the_command_gets_the_serial_and_a_job_record(self):
         p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL')

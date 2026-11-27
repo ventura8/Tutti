@@ -871,6 +871,7 @@ core is pure and safe to import (no I/O on import) are:
 | `tutti.routing` | Which machine runs a command, from free slots, memory and order. |
 | `tutti.backlog` | The autopilot's backlog file, under its lock (`locked(cfg)`). |
 | `tutti.mcpserver` | `TOOLS` (the MCP tool schemas), `call(cfg, name, args, role)`. |
+| `tutti.tui` | Terminal user interface (TUI): multi-screen layout, colorblind-safe badges, and plain mode. |
 | `tutti.apidoc` | This document's generated parts and its check. |
 
 ## The CLI
@@ -918,7 +919,8 @@ usage: tutti update [-h] [--check] [--machine MACHINE]
 the first run, no questions: finds agents, logins, GPUs, machines, phones and repos, writes the config with defaults, starts the dashboard at login, turns on updates, then lists the few steps only you can do (sign-ins open in each tool's own window); again: only fills what is missing
 
 ```text
-usage: tutti setup [-h] [--yes] [--ask] [--no-service] [--join JOIN] [--no-connect] [--from-dashboard]
+usage: tutti setup [-h] [--yes] [--ask] [--no-service] [--join JOIN] [--no-connect] [--from-dashboard] [--tui]
+                   [--plain] [--once]
 ```
 
 | Argument | What it does | Default |
@@ -929,6 +931,24 @@ usage: tutti setup [-h] [--yes] [--ask] [--no-service] [--join JOIN] [--no-conne
 | `--join` | then join a household with this invite (what a new member's install line passes) |  |
 | `--no-connect` | do not connect the agents found to Tutti's MCP server (`tutti connect --all`) |  |
 | `--from-dashboard` | run by the dashboard's Set up card: the login service is enabled for the next login, not started next to that dashboard |  |
+| `--tui` | open the setup wizard in the terminal UI |  |
+| `--plain` | with --tui: screen-reader friendly plain text mode |  |
+| `--once` | with --tui: render screen snapshot once and exit |  |
+
+### `tutti ui`
+
+terminal user interface (TUI): machines/devices, needs, dispatch, chat, setup
+
+```text
+usage: tutti ui [-h] [--plain] [--no-color] [--once] [{machines,needs,dispatch,chat,setup}]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `screen {machines,needs,dispatch,chat,setup}` | the screen to open (default: machines) | `machines` |
+| `--plain` | plain text mode for screen readers (no curses) |  |
+| `--no-color` | disable ANSI colors (honors NO_COLOR env var) |  |
+| `--once` | render screen snapshot once and exit |  |
 
 ### `tutti self-update`
 

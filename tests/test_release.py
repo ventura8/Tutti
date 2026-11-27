@@ -237,7 +237,7 @@ class PersonTest(Base):
         try:
             child.wait(timeout=20)
         finally:
-            subprocess.run(['pkill', '-g', str(child.pid)], check=False)   # the session's leftovers, by its group id
+            subprocess.run(['pkill', '-9', '-s', str(child.pid)], check=False)   # the session's leftovers, by its session id
         with open(log, encoding='utf8') as f:
             out = f.read()
         self.assertIn(devices.PERSON_LINE, out)

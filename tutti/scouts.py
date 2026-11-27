@@ -1,10 +1,11 @@
-"""Scouts: helpers that are not workers. A scout never touches a repository or a diff; it is asked a question (research,
-web browsing, watching changelogs and docs, triage, monitoring, drafting, reproducing a bug in a browser) and its answer
+"""Scouts: question helpers, and the webhook Grok coding workers reuse. A scout is asked a question (research, web
+browsing, watching changelogs and docs, triage, monitoring, drafting, reproducing a bug in a browser) and its answer
 comes back as a comment on a GitHub issue. Today's one kind is Grok Bot's webhook routine (`grok-bot-webhook`): Tutti opens
-the issue, POSTs {task, reply_to} to the routine's URL with `Authorization: Bearer <key>`, the routine posts its answer on the
-issue, and Tutti reads it back through `gh`. The URL and key come from environment variables (or stdin) and are never
-written, logged or printed. The plan of what to send when is pure: the scout's own account (its weekly allowance) decides,
-and nothing is sent once the allowance is used, so a scout never runs into on-demand spend."""
+the issue, POSTs {task, reply_to} (or a coding payload with repo/branch/title/scope/check) to the routine's URL with
+`Authorization: Bearer <key>`, the routine posts its answer on the issue, and Tutti reads it back through `gh`. The URL
+and key come from environment variables (or stdin) and are never written, logged or printed. The plan of what to send
+when is pure: the scout's own account (its weekly allowance) decides, and nothing is sent once the allowance is used, so
+a scout never runs into on-demand spend."""
 import contextlib
 import json
 import os
@@ -43,9 +44,10 @@ SETUP = (
     'Create a bot named "Tutti scout" (new bot, name it, keep it personal: Only me).',
     'In "Connect apps" (sidebar) connect GitHub, and allow it the repository named in scouts.<name>.reply.github_repo.',
     'In the bot\'s chat ask: "Create a routine named Tutti task with a webhook trigger. Instructions: the request body is JSON '
-    'with task and reply_to. Do the task (research, browse, triage, monitor or draft as it asks). Then post the full result as '
-    'one comment on the GitHub issue reply_to.url (repository reply_to.repo, issue number reply_to.issue). Never change code, '
-    'open pull requests, or close the issue. If you cannot do the task, post a comment that says why."',
+    'with task and reply_to. When kind is code (repo/branch/base_sha/title/scope/check set): act as a patch author only, '
+    'change only scope against base_sha, post one ```diff comment (no build, push, PR or close; Tutti runs check). '
+    'Otherwise research/browse/triage/monitor/draft and post the result as one comment on reply_to.url. Never close the '
+    'issue. If you cannot, post why."',
     'Open the routine (click the bot\'s name, Details, the routine) and find its Webhook section.',
     'Copy the "POST to" URL into the environment variable named by url_env (e.g. in ~/.profile: export TUTTI_GROK_URL=...).',
     'Copy the key (the part after "Bearer ") into the variable named by key_env (export TUTTI_GROK_KEY=...); never into the '
@@ -365,7 +367,7 @@ def trusted(c, repo, gh_fn, login=None, seen=None):
     return c.get('author_association') in TRUSTED and bool(who) and writer(repo, who, gh_fn, {} if seen is None else seen)
 
 
-def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None, skipped=None):
+def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None, skipped=None, *, exact_author=False):
     """The first comment on the issue (or pull request) made after `since` (epoch seconds) by a trusted author (`trusted`),
     and holding `marker` when one is given (a review's "grok-scout" tag: other reviewers comment there too): (text, author)
     or None."""
@@ -374,15 +376,22 @@ def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None, skipped=Non
         raise ScoutError(f'reading the comments of {repo}#{issue} failed ({err}): check `gh auth status`')
     items = [c for page in documents(text) for c in (page if isinstance(page, list) else [page])]
     seen = {}
+    accepts = _author_check(repo, gh_fn, login, seen, exact_author)
     for c in sorted(items, key=lambda c: c.get('created_at') or ''):
         at = pacing.parse_time(c['created_at']).timestamp() if c.get('created_at') else 0
         if at >= since - 60 and (c.get('body') or '').strip() and (not marker or marker in c['body']) and \
-                trusted(c, repo, gh_fn, login, seen):
+                accepts(c):
             return c['body'].strip()[:ANSWER_CHARS], (c.get('user') or {}).get('login', '')
         body = (c.get('body') or '').strip()
         if skipped is not None and at >= since - 60 and body and (not marker or marker in body):
             skipped.append((c.get('user') or {}).get('login', '') or '?')
     return None
+
+
+def _author_check(repo, gh_fn, login, seen, exact_author):
+    if exact_author:
+        return lambda comment: bool(login) and (comment.get('user') or {}).get('login') == login
+    return lambda comment: trusted(comment, repo, gh_fn, login, seen)
 
 
 def send(sc, r, url, key, gh_fn=gh, post_fn=post, now=None):
@@ -416,7 +425,7 @@ def collect(sc, r, gh_fn=gh, now=None):
     now = now or time.time()
     skipped = []
     found = answer_of(r['repo'], r['issue'], r['sent'], gh_fn, REVIEW_MARKER if r['kind'] == 'review' else None,
-                      sc.get('github_login'), skipped)
+                      sc.get('github_login'), skipped, exact_author=r['kind'] == 'code')
     if skipped and not found:   # say why the answer does not count, once per author
         r['ignored'] = (f'a comment by {", ".join(sorted(set(skipped)))} was not taken as the answer: that account cannot write '
                         f'to {r["repo"]}; if the scout posts as it, set scouts.{sc.get("name", "<name>")}.github_login: <that login>')

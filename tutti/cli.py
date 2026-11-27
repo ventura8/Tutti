@@ -625,6 +625,21 @@ def choose_worker(cfg, now):
     return state.next_worker(cfg, accounts)
 
 
+def _check_run_worker(cfg, a):
+    """Validate the worker kind for `tutti run`."""
+    wkind = cfg['workers'].get(a.worker, {}).get('kind')
+    if wkind == 'grok':
+        worker_of(cfg, a.worker, 'grok')
+        _check_grok_run(a)
+    elif not (a.repo and wkind == 'ollama'):
+        worker_of(cfg, a.worker, 'cli')   # a local model takes a delegated task through `tutti agent`'s loop
+
+
+def _check_grok_run(a):
+    if not a.show and (not a.repo or a.no_checks):
+        raise ship.ShipError('run grok needs a checked worktree: use --repo with a configured check or --check')
+
+
 def cmd_run(cfg, a):
     extra = []
     if a.worker == 'auto':
@@ -634,8 +649,7 @@ def cmd_run(cfg, a):
             return 3
         say(f'run auto: {pick["worker"]} {" ".join(pick["args"])} ({pick["reason"]})'.replace('  ', ' '))
         a.worker, extra, a.account = pick['worker'], pick['args'], pick['account']
-    if not (a.repo and cfg['workers'].get(a.worker, {}).get('kind') == 'ollama'):
-        worker_of(cfg, a.worker, 'cli')   # a local model takes a delegated task through `tutti agent`'s loop
+    _check_run_worker(cfg, a)
     if a.input and not a.on:
         say('run --input: name the machine the inputs go to with --on <machine> (the worker then finds them there)')
         return 2
@@ -723,8 +737,13 @@ def run_on_jobs_machine(cfg, a, extra):
 
 
 def run_worker(cfg, a, extra):
-    # restarted with a handoff when it is stopped at autocompact.threshold_pct, as a --repo run is
-    rc, lines = delegate.run_compacting(cfg, a.worker, a.task, a.files, a.dir, sys.stdout, extra, None)
+    if cfg['workers'][a.worker]['kind'] == 'grok':
+        from . import grokwork
+        rc, lines = grokwork.run(cfg, a.worker, a.task, a.files, cwd=a.dir or '.', out=sys.stdout,
+                                 check=(a.check or [''])[0])
+    else:
+        # restarted with a handoff when it is stopped at autocompact.threshold_pct, as a --repo run is
+        rc, lines = delegate.run_compacting(cfg, a.worker, a.task, a.files, a.dir, sys.stdout, extra, None)
     note_limits(cfg, a.worker, lines)
     delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), rc, None, lines)
     return rc

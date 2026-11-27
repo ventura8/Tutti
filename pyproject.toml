@@ -31,3 +31,10 @@ tutti = ["web/*", "web/icons/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "tutti.__version__" }
+
+# Unit tests under tests/; the browser e2e suite needs Playwright/axe and is run by scripts/check.sh separately.
+# pythonpath: tests/ helpers import each other as `from test_scouts import …` (same as unittest discover -s tests).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests", "."]
+addopts = "--ignore=tests/e2e"

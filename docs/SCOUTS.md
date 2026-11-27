@@ -1,7 +1,10 @@
 # Scouts
 
-A scout is a helper that is **not a worker**. It never gets a worktree, a diff or a check; it is asked a question and
-answers in words. Scouts do what a chat bot with a browser is good at:
+A scout is a helper for questions: it is asked something and answers in words on a GitHub issue. The same Grok Bot
+webhook can also run **patch-author** coding tasks when a worker with `kind: grok` points at the scout
+([WORKERS.md](WORKERS.md)): Tutti then sends `{repo, branch, base_sha, title, scope, check}`, applies the unified diff
+Grok posts back in a worktree, and runs the check on its own machines (no push, PR or build by Grok). Scouts do what a
+chat bot with a browser is good at:
 
 - research: compare options, read docs, find the cause of an error message;
 - web browsing: open a page and report what is there;
@@ -89,8 +92,9 @@ The scout's `account` is paced like any other (docs/USAGE-PACING.md). The plan o
 - A send that failed (a refused key, a paused routine) waits an hour before the next try, so a wrong key never opens an
   issue every round.
 
-**A scout takes no backlog tasks.** Its account card never offers bounded tasks or "start more parallel work from the
-backlog"; its Do line says what the scout does with the allowance instead.
+**A scout-only account takes no backlog tasks.** Its account card never offers bounded tasks; its Do line says what the
+scout does with the allowance instead. When the same account's worker is `kind: grok`, it **does** take ladder coding
+tasks (its room stays); scout watches and questions still use the same allowance.
 
 **The week's plan** (`tutti/grokweek.py`, `tutti/spendrest.py`, `scouts.<name>.spend_rest`, on by default; `false` turns it
 off, or `{hours: 6, stop_at: 95, pace_gap_hours: 6, min_gap_hours: 3, burst_per_tick: 10, burst_max_open: 30, review_repos:
@@ -214,7 +218,8 @@ By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps
    body is JSON with `task` and `reply_to`; do the task; post the full result as one comment on the GitHub issue
    `reply_to.url` (repository `reply_to.repo`, number `reply_to.issue`); never change code, open pull requests or close
    the issue; if the task cannot be done, comment why. For reviews, `reply_to.how` asks for one comment on the pull
-   request whose first line is `grok-scout`.
+   request whose first line is `grok-scout`. For `kind: code`, clone `repo`, inspect `base_sha`, and reply with one
+   fenced unified diff for the files in `scope`. Tutti applies the patch and runs `check`.
 5. Open the routine (the bot's name, **Details**, the routine): its **Webhook** section shows **POST to** and the header.
 6. Put the URL in `TUTTI_GROK_URL` and the key (after `Bearer `) in `TUTTI_GROK_KEY` in `~/.config/tutti/grok.env`
    (mode 600, `export NAME='value'` lines); never in `~/.profile`, the config, a repository or a chat.

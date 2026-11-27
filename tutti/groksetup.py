@@ -107,10 +107,12 @@ def repos_of(cfg, name):
 def routine_text(repos):
     where = ', '.join(repos)
     return ('Create a routine named Tutti task with a webhook trigger. Instructions: the request body is JSON with task and '
-            'reply_to. Do the task (research, browse, triage, monitor or draft as it asks). Then post the full result as one '
-            'comment on the GitHub issue reply_to.url (repository reply_to.repo, issue number reply_to.issue; it is one of '
-            f'{where}). Never change code, open pull requests, or close the issue. If you cannot do the task, post a comment '
-            'that says why.')
+            'reply_to. When kind is "code" (or repo, branch, title, scope and check are set): act as a patch author only — '
+            'clone repo, inspect base_sha, and change only scope (do not run builds, push or open a PR). Post ONE comment with a '
+            'unified diff in a ```diff fence; Tutti applies it and runs check on its own machines. Otherwise do the task '
+            '(research, browse, triage, monitor or draft as it asks) and post the full result as one comment on the GitHub '
+            'issue reply_to.url (repository reply_to.repo, issue number reply_to.issue; it is one of '
+            f'{where}). Never close the issue. If you cannot do the task, post a comment that says why.')
 
 
 def steps(repos):

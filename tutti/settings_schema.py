@@ -122,8 +122,11 @@ FIELDS = {
     'accounts.*.opt_in': field('Opt-in', 'Off until you turn it on, without costing money.', 'switch', default=False),
     'usage.log': field('Usage log', 'The file every reading is appended to.', 'text', default='~/.local/state/tutti/usage.jsonl'),
     # workers
-    'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server.', 'select', choices=['cli', 'ollama']),
+    'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server; grok: Grok Bot via its scout webhook.',
+                            'select', choices=['cli', 'ollama', 'grok']),
     'workers.*.command': field('Command', 'The command line; {prompt} is the brief, {log} a log file per run.', **CMD),
+    'workers.*.scout': field('Scout', 'For kind grok: the scout whose webhook receives the coding task.', 'select',
+                             choices_from='scouts'),
     'workers.*.denied': field('Denied marker', 'Text in its log that means a headless permission was refused.', 'text'),
     'workers.*.costs_money': field('Costs money per use', 'Kept off until you turn it on.', 'switch', default=False),
     'workers.*.enabled': field('On', 'Off takes it out of routing, conduct and review.', 'switch'),

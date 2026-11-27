@@ -6,6 +6,27 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.32.0] - 2026-11-22
+
+### Added
+
+- Ladder step kind `grok`: Grok Bot as a patch-author worker. `workers.<name>.kind: grok` with `scout: <name>` posts a
+  bounded task (`repo`, `branch`, `base_sha`, `title`, `scope`, `check`) to that scout's webhook (URL and key from env
+  via secretenv, never printed); Grok posts a unified diff against `base_sha` for scoped files (no push, PR or build by
+  Grok) and Tutti verifies the paths and base SHA before applying it in a worktree and running the check. A scout account whose worker is kind
+  `grok` keeps its backlog room on the ladder. Patch replies must come from the scout's configured GitHub login, and
+  the task brief is sent in the webhook body (t206).
+
+### Fixed
+
+- Device lease acquisition and expiry use the same kernel-managed lock.
+- A partial env dict for scout secrets still honours the process `XDG_CONFIG_HOME`, so tests and `check.sh` isolation
+  cannot fall through to the owner's `~/.config/tutti/grok.env` (t206).
+- Dashboard and device unit tests stay deterministic when a person is at the keyboard or the process inherited
+  `TUTTI_BACKGROUND` from an autopilot run (t206).
+- `projects.git_dir` ignores a corrupt `.git` file and an empty `.git` directory (no HEAD), so a stray `/tmp/.git`
+  does not claim every tempfile under `/tmp` (t206).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

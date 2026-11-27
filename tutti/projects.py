@@ -28,14 +28,23 @@ NUMBER = re.compile(r'^\d+(\.\d+)?$')
 # ---- one folder -> its repository, from the files under .git (no git process: the dashboard asks often)
 
 
+def _git_dir_ok(g):
+    """True when `g` looks like a real git dir (has HEAD), not an empty stray folder such as `/tmp/.git`."""
+    return os.path.isfile(os.path.join(g, 'HEAD'))
+
+
 def git_dir(path):
-    """(the folder holding .git, the worktree's git dir) for `path` or a parent, or (None, None)."""
+    """(the folder holding .git, the worktree's git dir) for `path` or a parent, or (None, None).
+
+    A `.git` file that is not a `gitdir:` pointer, or an empty `.git` directory without HEAD, is not a repository:
+    keep walking (or stop for a corrupt worktree file) so a polluted `/tmp/.git` does not claim every tempfile."""
     d = os.path.abspath(path or '')
     while d and d != os.path.dirname(d):
         g = os.path.join(d, '.git')
         if os.path.isdir(g):
-            return d, g
-        if os.path.isfile(g):
+            if _git_dir_ok(g):
+                return d, g
+        elif os.path.isfile(g):
             try:
                 with open(g, encoding='utf8') as f:
                     line = f.read().strip()
@@ -43,6 +52,7 @@ def git_dir(path):
                 return None, None
             if line.startswith('gitdir:'):
                 return d, os.path.normpath(os.path.join(d, line[len('gitdir:'):].strip()))
+            return None, None
         d = os.path.dirname(d)
     return None, None
 

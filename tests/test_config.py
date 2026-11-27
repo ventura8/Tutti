@@ -2,6 +2,7 @@ import copy
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from tutti import cli, config, state
 
@@ -57,6 +58,15 @@ class ConfigTest(unittest.TestCase):
             open(path, 'w', encoding='utf8').close()
             self.assertEqual(config.find(deep, {'XDG_CONFIG_HOME': os.path.join(d, 'none')}), path)
             self.assertEqual(config.find(deep, {'TUTTI_CONFIG': '/elsewhere.yaml'}), '/elsewhere.yaml')
+
+    def test_partial_env_still_honours_process_xdg_config_home(self):
+        # secrets(env={url, key}) must not fall through to ~/.config when check.sh set XDG_CONFIG_HOME
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': d}, clear=False):
+                self.assertEqual(config.xdg_tutti_dir({'TUTTI_GROK_URL': 'https://hooks.example/r'}),
+                                 os.path.join(d, 'tutti'))
+                self.assertEqual(config.xdg_tutti_dir({'XDG_CONFIG_HOME': os.path.join(d, 'other')}),
+                                 os.path.join(d, 'other', 'tutti'))
 
     def test_every_entry_point_resolves_the_one_xdg_config(self):
         # the bug: a project copy read by commands started in its folder, the XDG one by the dashboard and MCP

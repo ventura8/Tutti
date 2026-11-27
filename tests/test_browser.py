@@ -3,6 +3,7 @@ its DevToolsActivePort, a dedicated profile of its own, DevTools on 127.0.0.1 or
 after, a queue, idle shutdown, the broker's scopes and log, and the isolated unit's sandbox. No real browser starts."""
 import json
 import os
+import signal
 import socket
 import sys
 import threading
@@ -531,6 +532,20 @@ class Broker(unittest.TestCase):
         self.assertEqual(self.f.cdps[0].open, set())
 
 
+def _stop_group(p):
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    p.wait()
+    for _ in range(50):
+        try:
+            os.killpg(p.pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+
+
 class Sandbox(unittest.TestCase):
     def test_the_unit_applies_every_sandbox_flag_and_has_no_tcp_port(self):
         text = browsersandbox.unit('/usr/bin/chromium', ['10.0.0.5/32'])
@@ -568,7 +583,8 @@ class Sandbox(unittest.TestCase):
             f.write('import json, os\nbuf = b""\nwhile True:\n    c = os.read(3, 65536)\n    if not c:\n        break\n    buf += c\n'
                     '    while b"\\0" in buf:\n        m, buf = buf.split(b"\\0", 1)\n        m = json.loads(m)\n'
                     '        os.write(4, json.dumps({"id": m["id"], "result": {"echo": m["method"]}}).encode() + b"\\0")\n')
-        p = subprocess.Popen([sys.executable, bridge, sock, grp.getgrgid(os.getgid()).gr_name, sys.executable, chrome])
+        p = subprocess.Popen([sys.executable, bridge, sock, grp.getgrgid(os.getgid()).gr_name, sys.executable, chrome],
+                             start_new_session=True)
         try:
             for _ in range(100):
                 if os.path.exists(sock):
@@ -579,8 +595,7 @@ class Sandbox(unittest.TestCase):
             self.assertEqual(cdp.call('Browser.getVersion'), {'echo': 'Browser.getVersion'})
             cdp.close()
         finally:
-            p.kill()
-            p.wait()
+            _stop_group(p)
 
     def test_isolate_refuses_a_chrome_the_sandbox_cannot_run(self):
         out = []

@@ -69,7 +69,6 @@ from . import (
     update,
     vpncmd,
     welcome,
-    workers,
     workq,
 )
 from . import dispatch as keepbusy  # dashboard.dispatch() routes POSTs
@@ -100,9 +99,10 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
-    def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None,
+    def __init__(self, cfg, probe_fn=remote.probe, available_fn=None, clock=time.time, reader=None, stored_fn=None,
                  activity_fn=projects.probe_activity, prs_fn=releases.all_prs, readings_fn=remote.device_readings,
                  power_fn=remote.power_readings, ollama_fn=local.ollama_get):
+        # available_fn None: workers.statuses injects cfg (kind grok needs the scout entry)
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
         self.power_fn, self.ollama_fn = power_fn, ollama_fn
         self.readings_fn = readings_fn

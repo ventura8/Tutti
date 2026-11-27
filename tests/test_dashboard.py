@@ -186,7 +186,9 @@ class ServerTest(unittest.TestCase):
         log = os.path.join(folder, 'usage.jsonl')
         now = pacing.parse_time(time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime()))
         pacing.append_log(log, 'claude', 97, now - timedelta(minutes=5))
-        cls.cfg = cfg_of({'machines': {'here': {'host': 'local'}}, 'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
+        # in_use_pct 100: a person at this keyboard must not flip the machine to busy (share.idle_seconds is real here)
+        cls.cfg = cfg_of({'machines': {'here': {'host': 'local', 'in_use_pct': 100}},
+                          'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
                           'accounts': {'claude': {'window': '7d', 'resets': (now + timedelta(days=3)).isoformat()}},
                           'usage': {'log': log}}, folder)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),

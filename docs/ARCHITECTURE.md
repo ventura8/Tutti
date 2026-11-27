@@ -33,9 +33,9 @@ Each part below has its own page; this is how they fit together.
   worker takes the next item by project priority, under a lease that expires if its holder dies, so the item is retried
   elsewhere.
 - **Workers and accounts** ([WORKERS.md](WORKERS.md), [USAGE-PACING.md](USAGE-PACING.md)). A worker is a CLI agent
-  (cursor-agent, agy, claude, copilot) or a local model, signed in once by a person on an account. Pacing reads each
-  account's quota windows; `tiers.py` picks model and effort by pace, `planner.py` spends the quota that expires first,
-  and the unblocker forgives tasks that only hit usage limits.
+  (cursor-agent, agy, claude, copilot), a local model, or Grok Bot via its scout webhook (`kind: grok`), signed in once
+  by a person on an account. Pacing reads each account's quota windows; `tiers.py` picks model and effort by pace,
+  `planner.py` spends the quota that expires first, and the unblocker forgives tasks that only hit usage limits.
 - **Machines and leases** ([MACHINES.md](MACHINES.md), [FLEET.md](FLEET.md), [DEVICES.md](DEVICES.md)). Machines are
   reached over `ssh`, WSL or locally; Android devices over adb. `routing.py` picks the first fit machine from probes
   (free slots, load, yield flag); `slot.sh` holds a slot lock on the machine. In a household, shared machines are split by

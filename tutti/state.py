@@ -81,18 +81,22 @@ def with_targets(cfg, accounts, now):
 
 
 def with_scouts(cfg, accounts, now):
-    """A scout's account (Grok Bot's allowance) takes no bounded tasks: its Do line and Decision say what the scout does with
-    the allowance instead (tutti/spendrest.py: the rest is spent on scout work by itself near the reset)."""
+    """A scout's account (Grok Bot's allowance) takes no bounded tasks unless it is also a coding worker (`kind: grok`):
+    then its room stays and the ladder may send it code tasks. Otherwise its Do line and Decision say what the scout does
+    with the allowance (tutti/spendrest.py: the rest is spent on scout work by itself near the reset)."""
     owners = {(sc or {}).get('account'): n for n, sc in (cfg.get('scouts') or {}).items() if isinstance(sc, dict)}
     if not any(a['name'] in owners for a in accounts):
         return accounts
-    from . import scouts, spendrest
+    from . import grokwork, scouts, spendrest
     requests = scouts.load(cfg)['requests']
     out = []
     for a in accounts:
         name = owners.get(a['name'])
         if not name or a.get('state') != 'ok':
             out.append({**a, 'scout': name} if name else a)
+            continue
+        if grokwork.is_coding(cfg, a['name']):
+            out.append({**a, 'scout': name})
             continue
         p = spendrest.plan(cfg, scouts.settings(cfg, name), requests, a, now.timestamp())
         do = scout_do(name, a, p)

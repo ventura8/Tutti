@@ -264,7 +264,7 @@ def lease_script(device, claim, minutes, who):
     """A lease for a requester outside Tutti's runs (`tutti devices claim`): refused while someone else uses the device;
     else the claim file (its end time inside), the prep (the device's own values saved once), the screen woken and kept
     awake for as long as a claim lasts, and the address the requester's adb connects to (`ADDR=<ip:port>`). `claim` is a
-    shell word (remote.home_path); every other value is quoted here. The check and the claim write hold a mkdir lock, so
+    shell word (remote.home_path); every other value is quoted here. The check and the claim write hold a file lock, so
     two requesters cannot both win; one keep-awake loop per device (its pid in `awake.pid` beside the users folder), and
     when the last claim runs out the loop releases the device itself (restore_script), without waiting for a release."""
     from . import adbpair, procs
@@ -275,14 +275,12 @@ def lease_script(device, claim, minutes, who):
     addr = (f'a=$({q(device.get("adb") or "adb")} mdns services 2>/dev/null | tr -d "\\r" | '
             f'awk -v g={q(guid)} \'$1 == g && $2 ~ /_adb-tls-connect/ {{print $3; exit}}\'); '
             'echo "ADDR=${a:-unknown}"; ') if guid else f'echo ADDR={q(str(device["serial"]))}; '
-    pid, lock = f'{u}/../awake.pid', f'{u}/../lease.lock'
+    pid, lock = f'{u}/../awake.pid', f'{u}/../lease.flock'
     live = (f'live=; for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
             f'[ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; ')
     # the end is decided under the lease's lock: a lease written meanwhile is seen, and its device is never restored under it
-    # a folder gone (a test's temp home removed) ends the loop: its mkdir could never succeed (161 spinning loops, 2026-11-15);
-    # nothing is restored then: the device's saved values lived in that folder too
-    end = (f'if [ -z "$live" ]; then until mkdir {lock} 2>/dev/null; do [ -d {u} ] || break 2; sleep 0.1; done; {live}'
-           f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
+    end = (f'if [ -z "$live" ]; then exec 9>{lock} || break; flock -x 9 || break; {live}'
+           f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; break; fi; exec 9>&-; fi; ')
     # one loop per device: a loop that awake.pid does not name (a second one) ends at its next round
     mine = f'[ "$(cat {pid} 2>/dev/null)" = "$$" ] || break; '
     loop = (f'sleep 1; {not_tv(device)} && k=1 || k=0; while :; do {mine}{live}{end}'
@@ -292,16 +290,16 @@ def lease_script(device, claim, minutes, who):
     watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
              f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
     tag = q(f'{procs.MARK}=claim:{device["name"]}')   # the reaper's marker (tutti/procs.py)
-    awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 & '
-             f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 & fi; ') if procs.daemons_allowed() else ''
-    take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
-            f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
-            f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')
-    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
-            f'mkdir -p {u}; {take}others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
-            f'if [ -n "$others" ]; then rmdir {lock}; echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
-            f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; rmdir {lock}; '
-            f'{prep_script(device) or ":"}; {unlock(device)}; {awake}'
+    awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 9>&- & '
+             f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 9>&- & fi; ') if procs.daemons_allowed() else ''
+    take = (f'exec 9>{lock} && flock -x -w 10 9 || {{ '
+            f'echo "tutti: "{name}" could not take the lease lock: check flock is installed or try again in a minute"; exit 3; }}; ')
+    return (f'mkdir -p {u}; {take}{release_script(device)} > /dev/null; '
+            f'others=$(ls -A {u} | grep -Fvx -- "$(basename {claim})" | tr "\\n" " "); '
+            f'if [ -n "$others" ]; then echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
+            f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim} || '
+            f'{{ echo "tutti: "{name}" could not save the lease: check permissions on its users folder"; exit 3; }}; '
+            f'{prep_script(device) or ":"}; {unlock(device)}; {awake}exec 9>&-; '
             f'{addr}echo SERIAL={q(str(device["serial"]))}; echo "tutti: "{name}" leased to "{q(str(who))}" for {int(minutes)} min"')
 
 

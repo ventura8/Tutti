@@ -163,19 +163,8 @@ def local_room(cfg, name, step, used, machines, now=None):
     return (0, f'{name}: busy with a task') if used else (fleet.UNITS_ANY, '')
 
 
-def step_room(cfg, name, states, running_units, machines=()):
-    """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
-    behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
-    at a time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
-    step = step_of(cfg, name)
-    if not step:
-        return 0, unusable_why(cfg, name)
-    used = running_units.get(name, 0)
-    if not step['account']:
-        return local_room(cfg, name, step, used, machines, cfg.get('_now'))
-    s = states.get(name)
-    if not s:
-        return 0, f'{name}: no pacing state yet'
+def _account_room(cfg, name, s, states, used):
+    """(units of room, why not) for an account-backed ladder step."""
     if takes_over(cfg, name, s, states):
         # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work one task at a time,
         # even while ahead of their own pace or past their planned room; only their own panic or a spent quota stops them
@@ -199,6 +188,24 @@ def step_room(cfg, name, states, running_units, machines=()):
     if s.get('verdict') == 'ahead':
         return 0, f'{name}: ahead of its pace'
     return (1 - used, '') if not used else (0, f'{name}: busy with a task')
+
+
+def step_room(cfg, name, states, running_units, machines=()):
+    """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
+    behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
+    at a time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
+    step = step_of(cfg, name)
+    if not step:
+        return 0, unusable_why(cfg, name)
+    used = running_units.get(name, 0)
+    if not step['account']:
+        if step['kind'] == 'grok':
+            return (0, f'{name}: busy with a task') if used else (1, '')
+        return local_room(cfg, name, step, used, machines, cfg.get('_now'))
+    s = states.get(name)
+    if not s:
+        return 0, f'{name}: no pacing state yet'
+    return _account_room(cfg, name, s, states, used)
 
 
 def main_accounts(cfg):
@@ -638,6 +645,15 @@ def repo_path(cfg, task):
     return config.expand(settings(cfg)['repos'][task['repo']]['path'])
 
 
+def worker_files(cfg, task, kind):
+    if kind not in ('ollama', 'grok'):
+        return []
+    from . import fleet
+    root = repo_path(cfg, task)
+    files = (task.get('scope') or []) if kind == 'grok' else fleet.task_files(task)
+    return [f'./{path}' if path.startswith('-') else path for path in files if not os.path.isdir(os.path.join(root, path))]
+
+
 def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
     account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
@@ -653,10 +669,9 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
                   f'{"; " + choice["label"] if choice else ""}\n')
     check = acceptance(task, repo)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
+    argv += worker_files(cfg, task, step['kind'])
     if step['kind'] == 'ollama':
-        from . import fleet
-        argv += [s for s in fleet.task_files(task) if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
-        from . import power
+        from . import fleet, power
         model = fleet.model_for(cfg['workers'][step['worker']], task, power.rates(cfg))   # the model the scheduler checked to fit
         if model:
             step = {**step, 'args': [*step['args'], '--model', model['name']]}

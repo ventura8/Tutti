@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.dirname(HERE)]   # the tests' helpers, then the tutti package
 tmpdirs = importlib.import_module('tmpdirs')   # the module the tests import (tests/ is on the path, as discover does)
 os.environ['TUTTI_NO_DAEMONS'] = '1'   # no real keep-awake loop, tunnel or inhibitor from a test (tutti/procs.py)
+os.environ.pop('TUTTI_BACKGROUND', None)   # autopilot sets this; device .target tests must not inherit class:background
 
 
 # Python's own helpers of this runner (started once by the first multiprocessing test, they end with it)

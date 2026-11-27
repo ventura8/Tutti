@@ -5,6 +5,9 @@ shows them in a category of their own, **Local models**, below the subscription 
 local models. Every figure there is an **estimate**; each card's *Estimates: how they are made* says which parts were
 measured on that machine and which were estimated. The code is `tutti/energy.py` (pure) and `tutti/web/energy.js`.
 
+Home Assistant power sensors can supply the whole-system watts in these cards. Tests on a metered machine show sampled
+kWh and cost for the run window in the finished job row. See [Home Assistant](HOME-ASSISTANT.md).
+
 ## Which machines
 
 - the machine of each Ollama worker (`workers.<w>.machine`), else this computer;

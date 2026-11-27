@@ -39,8 +39,10 @@ from . import (
     fill,
     fleet,
     github,
+    ha_energyuse,
     handover,
     helper,
+    homeassistant,
     householduse,
     httpguard,
     keepon,
@@ -173,6 +175,9 @@ class Collector:
         fresh['prs'] = self.prs_fn(self.cfg)
         try:   # local models: power and models read, energy added to the day's buckets (tutti/energy.py)
             fresh['energy'] = energy.probe_all(self.cfg, self.power_fn, self.ollama_fn)
+            for machine, watts in ha_energyuse.record(self.cfg, self.clock()).items():
+                reading = fresh['energy'].get(machine) or {}
+                fresh['energy'][machine] = {**reading, 'ha_watts': watts}
             energy.sample(self.cfg, fresh['energy'], self.clock(), 2 * self.cfg['dashboard']['probe_seconds'])
             fleet.after_probe(self.cfg, fresh, self.clock())   # every machine's models: the local workers follow them
         except (OSError, ValueError) as e:
@@ -221,6 +226,7 @@ class Collector:
     def dispatch_tick(self):
         """One dispatch round after each probe: idle devices and machines pull pending shards; the idle watchdog's rows."""
         snap = self.snapshot()
+        homeassistant.publish_status(self.cfg, snap)
         accounts = {a['name']: a for a in snap['usage']['accounts']}
         from . import coordinator, fairshare
         members = presence.members_of(coordinator.load(coordinator.state_path(self.cfg)), time.time(), fairshare.STALE_SECONDS)

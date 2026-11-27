@@ -6,6 +6,18 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-18
+
+### Added
+
+- Home Assistant media controls for test harnesses, occupancy-aware quiet mode and machine availability, live power
+  readings and test energy cost, opt-in test power scripts, and mobile and TTS notifications. See docs/HOME-ASSISTANT.md.
+
+### Fixed
+
+- The browser bridge reaps its child on shutdown, the bridge folder test works without GitHub CLI, and a consent change
+  invalidates the telemetry cache even on a filesystem with coarse timestamps.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

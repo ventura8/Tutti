@@ -39,7 +39,7 @@ SANDBOX = (
 )
 
 # Runs inside the unit as tutti-browser: Chrome on a DevTools pipe, offered on the Unix socket to one client at a time.
-BRIDGE = r'''import grp, os, socket, subprocess, sys, threading
+BRIDGE = r'''import grp, os, signal, socket, subprocess, sys, threading
 sock_path, group = sys.argv[1], sys.argv[2]
 r_in, w_in = os.pipe()     # bridge -> Chrome (Chrome reads fd 3)
 r_out, w_out = os.pipe()   # Chrome -> bridge (Chrome writes fd 4)
@@ -49,18 +49,32 @@ def child():
 chrome = subprocess.Popen(sys.argv[3:], pass_fds=(3, 4), preexec_fn=child, stdin=subprocess.DEVNULL)
 os.close(r_in)
 os.close(w_out)
+stopping = threading.Event()
+def stop(signum, frame):
+    stopping.set()
+    chrome.terminate()
+    try:
+        chrome.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        chrome.kill()
+        chrome.wait()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
 if os.path.exists(sock_path):
     os.remove(sock_path)
 srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+os.umask(0o077)
 srv.bind(sock_path)
 os.chown(sock_path, -1, grp.getgrnam(group).gr_gid)   # only tutti-broker's members (Tutti) may connect
-os.chmod(sock_path, 0o660)
 srv.listen(1)
+os.chmod(sock_path, 0o660)
 client = {'c': None}
 def from_chrome():
     while True:
         data = os.read(r_out, 65536)
         if not data:
+            if stopping.is_set():
+                return
             os._exit(1)
         c = client['c']
         if c is not None:

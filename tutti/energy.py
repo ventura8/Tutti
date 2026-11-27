@@ -332,6 +332,8 @@ def watts(reading, mcfg, busy, on_gpu=True):
     about 90 % when no utilisation is readable); the CPU's RAPL package power, else a share of its TDP (most of it when the
     model runs on the CPU); plus the machine's base draw."""
     r, measured = reading or {}, []
+    if r.get('ha_watts') is not None:
+        return r['ha_watts'], {}, ['Home Assistant']
     if r.get('gpu_w') is not None:
         gpu = r['gpu_w']
         measured.append(f'GPU ({r.get("source")})')
@@ -467,6 +469,8 @@ def hosts(cfg):
     for name, m in ((cfg.get('energy') or {}).get('machines') or {}).items():
         if (m or {}).get('ollama'):
             out.setdefault(config.physical(cfg, name), {'workers': [], 'ollama': None, 'on': ''})['on'] = m['ollama']
+    for name in ((cfg.get('home_assistant') or {}).get('energy_entities') or {}):
+        out.setdefault(name, {'workers': [], 'ollama': None, 'on': ''})
     if (cfg.get('fleet') or {}).get('enabled') is not False:   # every machine's Ollama is looked for (tutti/fleet.py)
         for name, m in cfg['machines'].items():
             if m.get('transport') not in ('android', 'household') and config.physical(cfg, name) == name:
@@ -558,7 +562,8 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now, ready=No
     days = (store.get(name) or {}).get('days') or {}
     busy_wh, busy_s = sum(sum(b['busy_wh']) for b in days.values()), sum(b['busy_s'] for b in days.values())
     # cost per busy hour: the measured busy average once there is one, else the estimate for a busy machine
-    busy_w = busy_wh * 3600 / busy_s if busy_s >= 60 else watts({'gpu': r.get('gpu')}, mcfg, True, on_gpu)[0]
+    busy_w = busy_wh * 3600 / busy_s if busy_s >= 60 else watts({'gpu': r.get('gpu'), 'ha_watts': r.get('ha_watts')},
+                                                             mcfg, True, on_gpu)[0]
     per = {k: _period_sums(days, t, v) for k, v in periods(now).items()}
     mine = [x for x in runs if x.get('worker') in host['workers']]
     midnight = tz.local_now(now).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -572,7 +577,7 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now, ready=No
     m = per['month']
     hour_price = price_at(t, tz.localtime(now).tm_hour)
     transport = (cfg['machines'].get(name) or {}).get('transport') or ('local' if name == 'this computer' else 'ssh')
-    power_read = reading is not None and not r.get('power_unread')
+    power_read = (reading is not None and not r.get('power_unread')) or r.get('ha_watts') is not None
     status, why = worker_status(availability(item), host['workers'], ready, reading if power_read else None, transport)
     if status == 'offline' and not power_read and (r.get('tags') or r.get('ps')):   # the models answered: only the power is missing
         status, why = 'available', ''
@@ -583,7 +588,7 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now, ready=No
             'installed': sorted(x.get('name') for x in ((r.get('tags') or {}).get('models') or []) if isinstance(x, dict)),
             'loaded': [{'name': x.get('name'), 'on_gpu': bool(x.get('size_vram'))} for x in ps], 'busy_now': busy_now,
             'util': r.get('util'), 'watts': round(sys_w), 'parts': parts, 'measured': measured, 'source': r.get('source') or '',
-            'gpu_measured': r.get('gpu_w') is not None, 'denied': r.get('denied') or [],
+            'ha_measured': r.get('ha_watts') is not None, 'gpu_measured': r.get('gpu_w') is not None, 'denied': r.get('denied') or [],
             'status': status, 'reason': why, 'periods': per,
             'per_job': round(m['cost'] / m['jobs'], 3) if m['jobs'] else None,
             'per_busy_hour': round(busy_w / 1000 * hour_price, 2), 'reachable': power_read}

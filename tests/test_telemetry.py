@@ -192,6 +192,15 @@ class Recording(Base):
         self.assertEqual(a, telemetry.consent(self.folder)['install_id'])
         self.assertRegex(a, r'^[0-9a-f]{32}$')
 
+    def test_consent_changes_take_effect_even_when_the_file_timestamp_does_not(self):
+        telemetry.set_consent(self.folder, True)
+        path = os.path.join(self.folder, telemetry.CONSENT)
+        stamp = os.stat(path).st_mtime_ns
+        self.assertTrue(telemetry.sending(self.folder))
+        telemetry.set_consent(self.folder, False)
+        os.utime(path, ns=(stamp, stamp))
+        self.assertFalse(telemetry.sending(self.folder))
+
     def test_tool_and_machine_kinds_never_carry_a_made_up_name(self):
         self.assertEqual(telemetry.tool_of('agy-gemini'), 'agy')
         self.assertEqual(telemetry.tool_of('marias-box'), 'other')

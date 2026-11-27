@@ -31,8 +31,10 @@ from . import (
     files,
     github,
     githubcmd,
+    ha_energyuse,
     handover,
     helper,
+    homeassistant,
     householdcmd,
     local,
     mcpserver,
@@ -300,11 +302,26 @@ def test_choice(cfg, a):
         return routing.Choice(device['machine'], False, f'the machine device {device["name"]} is on'), device
     if a.on:
         return routing.Choice(machine_of(cfg, a.on)['name'], False, 'chosen with --on'), None
+    managed = homeassistant.test_power_machine(cfg, a.track)
+    if managed:
+        machine = machine_of(cfg, managed)
+        if routing.owner_unfit(machine):
+            raise config.ConfigError(f'home_assistant.test_power.{a.track}: resume or enable {managed} before running its test')
+        return routing.Choice(managed, False, 'chosen by home_assistant.test_power'), None
+    return route_test(cfg), None
+
+
+def route_test(cfg):
+    from . import sharing
+
+    now = time.time()
+
+    def probe(n):
+        result = sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), now)
+        return homeassistant.machine_probe(cfg, config.physical(cfg, n), result)
+
     try:
-        from . import sharing  # a household's shared machine offers only this member's grant (docs/HOUSEHOLD.md)
-        now = time.time()
-        return routing.choose(cfg['routing']['order'], cfg['machines'],
-                              lambda n: sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), now)), None
+        return routing.choose(cfg['routing']['order'], cfg['machines'], probe)
     except routing.NoMachine as e:
         raise config.ConfigError(str(e)) from e
 
@@ -456,17 +473,23 @@ def cmd_test(cfg, a):
     job = test_job(cfg, a, machine, device, src, command)
     rc = 1
     try:
-        with job_inputs(cfg, machine, a.input) as base:
-            holds = [devices.of(cfg, n) for n in getattr(a, 'hold_device', None) or []]
-            rc = remote.run(cfg, machine, a.track, src, command_line(command), inputs=base and transfer.shell_path(base), device=device,
-                            out=job.log, holds=holds)
-        fetch_results(cfg, machine, a.track, src, a.fetch)
+        rc = run_test_job(cfg, a, machine, device, src, command, job)
         return rc
     finally:
         job.end(rc)
         telemetry.record('feature', 'device.run' if device else 'test.run', machine_kind=telemetry.machine_kind(machine), rc=rc,
                          outcome='passed' if rc == 0 else 'failed', minutes=round((time.monotonic() - started) / 60, 2),
                          inputs=len(a.input or []), fetch=len(a.fetch or []))
+
+
+def run_test_job(cfg, a, machine, device, src, command, job):
+    with homeassistant.test_power(cfg, a.track, machine['name']):
+        with job_inputs(cfg, machine, a.input) as base, ha_energyuse.measure(cfg, machine['name'], job.log_path):
+            holds = [devices.of(cfg, n) for n in getattr(a, 'hold_device', None) or []]
+            rc = remote.run(cfg, machine, a.track, src, command_line(command), inputs=base and transfer.shell_path(base), device=device,
+                            out=job.log, holds=holds)
+        fetch_results(cfg, machine, a.track, src, a.fetch)
+    return rc
 
 
 def household_test(cfg, a, machine, src, command):
@@ -727,6 +750,7 @@ def run_worker(cfg, a, extra):
     rc, lines = delegate.run_compacting(cfg, a.worker, a.task, a.files, a.dir, sys.stdout, extra, None)
     note_limits(cfg, a.worker, lines)
     delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), rc, None, lines)
+    homeassistant.notify(cfg, f'Tutti job finished (exit {rc})')
     return rc
 
 
@@ -768,6 +792,7 @@ def run_delegated(cfg, a, extra):
     note_limits(cfg, a.worker, lines)
     account = getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker)
     delegate.log_run(cfg, a.worker, account, r['rc'], r['id'], lines)
+    homeassistant.notify(cfg, f'Tutti job finished (exit {r["rc"]})')
     telemetry.record('feature', 'run.delegated', worker_kind=telemetry.tool_of(a.worker), account=telemetry.tool_of(account),
                      outcome='passed' if r['rc'] == 0 else 'failed', autopilot=bool(a.id and a.account is not None),
                      checks=len(r.get('checks') or []), minutes=round((time.time() - float(str(r['id']).split('-')[0])) / 60, 2))

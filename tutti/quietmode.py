@@ -40,16 +40,26 @@ def avail_gb(path='/proc/meminfo'):
     return None
 
 
+def _ha_present(cfg):
+    """True when Home Assistant reports a person home (presence_entities); False when unconfigured or unreachable."""
+    from . import homeassistant
+    return homeassistant.is_person_present(cfg)
+
+
 def status(cfg, idle_fn=None, mem_fn=None):
     s = settings(cfg)
     idle = (idle_fn or share.idle_seconds)()
     mem = (mem_fn or avail_gb)()
+    ha_present = _ha_present(cfg)
     reasons = []
-    if idle is not None and idle < s['in_use_minutes'] * 60:
+    at_computer = idle is not None and idle < s['in_use_minutes'] * 60
+    if at_computer:
         reasons.append(f'a person is at this computer (last input {int(idle)} s ago)')
+    if ha_present:
+        reasons.append('a person is present (Home Assistant)')
     if mem is not None and mem < s['reserve_gb']:
         reasons.append(f'free memory {mem:.1f} GB is under the {s["reserve_gb"]:g} GB kept for the person')
-    return {'quiet': bool(reasons), 'person': bool(reasons) and idle is not None and idle < s['in_use_minutes'] * 60,
+    return {'quiet': bool(reasons), 'person': at_computer or ha_present,
             'low_memory': mem is not None and mem < s['reserve_gb'], 'reasons': reasons, 'idle_s': idle, 'avail_gb': mem}
 
 

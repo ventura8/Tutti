@@ -472,7 +472,8 @@ def validate(cfg):
     errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
     errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
-    from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
+    from . import autocompact, chat, depbots, dispatch, energy, homeassistant, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
+    errs += homeassistant.errors(cfg)
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
     from . import aiassist, needs, selfheal, welcome
     errs += selfheal.errors(cfg)

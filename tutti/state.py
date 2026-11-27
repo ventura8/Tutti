@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import __version__, config, controls, devices, pacing, routing, waiting, workers
+from . import __version__, config, controls, devices, ha_energyuse, homeassistant, pacing, routing, waiting, workers
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
@@ -214,7 +214,7 @@ def machines_state(cfg, probe_fn, stored_fn=None):
 
     def one(n):
         m = cfg['machines'][n]
-        p = probe_fn(m)
+        p = homeassistant.machine_probe(cfg, config.physical(cfg, n), probe_fn(m))
         here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
         out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
         out['idle_s'] = here
@@ -410,7 +410,8 @@ def log_job(path, kind, now, stall, is_alive):
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
             'ended': iso(mtime(path + '.rc')) if rc is not None else None,   # the result file is written when it ends
-            'status': status, 'tail': lines, 'progress': prog, 'handoff': read_first_line(path + '.handoff')}
+            'status': status, 'tail': lines, 'progress': prog, 'energy': ha_energyuse.read_cost(path),
+            'handoff': read_first_line(path + '.handoff')}
 
 
 def wait_jobs(folder, now, stall, is_alive):

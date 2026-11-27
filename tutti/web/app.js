@@ -1119,10 +1119,11 @@ function compact(n) {
 }
 
 // A finished job: its result, exit code (when not 0) and how long it took.
-function finishedText(f) {
+function finishedText(f, energy) {
     const parts = [f.result || 'finished'];
     if (f.rc !== undefined && f.rc !== 0) parts.push(`exit ${f.rc}`);
     if (f.seconds !== undefined) parts.push(`took ${duration(f.seconds)}`);
+    if (energy) parts.push(`${tuttiNum(energy.kwh, { digits: 6 })} kWh · ${tuttiNum(energy.cost, { digits: 6 })} ${energy.currency}`);
     return parts.join(' · ');
 }
 
@@ -1130,7 +1131,7 @@ function finishedText(f) {
 // elapsed time with no bar when nothing can say how far it is. Finished jobs: no bar, their result and duration.
 function progressBar(j) {
     const p = j.progress;
-    if (!p) return el('span', { class: 'job__progress', 'data-layer': 'finished', text: finishedText(j.facts || {}) });
+    if (!p) return el('span', { class: 'job__progress', 'data-layer': 'finished', text: finishedText(j.facts || {}, j.energy) });
     if (!p.determinate) return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label, text: duration(p.elapsed_seconds) });
     const bar = el('span', { class: 'job__bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p.pct,
         'aria-valuetext': p.label, 'aria-label': `${j.title}: ${p.label}`, 'data-late': p.late ? 'true' : null });

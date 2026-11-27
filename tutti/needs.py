@@ -22,7 +22,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import backlog, config, durable, telemetry
+from . import backlog, config, durable, homeassistant, telemetry
 
 try:
     import fcntl
@@ -133,7 +133,8 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
     default = default if default in options else options[0]
     with locked(cfg) as data:
         q = next((x for x in data['questions'] if x['task'] == task['id'] and x['status'] == 'open'), None)
-        if q is None:
+        new_question = q is None
+        if new_question:
             q = {'id': new_id(data), 'task': task['id'], 'status': 'open', 'at': now, 'delivered': None}
             data['questions'].append(q)
         q.update(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
@@ -144,6 +145,8 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
             data['questions'] = [x for x in data['questions'] if x['id'] not in old]
     task['status'], task['question'] = 'needs-person', q['id']
     task['parked'] = task.get('parked') or q['question']
+    if new_question and user == OWNER:
+        homeassistant.notify(cfg, f'Tutti needs attention ({q["id"]})')
     telemetry.record('feature', 'needs.ask', urgent=bool(urgent))
     return q
 

@@ -3,6 +3,7 @@ its DevToolsActivePort, a dedicated profile of its own, DevTools on 127.0.0.1 or
 after, a queue, idle shutdown, the broker's scopes and log, and the isolated unit's sandbox. No real browser starts."""
 import json
 import os
+import signal
 import socket
 import sys
 import threading
@@ -568,19 +569,29 @@ class Sandbox(unittest.TestCase):
             f.write('import json, os\nbuf = b""\nwhile True:\n    c = os.read(3, 65536)\n    if not c:\n        break\n    buf += c\n'
                     '    while b"\\0" in buf:\n        m, buf = buf.split(b"\\0", 1)\n        m = json.loads(m)\n'
                     '        os.write(4, json.dumps({"id": m["id"], "result": {"echo": m["method"]}}).encode() + b"\\0")\n')
-        p = subprocess.Popen([sys.executable, bridge, sock, grp.getgrgid(os.getgid()).gr_name, sys.executable, chrome])
-        try:
-            for _ in range(100):
-                if os.path.exists(sock):
-                    break
-                time.sleep(0.05)
-            self.assertEqual(stat.S_IMODE(os.stat(sock).st_mode), 0o660)
-            cdp = browser.open_cdp('unix:' + sock)
-            self.assertEqual(cdp.call('Browser.getVersion'), {'echo': 'Browser.getVersion'})
-            cdp.close()
-        finally:
-            p.kill()
-            p.wait()
+        p = subprocess.Popen([sys.executable, bridge, sock, grp.getgrgid(os.getgid()).gr_name, sys.executable, chrome],
+                             start_new_session=True)
+
+        def stop():
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            finally:
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                p.wait()
+
+        self.addCleanup(stop)
+        for _ in range(100):
+            if os.path.exists(sock) and stat.S_IMODE(os.stat(sock).st_mode) == 0o660:
+                break
+            time.sleep(0.05)
+        self.assertEqual(stat.S_IMODE(os.stat(sock).st_mode), 0o660)
+        cdp = browser.UnixCdp(sock, timeout=5)
+        self.addCleanup(cdp.close)
+        self.assertEqual(cdp.call('Browser.getVersion'), {'echo': 'Browser.getVersion'})
 
     def test_isolate_refuses_a_chrome_the_sandbox_cannot_run(self):
         out = []

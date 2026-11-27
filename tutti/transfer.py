@@ -12,7 +12,7 @@ import sys
 import time
 from contextlib import contextmanager
 
-from . import config, files, remote
+from . import config, files, homeassistant, remote
 
 try:
     import fcntl
@@ -66,6 +66,7 @@ def rsync_target(machine, base):
 
 class Job:
     def __init__(self, cfg, title, folder='files', target='', spec=None):
+        self.cfg = cfg
         folder = os.path.join(config.state_dir(cfg), folder)
         os.makedirs(folder, exist_ok=True)
         self.log_path = os.path.join(folder, f'{int(time.time())}-{os.getpid()}-{time.monotonic_ns() % 100000}.log')
@@ -97,6 +98,7 @@ class Job:
         with open(self.log_path + '.rc', 'w', encoding='utf8') as f:
             f.write(f'{rc}\n')
         self.log.close()
+        homeassistant.notify(self.cfg, f'Tutti job finished (exit {rc})')
 
 
 def lock_dir(env=None):

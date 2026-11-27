@@ -156,6 +156,16 @@ class LeaseTest(Base):
         os.remove(self.claim('map'))
         self.bash(prep.release_script(self.d))
 
+    def test_requester_with_a_dot_cannot_renew_someone_elses_lease(self):
+        first = self.bash(prep.lease_script(self.d, self.claim('axb'), 60, 'axb'))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = self.bash(prep.lease_script(self.d, self.claim('a.b'), 60, 'a.b'))
+        self.assertEqual(second.returncode, 3, second.stdout + second.stderr)
+        self.assertIn('in use by claim-axb', second.stdout)
+        self.assertFalse(os.path.exists(self.claim('a.b')))
+        renewal = self.bash(prep.lease_script(self.d, self.claim('axb'), 60, 'axb'))
+        self.assertEqual(renewal.returncode, 0, renewal.stderr)
+
     def fast(self):
         old = prep.KEEP_AWAKE_SECONDS
         prep.KEEP_AWAKE_SECONDS = 0.2
@@ -204,7 +214,8 @@ class LeaseTest(Base):
             t.start()
         for t in threads:
             t.join()
-        self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3])
+        details = {who: (r.returncode, r.stdout, r.stderr) for who, r in out.items()}
+        self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3], details)
         for w in ('a', 'b'):
             if os.path.exists(self.claim(w)):
                 os.remove(self.claim(w))
@@ -237,7 +248,8 @@ class PersonTest(Base):
         try:
             child.wait(timeout=20)
         finally:
-            subprocess.run(['pkill', '-g', str(child.pid)], check=False)   # the session's leftovers, by its group id
+            subprocess.run(['pkill', '-s', str(child.pid)], check=False)   # the session's leftovers, even across sub-groups
+            subprocess.run(['pkill', '-9', '-s', str(child.pid)], check=False)
         with open(log, encoding='utf8') as f:
             out = f.read()
         self.assertIn(devices.PERSON_LINE, out)

@@ -25,6 +25,10 @@ PYTHONPATH=tests python3 -m unittest discover -s tests/e2e                    # 
 TUTTI_UI_SHOTS=/tmp/tutti-ui PYTHONPATH=tests python3 -m unittest discover -s tests/e2e   # and keep a screenshot of each view
 ```
 
+The Chat walkthrough checks an empty conversation and a rendered reply at phone, tablet and desktop widths in both themes.
+It also exercises keyboard submission, an unavailable conversation list, and recovery through **Try again**.
+The full check is complete when it exits zero and prints `check: all passed` after the CLI smoke commands.
+
 ### The world
 
 - `tests/e2e/serve.py` serves the example config (`tutti.config.example.yaml`) from a temp home, in a child process with its

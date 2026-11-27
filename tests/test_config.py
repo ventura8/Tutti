@@ -158,6 +158,18 @@ class OptInTest(unittest.TestCase):
         self.assertIn('workers.copilot.enabled: true', str(e.exception))
         self.assertIn('copilot (worker): costs money per use', state.off_notes(cfg)[0])
 
+    def test_a_paused_ladder_account_is_dropped_so_the_config_still_loads(self):
+        # Chat/dashboard pause must not brick Tutti when the account is still named on autopilot.ladder (t200).
+        raw = copy.deepcopy(self.RAW)
+        raw['autopilot'] = {'enabled': True, 'ladder': ['agy'], 'accounts': ['agy'],
+                            'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {}}
+        raw['accounts']['agy'] = {**(raw['accounts']['agy'] or {}), 'paused': {'by': 'owner (chat)', 'at': 1, 'note': ''}}
+        cfg = config.normalise(raw)
+        self.assertNotIn('agy', cfg['accounts'])
+        self.assertEqual(cfg['autopilot']['ladder'], [])
+        self.assertEqual(cfg['autopilot']['accounts'], [])
+        self.assertEqual(config.validate(cfg), [])
+
 
 if __name__ == '__main__':
     unittest.main()

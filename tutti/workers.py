@@ -169,18 +169,32 @@ def grant_tree(argv, cwd):
     return out
 
 
-def stop_tree(p):
-    """SIGTERM to the process group the CLI leads (its own session: the pid we started and every child, even one forked
-    after a /proc scan); on Windows its process tree."""
+def _wait_pg_gone(pid, timeout=1.0):
+    """Wait briefly until every process in process group `pid` has exited."""
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.01)
+
+
+def stop_tree(p, force=False):
+    """SIGTERM (or SIGKILL when force=True) to the process group the CLI leads (its own session: the pid we started and every child,
+    even one forked after a /proc scan); on Windows its process tree."""
     if os.name == 'nt':
         from . import handover
         handover.end_tree(p.pid)
         return
     import signal
     try:
-        os.killpg(p.pid, signal.SIGTERM)
+        os.killpg(p.pid, signal.SIGKILL if force else signal.SIGTERM)
     except OSError:
-        pass
+        return
+    if force:
+        _wait_pg_gone(p.pid)
 
 
 def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
@@ -217,9 +231,10 @@ def pass_through(p, out, kept, watch):
             try:
                 p.wait(timeout=TERM_WAIT)
             except subprocess.TimeoutExpired:   # it ignored SIGTERM: the restart must not hang on it
-                p.kill()
+                stop_tree(p, force=True)
+                p.wait()
             finally:
-                stop_tree(p)   # a child that ignored the first signal or outlived its parent
+                stop_tree(p, force=True)   # a child that ignored the first signal or outlived its parent
             out.write(f'tutti: context at {watch.pct:g} % (autocompact.threshold_pct {watch.limit}): stopped, restarting '
                       'with a handoff\n')
             return True

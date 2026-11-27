@@ -1052,6 +1052,21 @@ class PageLogic(unittest.TestCase):
         self.assertTrue(js('atBottom({scrollHeight: 1000, scrollTop: 560, clientHeight: 400})'))
         self.assertFalse(js('atBottom({scrollHeight: 1000, scrollTop: 100, clientHeight: 400})'))
 
+    def test_message_identity_and_cost_chip(self):
+        self.assertEqual(js("msgWho({role: 'user'})"), {'who': 'You', 'worker': '', 'label': 'You'})
+        self.assertEqual(js("msgWho({role: 'assistant', model: 'cursor (cursor account)'})"),
+                         {'who': 'Tutti', 'worker': 'cursor (cursor account)', 'label': 'Tutti, cursor (cursor account)'})
+        self.assertEqual(js("msgWho({role: 'assistant', status: 'streaming'})"),
+                         {'who': 'Tutti', 'worker': '', 'label': 'Tutti, answering'})
+        self.assertEqual(js("msgWho({role: 'assistant'})"), {'who': 'Tutti', 'worker': '', 'label': 'Tutti'})
+        self.assertEqual(js("msgCostText(null)"), '')
+        self.assertEqual(js("msgCostText({in: 12000, out: 300, usd: 0.05})"), '12k→300 · ≈$0.05')
+        self.assertEqual(js("msgCostText({in: 900, out: 20, usd: 0})"), '900→20 · local')
+        self.assertEqual(js("msgCostText({in: 100, out: 10, usd: 0, estimated: true})"), '100→10 est. · local')
+        self.assertEqual(js("msgCostText({in: 50, out: 5})"), '50→5 · local')
+        self.assertEqual(js("msgCostText({in: 800, out: 40, usd: 0, wh: 0.04})"), '800→40 · 0.04 Wh · local')
+        self.assertEqual(js("msgCostText({in: 200, out: 10, watts: 120})"), '200→10 · ≈120 W · local')
+
 
 def jsctl(expr):
     with open(os.path.join(WEB, 'chatctl.js'), encoding='utf8') as f:
@@ -1151,6 +1166,11 @@ class PageMarkup(unittest.TestCase):
         self.assertIn('interactive-widget=resizes-content', self.html)
         chat_css = self.css.split('---- the Chat', 1)[1]
         self.assertNotRegex(chat_css, r'#[0-9a-fA-F]{3,6}\b')   # colours only from the theme's tokens (light and dark)
+        self.assertIn('@media (max-width: 1100px) and (min-width: 761px)', self.css)   # tablet keeps the side list
+        self.assertIn('.msg--bot .msg__body', chat_css)   # assistant messages have their own surface
+        self.assertIn('.msg__cost', chat_css)             # per-answer token/cost chip
+        self.assertIn('aria-label="Conversation token usage"', self.html)
+        self.assertIn('aria-keyshortcuts="Enter"', self.html)
 
 
 if __name__ == '__main__':

@@ -314,7 +314,9 @@ def is_on(entry):
 def opt_out(cfg):
     """Takes the accounts and workers that are off out of the config: out of pacing, panic, routing, review and conduct
     fallbacks and the dashboard (an account's readings stay in the log, unused). An account whose worker is off is off too.
-    `off` lists them for the dashboard's note, with whether they cost money."""
+    `off` lists them for the dashboard's note, with whether they cost money. A paused ladder name is dropped in memory so
+    a Chat or dashboard pause cannot make the whole config unloadable (t200); costs_money / enabled:false stay listed so
+    validate still names those misconfigurations."""
     off_workers = sorted(n for n, w in cfg['workers'].items() if not is_on(w))
     off_accounts = sorted(n for n, a in cfg['accounts'].items() if not is_on(a) or (a or {}).get('worker') in off_workers)
     def entry(kind, n, section):
@@ -332,6 +334,13 @@ def opt_out(cfg):
             cfg[section]['fallback'] = [w for w in cfg[section]['fallback'] if w not in gone]
     if isinstance(cfg.get('main'), dict) and isinstance(cfg['main'].get('commands'), dict):
         cfg['main']['commands'] = {n: c for n, c in cfg['main']['commands'].items() if n not in gone}
+    paused = {o['name'] for o in cfg['off'] if o.get('paused')}
+    ap = cfg.get('autopilot') if isinstance(cfg.get('autopilot'), dict) else None
+    if ap and paused:
+        for key in ('accounts', 'ladder'):
+            names = ap.get(key)
+            if isinstance(names, list):
+                ap[key] = [n for n in names if n not in paused]
 
 
 def _machine_errors(name, m):

@@ -8,6 +8,7 @@ Run: PYTHONPATH=tests python3 -m unittest discover -s tests/e2e   (scripts/check
 import os
 import re
 import unittest
+from contextlib import closing
 
 import axe_playwright_python
 from harness import Dashboard
@@ -412,6 +413,96 @@ class Roles(unittest.TestCase):
             self.assertIsNone(re.search(r'\d+\.\d{4,}', text), re.search(r'.{30}\d+\.\d{4,}.{10}', text))
             self.assertRegex(page.text_content('#usage'), r'\b32\s?%')   # grok-bot's 32.122999999999976 %
             ctx.close()
+
+
+class ChatUx(unittest.TestCase):
+    """t200: Chat empty state, composer labels, keyboard focus and responsive light/dark (phone–desktop)."""
+
+    maxDiff = None
+
+    @staticmethod
+    def conversation(route):
+        conv = {'id': 'demo-chat', 'title': 'Household status', 'messages': [
+            {'id': 'question', 'role': 'user', 'text': "What's running?"},
+            {'id': 'answer', 'role': 'assistant', 'model': 'Worker One · Example Model',
+             'text': '**Two jobs** are running.\n\n- Build\n- Device tests', 'usage': {'in': 120, 'out': 42, 'usd': 0.01}},
+        ]}
+        if route.request.post_data_json['action'] == 'get':
+            route.fulfill(json={'conversation': conv, 'settings': {}})
+        else:
+            route.fulfill(json={'conversations': [{'id': conv['id'], 'title': conv['title']}], 'suggestions': [], 'role': 'admin'})
+
+    def test_conversation_at_each_width_and_theme(self):
+        problems = {}
+        for width in ('phone', 'tablet', 'laptop'):
+            for theme in THEMES:
+                with closing(new_context(ADMIN, width, theme)) as ctx:
+                    ctx.route('**/api/chat', self.conversation)
+                    page = open_view(ctx)
+                    page.get_by_role('button', name='Household status').click()
+                    worker = page.locator('.msg__model')
+                    worker.wait_for()
+                    self.assertEqual(worker.text_content(), 'Worker One · Example Model')
+                    self.assertEqual(page.locator('.msg__cost').text_content(), '120→42 · ≈$0.01')
+                    self.assertEqual(page.locator('.msg--bot .md strong').text_content(), 'Two jobs')
+                    self.assertEqual(page.errors, [])
+                    problems[f'{width} {theme}'] = axe(page)
+                    shot(page, f'admin-chat-conversation-{width}-{theme}')
+        self.assertFalse(any(problems.values()), problems)
+
+    def test_list_retry_and_keyboard_send_failure(self):
+        with closing(new_context(ADMIN)) as ctx:
+            ctx.route('**/api/chat', lambda route: route.fulfill(status=503, json={'error': 'Temporarily offline'}))
+            page = open_view(ctx)
+            page.get_by_role('heading', name='Chat is unavailable').wait_for()
+            ctx.unroute('**/api/chat')
+            ctx.route('**/api/chat', self.conversation)
+            page.locator('#chat-log').get_by_role('button', name='Try again').press('Enter')
+            page.get_by_role('heading', name='Ask the household').wait_for()
+            composer = page.get_by_role('textbox', name='Message', exact=True)
+            self.assertTrue(composer.evaluate('(input) => input === document.activeElement'))
+            ctx.unroute('**/api/chat')
+            ctx.route('**/api/chat', lambda route: route.fulfill(status=503, json={'error': 'Temporarily offline'}))
+            composer.fill('first line')
+            composer.press('End')
+            composer.press('Shift+Enter')
+            composer.press('x')
+            self.assertEqual(composer.input_value(), 'first line\nx')
+            composer.press('Enter')
+            page.get_by_role('button', name='Send again').wait_for()
+            self.assertIn('Not sent', page.locator('.msg__status').text_content())
+
+    def test_empty_state_composer_labels_and_focus(self):
+        problems = {}
+        for width in ('phone', 'tablet', 'laptop'):
+            for theme in THEMES:
+                ctx = new_context(ADMIN, width, theme)
+                page = open_view(ctx)   # Chat is the default view
+                page.wait_for_function("""() => {
+                    const note = document.getElementById('chat-list-note');
+                    return note && !/Loading/.test(note.textContent || '');
+                }""")
+                # Phone starts on the conversation list; New chat opens the composer pane.
+                if width == 'phone':
+                    page.click('#chat-new')
+                    page.wait_for_selector('#chat-input', state='visible')
+                page.wait_for_selector('.chat__lead', state='visible')
+                self.assertEqual(page.text_content('.chat__lead'), 'Ask the household', f'{width} {theme}')
+                self.assertEqual(page.get_attribute('#chat-send', 'aria-keyshortcuts'), 'Enter')
+                self.assertEqual(page.get_attribute('#chat-stop', 'aria-keyshortcuts'), 'Escape')
+                self.assertEqual(page.get_attribute('#chat-usage', 'aria-label'), 'Conversation token usage')
+                self.assertEqual(page.get_attribute('#chat-context', 'aria-label'), 'Context used')
+                self.assertTrue(page.is_visible('#chat-input'))
+                page.focus('#chat-input')
+                self.assertTrue(page.evaluate('tuttiChecks.focusShown()'), f'chat input focus not visible at {width} {theme}')
+                # Phone: axe only. layout()'s floatingClearance scrolls the page pad under the fixed tab bar and
+                # flags the composer; the matrix Layout tests already cover Chat at phone without opening New chat.
+                found = axe(page) if width == 'phone' else page.evaluate('tuttiChecks.layout()') + axe(page)
+                if found:
+                    problems[f'chat {width} {theme}'] = found
+                shot(page, f'admin-chat-empty-{width}-{theme}')
+                ctx.close()
+        self.assertEqual(problems, {})
 
 
 if __name__ == '__main__':

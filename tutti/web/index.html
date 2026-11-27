@@ -156,16 +156,17 @@
               <input id="chat-file" type="file" multiple hidden aria-label="Text or log files to attach" accept=".txt,.log,.md,.json,.yaml,.yml,.csv,.toml,.ini,.py,.js,.ts,.sh,.diff,.patch,text/*">
               <label class="sr-only" for="chat-input">Message</label>
               <textarea class="chat__input" id="chat-input" rows="1" placeholder="Ask, or queue work…" aria-describedby="chat-hint" enterkeyhint="send" maxlength="8000"></textarea>
-              <button class="btn btn--filled chat__send" id="chat-send" type="submit">Send</button>
-              <button class="btn btn--tonal chat__send" id="chat-stop" type="button" hidden>Stop</button>
+              <button class="btn btn--filled chat__send" id="chat-send" type="submit" aria-keyshortcuts="Enter">Send</button>
+              <button class="btn btn--tonal chat__send" id="chat-stop" type="button" hidden aria-keyshortcuts="Escape">Stop</button>
             </div>
             <div class="chat__tools" role="group" aria-label="How it answers">
               <label class="chat__tool">Model <select id="chat-model" title="Auto: the household's local models first, then online agents"></select></label>
               <label class="chat__tool">Effort <select id="chat-effort" title="More effort: the model thinks first and reads more"></select></label>
               <label class="chat__tool">Mode <select id="chat-mode" title="Autonomous acts and shows Undo; Ask before acting waits for Confirm; Plan review runs a plan you approved"></select></label>
               <label class="chat__tool chat__ctx" title="How full the model's context is; older messages are summarised at your threshold">Context
-                <meter id="chat-context" min="0" max="100" low="50" high="80" optimum="0" value="0"></meter><span id="chat-context-pct">0 %</span></label>
-              <span class="chat__usage" id="chat-usage"></span>
+                <meter id="chat-context" min="0" max="100" low="50" high="80" optimum="0" value="0"
+                  aria-label="Context used"></meter><span id="chat-context-pct">0 %</span></label>
+              <span class="chat__usage" id="chat-usage" aria-live="polite" aria-label="Conversation token usage"></span>
             </div>
             <p class="chat__hint" id="chat-hint">Enter sends · Shift+Enter adds a line · Esc stops · ↑ edits · / for commands · @ to add context · ? for shortcuts</p>
           </form>

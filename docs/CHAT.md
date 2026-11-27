@@ -177,16 +177,21 @@ Under the message box, as in a chat IDE, each starting at Auto:
 ## The page
 
 - Answers stream in as they are written. A message that could not be sent says **Not sent** with **Send again**.
+- Each message has a clear hierarchy: who spoke (**You** or **Tutti**), the worker or model that answered (a chip on
+  every Tutti message), the time, and an unobtrusive cost chip (tokens in→out, Wh or W when the answer reports energy,
+  and the API-price cost, or "local") when the answer reports usage. Streaming shows a typing status; loading, empty
+  and unreachable states each have their own copy and a **Try again** when the list failed.
 - Markdown is drawn safely: the text is parsed into a tree and drawn with DOM nodes and `textContent`, so no message ever
   becomes markup. Only `http`, `https` and `mailto` links are links. Code blocks have **Copy**.
 - The list follows new text while you are at the end; scroll up and it stays put, with **Jump to latest**.
 - An empty chat suggests questions from the state now (an idle machine, the quota, a project to queue tests for).
 - Conversations: **New chat**, **Rename**, **Delete**, and search over titles and messages.
 - Keys: Enter sends, Shift+Enter adds a line, Esc stops, ↑ edits. New answers are announced to screen readers (a polite
-  live region); focus stays visible; animations stop with reduced motion.
-- On a phone the list and the conversation take the screen in turn (**‹ Chats** goes back); the composer stays above the
-  on-screen keyboard (`interactive-widget=resizes-content` and `visualViewport`), and the bottom tab bar hides while you
-  type. Light and dark follow the dashboard's theme and accent.
+  live region); the composer and tools have accessible names; focus stays visible; animations stop with reduced motion.
+- Responsive: desktop keeps the conversation list beside the thread; tablet narrows the list; on a phone the list and
+  the conversation take the screen in turn (**‹ Chats** goes back). The composer stays above the on-screen keyboard
+  (`interactive-widget=resizes-content` and `visualViewport`), and the bottom tab bar hides while you type. Light and
+  dark follow the dashboard's theme and accent (the same tokens as the Set up card).
 
 ## What is stored
 

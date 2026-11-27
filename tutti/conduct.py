@@ -384,6 +384,10 @@ def stop_process(p):
         os.killpg(p.pid, signal.SIGTERM)
         p.wait(STOP_GRACE)
     except subprocess.TimeoutExpired:
+        pass
+    except (ProcessLookupError, PermissionError):
+        return
+    try:
         os.killpg(p.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         return

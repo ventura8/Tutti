@@ -334,7 +334,7 @@ def record(machine, base, item):
 def copy_item(cfg, machine, item, base, s, use_rsync, bwlimit, job):
     """Copies and verifies one item; a failed check removes the copy and sends it once more from scratch."""
     for attempt in (1, 2):
-        if use_rsync:
+        if use_rsync and shutil.which('rsync'):
             copy_rsync(cfg, machine, item, base, s, bwlimit, job)
         else:
             copy_stream(machine, item, base, bwlimit, job)
@@ -453,7 +453,7 @@ def _send(cfg, machine, items, base, s, bw, use_rsync, in_cache, job):
         make_room(machine, base, s, info, todo, [i.name for i in items], job)
     else:
         check_free(machine, s, info['free'], sum(i.bytes for i in todo))
-    rsync = (shutil.which('rsync') is not None and info['rsync']) if use_rsync is None else use_rsync
+    rsync = shutil.which('rsync') is not None and (info['rsync'] if use_rsync is None else use_rsync)
     job.total = sum(i.bytes for i in todo) or 1
     out = []
     for i in items:

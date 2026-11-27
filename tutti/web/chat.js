@@ -120,6 +120,31 @@ function chatKey(e, state) {
     return null;
 }
 
+// Who spoke: the person, or Tutti with the worker/model that answered (shown on every assistant message).
+function msgWho(m) {
+    if (m.role === 'user') return { who: 'You', worker: '', label: 'You' };
+    const worker = String(m.model || '').trim();
+    let label = 'Tutti';
+    if (worker) {
+        label = `Tutti, ${worker}`;
+    } else if (m.status === 'streaming') {
+        label = 'Tutti, answering';
+    }
+    return { who: 'Tutti', worker, label };
+}
+
+// Unobtrusive per-answer cost chip: tokens in→out, optional Wh/W (t187/t199), API-price cost (else "local").
+function msgCostText(u) {
+    if (!u || !(u.in || u.out || u.wh || u.watts)) return '';
+    const n = (x) => (x >= 1000 ? `${(x / 1000).toFixed(x >= 10000 ? 0 : 1)}k` : String(x || 0));
+    const parts = [];
+    if (u.in || u.out) parts.push(`${n(u.in)}→${n(u.out)}${u.estimated ? ' est.' : ''}`);
+    if (u.wh > 0) parts.push(`${u.wh < 0.01 ? '<0.01' : Number(u.wh).toFixed(u.wh < 1 ? 2 : 1)} Wh`);
+    else if (u.watts > 0) parts.push(`≈${Math.round(u.watts)} W`);
+    parts.push(u.usd > 0 ? `≈$${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)}` : 'local');
+    return parts.join(' · ');
+}
+
 // Whether the log is scrolled to its end (within `slack` px): new text then keeps it there.
 const atBottom = (box, slack = 80) => box.scrollHeight - box.scrollTop - box.clientHeight <= slack;
 
@@ -204,7 +229,7 @@ function drawList() {
     if (CHAT.loading) { note.textContent = 'Loading your conversations…'; box.replaceChildren(); return; }
     if (CHAT.failed && !CHAT.list.length) {
         note.replaceChildren(`Your conversations did not load: ${CHAT.failed} `,
-            el('button', { class: 'btn btn--text', type: 'button', text: 'Try again', onclick: () => { CHAT.loading = true; drawList(); void loadList(); } }));
+            el('button', { class: 'btn btn--text', type: 'button', text: 'Try again', onclick: () => retryList('chat-new') }));
         box.replaceChildren();
         return;
     }
@@ -214,6 +239,15 @@ function drawList() {
             class: 'chat__item', type: 'button', 'aria-current': CHAT.conv?.id === c.id ? 'true' : null, onclick: () => openConv(c.id),
         }, el('span', { class: 'chat__itemtitle', text: c.title }),
         el('span', { class: 'chat__itemmeta', text: `${c.updated ? relative(c.updated) : ''}${c.preview ? ' · ' + c.preview : ''}` })))));
+}
+
+function retryList(focusId) {
+    CHAT.loading = true;
+    CHAT.failed = '';
+    cq(focusId).focus();
+    drawList();
+    if (!CHAT.conv) drawLog();
+    void loadList();
 }
 
 function drawPrivacy() {
@@ -280,29 +314,45 @@ function drawLog() {
 }
 
 function emptyState() {
-    if (CHAT.loading) return el('div', { class: 'chat__empty' }, el('p', { class: 'chat__lead', text: 'Loading…' }));
+    if (CHAT.loading) {
+        return el('div', { class: 'chat__empty', role: 'status' },
+            el('p', { class: 'chat__lead', text: 'Loading…' }),
+            el('p', { class: 'chat__sub', text: 'Fetching your conversations from the household host.' }));
+    }
+    if (CHAT.failed) {
+        return el('div', { class: 'chat__empty' },
+            el('h3', { class: 'chat__lead', text: 'Chat is unavailable' }),
+            el('p', { class: 'chat__error', role: 'alert', text: `The chat is not reachable right now: ${CHAT.failed}` }),
+            el('button', { class: 'btn btn--tonal', type: 'button', text: 'Try again',
+                onclick: () => retryList('chat-input') }));
+    }
     const tips = CHAT.suggestions.map((s) => el('button', { class: 'chip chat__suggest', type: 'button', text: s, onclick: () => send(s) }));
     return el('div', { class: 'chat__empty' },
         el('h3', { class: 'chat__lead', text: 'Ask the household' }),
         el('p', { class: 'chat__sub', text: 'What is running, how much quota is left, why a machine is idle. Or queue work: "add task in <project>: what to change". It answers from the household host, so it works while your own computer is off.' }),
-        tips.length ? el('div', { class: 'chat__suggestions', role: 'group', 'aria-label': 'Suggested questions' }, ...tips) : null,
-        CHAT.failed ? el('p', { class: 'chat__error', role: 'alert', text: `The chat is not reachable right now: ${CHAT.failed}` }) : null);
+        tips.length ? el('div', { class: 'chat__suggestions', role: 'group', 'aria-label': 'Suggested questions' }, ...tips) : null);
 }
 
 function chatMessage(m, opts) {
     const mine = m.role === 'user';
+    const id = msgWho(m);
     const at = m.at ? new Date(m.at) : null;
     const status = statusText(m);
+    const cost = !mine ? msgCostText(m.usage) : '';
     const body = el('div', { class: 'msg__body md' });
     if (mine) body.append(...String(m.text || '').split('\n').flatMap((line, i) => (i ? [el('br'), line] : [line])));
     else if (m.text) body.append(mdRender(m.text));
-    else if (m.status === 'streaming') body.append(el('span', { class: 'typing', role: 'img', 'aria-label': 'Tutti is writing' }, el('i'), el('i'), el('i')));
+    else if (m.status === 'streaming') {
+        body.append(el('span', { class: 'typing', role: 'status', 'aria-label': 'Tutti is writing' }, el('i'), el('i'), el('i')));
+    }
     const node = el('article', { class: `msg msg--${mine ? 'user' : 'bot'}`, 'data-id': m.id, 'data-status': m.status || '',
-        'aria-label': `${mine ? 'You' : 'Tutti'}${at ? ', ' + timeFmt.format(at) : ''}` },
+        'aria-label': `${id.label}${at ? ', ' + timeFmt.format(at) : ''}${cost ? ', ' + cost : ''}` },
     el('header', { class: 'msg__meta' },
-        el('span', { class: 'msg__who', text: mine ? 'You' : 'Tutti' }),
+        el('span', { class: 'msg__who', 'data-role': mine ? 'user' : 'assistant', text: id.who }),
         at ? el('time', { datetime: m.at, title: dayFmt.format(at), text: timeFmt.format(at) }) : null,
-        !mine && m.model ? el('span', { class: 'msg__model', title: 'The model that answered', text: m.model }) : null,
+        id.worker ? el('span', { class: 'msg__model', title: 'The worker or model that answered', text: id.worker }) : null,
+        cost ? el('span', { class: 'msg__cost', title: 'Tokens, energy and estimated cost for this answer',
+            'aria-label': `Usage ${cost}`, text: cost }) : null,
         !mine && m.fallback ? el('span', { class: 'msg__fallback', text: m.fallback }) : null,
         status ? el('span', { class: 'msg__status', 'data-tone': m.status, text: status }) : null),
     body,
@@ -316,7 +366,8 @@ function chatMessage(m, opts) {
 }
 
 function statusText(m) {
-    return { sending: 'Sending…', unsent: 'Not sent', streaming: '', stopped: 'Stopped', failed: 'Failed' }[m.status] || (m.edited ? 'Edited' : '');
+    const statuses = { sending: 'Sending…', unsent: 'Not sent', streaming: 'Answering…', stopped: 'Stopped', failed: 'Failed' };
+    return statuses[m.status] || (m.edited ? 'Edited' : '');
 }
 
 function messageActions(m, opts) {
@@ -538,8 +589,10 @@ function onEvent(e, local, answer) {
         paint(answer);
     } else if (answer && e.type === 'model') {
         answer.model = e.model;
+        paint(answer);
     } else if (e.type === 'usage') {
         CHAT.conv.usage = e.total;
+        if (answer && e.usage) { answer.usage = e.usage; paint(answer); }
         if (typeof drawUsage === 'function') drawUsage();
     } else if (e.type === 'compacted') {
         CHAT.conv.summary = { upto: e.upto };
@@ -569,11 +622,14 @@ function paint(answer) {   // one repaint per frame while text streams in
     if (paintFrame) return;
     paintFrame = requestAnimationFrame(() => {
         paintFrame = 0;
-        const old = document.querySelector(`.msg[data-id="${answer.id}"]`);
-        const node = chatMessage(answer, { editable: false, retryable: false });
-        if (old) old.replaceWith(node); else cq('chat-log').append(node);
-        scrollEnd(false);
+        if (CHAT.streaming === answer) paintAnswer(answer);
     });
+}
+
+function paintAnswer(answer) {
+    const old = cq('chat-log').querySelector(`.msg[data-id="${answer.id}"]`);
+    if (old) old.replaceWith(chatMessage(answer, { editable: false, retryable: false }));
+    scrollEnd(false);
 }
 
 function stopAnswer() {
@@ -803,8 +859,12 @@ function initChat() {
     window.addEventListener('resize', measure);
     measure();
     document.body.dataset.chatPane = 'list';
+    drawList();
+    drawLog();
     showChatView();
 }
 
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', initChat);
-if (typeof module !== 'undefined') module.exports = { mdParse, mdInline, chatKey, atBottom, attachmentError, ndjson, chatView };
+if (typeof module !== 'undefined') {
+    module.exports = { mdParse, mdInline, chatKey, msgWho, msgCostText, atBottom, attachmentError, ndjson, chatView };
+}

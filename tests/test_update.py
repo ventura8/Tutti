@@ -113,7 +113,7 @@ class ScriptTest(unittest.TestCase):
 
     def test_a_running_program_is_skipped(self):
         with tempfile.TemporaryDirectory() as t:
-            busy = fake(t, 'busyprog', '[ -n "$1" ] && { echo 1.0; exit 0; }; sleep 30')
+            busy = fake(t, 'busyprog', '[ -n "$1" ] && { echo 1.0; exit 0; }; exec -a busyprog sleep 30')
             proc = subprocess.Popen([busy], start_new_session=True)
             try:
                 for _ in range(200):   # until the fork has become the script (before that its command line is Python's)

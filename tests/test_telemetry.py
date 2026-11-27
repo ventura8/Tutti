@@ -470,6 +470,8 @@ class Report(unittest.TestCase):
         events += [self.ev('command', 'ship', seconds=100, rc=1, outcome='failed')] * 2
         events += [self.ev('feature', 'autopilot.attempt', outcome='failed', account='agy', minutes=12),
                    self.ev('feature', 'wait.stall', cause='run'), self.ev('feature', 'autopilot.park', cause='no_progress'),
+                   self.ev('feature', 'dispatch.idle', reason='launch_failed', outcome='blocked'),
+                   self.ev('feature', 'dispatch.idle', reason='launch_failed', outcome='blocked'),
                    self.ev('feature', 'autopilot.escalate'), self.ev('crash', 'KeyError', frame='main'),
                    self.ev('dashboard', 'usage', control='refresh'), {'ts': '2020-01-01', 'kind': 'command', 'name': 'old'}]
         from datetime import datetime, timezone
@@ -479,9 +481,11 @@ class Report(unittest.TestCase):
         self.assertEqual(s['most_failing'][0], {'name': 'ship', 'failed': 2, 'runs': 2})
         self.assertEqual(s['wasted'][0], {'who': 'agy', 'runs': 1, 'minutes': 12.0})
         self.assertEqual((s['stalls'][0]['cause'], s['parked'][0]['cause'], s['escalations']), ('run', 'no_progress', 1))
+        self.assertEqual(s['idle_with_work'][0], {'reason': 'launch_failed', 'count': 2})
         self.assertEqual(s['crashes'][0]['where'], 'KeyError in main')
         self.assertEqual(s['dashboard'][0]['name'], 'usage refresh')
         self.assertIn('Most failing:', insights.lines(s))
+        self.assertIn('Idle with work:', insights.lines(s))
 
 
 class Dashboard(Base):

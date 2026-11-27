@@ -3,6 +3,7 @@ transport into temp folders (rsync and the stream fallback, resume, skip, damage
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from tutti.files import Entry
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GB = files.GB
+HAS_RSYNC = bool(shutil.which('rsync'))
 
 
 def write(path, data=b'x'):
@@ -131,6 +133,7 @@ class SendTest(unittest.TestCase):
         with open(os.path.join(self.src, rel), 'rb') as a, open(os.path.join(self.cache, rel), 'rb') as b:
             return a.read() == b.read()
 
+    @unittest.skipUnless(HAS_RSYNC, 'rsync not installed')
     def test_rsync_sends_a_file_and_a_folder_verified_then_skips_them(self):
         base, out = self.send([self.archive, os.path.join(self.src, 'set')], use_rsync=True)
         self.assertEqual(base, self.cache)
@@ -197,7 +200,7 @@ class SendTest(unittest.TestCase):
 
     def test_dest_puts_the_item_there_and_the_job_is_recorded(self):
         dest = os.path.join(self.d, 'elsewhere')
-        base, _ = self.send([os.path.join(self.src, 'set')], dest=dest, use_rsync=True)
+        base, _ = self.send([os.path.join(self.src, 'set')], dest=dest, use_rsync=HAS_RSYNC)
         self.assertEqual(base, dest)
         self.assertTrue(os.path.isfile(os.path.join(dest, 'set', 'deep', 'b.txt')))
         jobs = state.jobs_state(self.cfg, 0, is_alive=lambda pid: False)['items']
@@ -214,7 +217,7 @@ class SendTest(unittest.TestCase):
         self.assertEqual(out[0][1], 'sent')
         self.assertFalse(os.path.exists(os.path.join(self.cache, 'set', 'a.csv')))
         os.makedirs(os.path.join(self.src, 'blank'))
-        self.assertEqual(self.send([os.path.join(self.src, 'blank')], use_rsync=True)[1][0][1], 'sent')
+        self.assertEqual(self.send([os.path.join(self.src, 'blank')], use_rsync=HAS_RSYNC)[1][0][1], 'sent')
 
     def test_a_pinned_item_is_neither_evicted_nor_replaced_nor_cleaned(self):
         self.cfg = cfg_in(self.d, budget_gb=4 * files.MB / GB)

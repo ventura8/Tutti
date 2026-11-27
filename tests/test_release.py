@@ -196,19 +196,40 @@ class LeaseTest(Base):
         self.assertFalse(os.path.exists(self.claim()))
 
     def test_two_requesters_at_once_get_one_lease(self):
-        self.fast()
         out = {}
-        threads = [threading.Thread(target=lambda w=w: out.__setitem__(w, self.bash(prep.lease_script(self.d, self.claim(w), 60, w))))
-                   for w in ('a', 'b')]
+        ready = threading.Barrier(2)
+
+        def request(who):
+            script = prep.lease_script(self.d, self.claim(who), 60, who)
+            ready.wait(timeout=10)
+            out[who] = self.bash(script)
+
+        threads = [threading.Thread(target=request, args=(who,)) for who in ('a', 'b')]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
         self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3])
+        self.assertEqual([who for who in out if os.path.isfile(self.claim(who))],
+                         [who for who, result in out.items() if result.returncode == 0])
         for w in ('a', 'b'):
             if os.path.exists(self.claim(w)):
                 os.remove(self.claim(w))
         self.bash(prep.release_script(self.d))
+
+    def test_a_requester_name_is_matched_literally(self):
+        self.assertEqual(self.bash(prep.lease_script(self.d, self.claim('ab'), 60, 'ab')).returncode, 0)
+        r = self.bash(prep.lease_script(self.d, self.claim('a.'), 60, 'a.'))
+        self.assertEqual(r.returncode, 3)
+        self.assertIn('in use by claim-ab', r.stdout)
+
+    def test_a_failed_claim_write_stops_before_device_prep(self):
+        unavailable = os.path.join(self.claim(), 'missing', 'claim-requester')
+        r = self.bash(prep.lease_script(self.d, unavailable, 60, 'requester'))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('lease could not be recorded', r.stdout)
+        self.assertEqual(self.get('screen_brightness'), '200')
+        self.assertEqual(self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio')).returncode, 0)
 
 
 class PersonTest(Base):

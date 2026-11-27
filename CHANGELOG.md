@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Idle with work (t254): failed shard launches log the target and reason immediately and appear in the dashboard.
+  Another eligible target can take the shard in the same tick. If none can, the shard stays queued.
+  Recurring launch failures feed self-improvement. Devices reserved by a started shard count as busy.
+- Device claims are checked and published under the acquisition lock. A failed claim write stops before device prep.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

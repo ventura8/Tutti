@@ -290,17 +290,22 @@ def lease_script(device, claim, minutes, who):
             f'sleep {KEEP_AWAKE_SECONDS}; done')
     # a person's touch noticed while the lease's loop lives (it ends with the loop's pid file): Tutti then sends no key
     watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
-             f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
+             f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; fi; sleep 1; done')
     tag = q(f'{procs.MARK}=claim:{device["name"]}')   # the reaper's marker (tutti/procs.py)
     awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 & '
              f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 & fi; ') if procs.daemons_allowed() else ''
     take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
             f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
             f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')
-    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
-            f'mkdir -p {u}; {take}others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
+    tmp = f'{u}/../.claim-$$.tmp'
+    failed = f'echo "tutti: "{name}" lease could not be recorded: check the device state folder permissions and free space"; exit 1'
+    return (f'mkdir -p {u} || {{ {failed}; }}; {take}'
+            f'{{ {release_script(device)}; }} > /dev/null; '  # clear expired leases while holding the lock
+            f'others=$(ls -A {u}) || {{ rmdir {lock}; {failed}; }}; '
+            f'others=$(printf "%s" "$others" | grep -Fvx -- "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then rmdir {lock}; echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
-            f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; rmdir {lock}; '
+            f'if ! {{ echo $(( $(date +%s) + {int(minutes) * 60} )) > {tmp} && mv -f {tmp} {claim}; }}; '
+            f'then rm -f {tmp}; rmdir {lock}; {failed}; fi; rmdir {lock}; '
             f'{prep_script(device) or ":"}; {unlock(device)}; {awake}'
             f'{addr}echo SERIAL={q(str(device["serial"]))}; echo "tutti: "{name}" leased to "{q(str(who))}" for {int(minutes)} min"')
 
@@ -323,7 +328,7 @@ def person_watch(device):
     Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
     p = person_path(device)
     one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
-    loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'
+    loop = f'while :; do if {one}; then date +%s > {p}; fi; sleep 1; done'
     return f'mkdir -p "$(dirname {p})"; {{ {loop} & }}; '
 
 

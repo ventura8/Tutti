@@ -3,6 +3,7 @@ once per commit before any shard, judging a run's output (verdict, started, requ
 other tools' lock files around a device run, and the project's report. Fake spawns and local bash only."""
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,15 @@ NOW = float(int(time.time()))
 
 def device(name, status='ready', reason='ready: takes the next run'):
     return {'name': name, 'serial': f'S-{name}', 'machine': 'pc', 'status': status, 'reason': reason}
+
+
+def _kill_proc(child):
+    if child.poll() is None:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait(timeout=5)
 
 
 class FakeSpawn:
@@ -164,6 +174,7 @@ class JudgeTest(Base):
         open(beat, 'w').close()
         cfg['dispatch']['call_poll_seconds'] = 0.05
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        self.addCleanup(_kill_proc, child)
         lease = {'kind': 'android', 'name': 'tablet'}
         rc = dispatch.supervise(cfg, lease, dispatch.suites(cfg)[0], child, beat, look=lambda c, d: 0, log=log)
         self.assertTrue(rc.startswith(shards.REQUEUE))
@@ -179,6 +190,7 @@ class JudgeTest(Base):
         open(beat, 'w').close()
         cfg['dispatch']['call_poll_seconds'] = 0.05
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        self.addCleanup(_kill_proc, child)
         rc = dispatch.supervise(cfg, {'kind': 'android', 'name': 'phone'}, dispatch.suites(cfg)[0], child, beat,
                                 look=lambda c, d: 0, log=log)
         self.assertTrue(rc.startswith(shards.REQUEUE))
@@ -198,6 +210,7 @@ class ExternalLockTest(Base):
         with open(out, 'w', encoding='utf8') as f:   # a file, not a pipe: the waiting `sleep` must not hold the test open
             child = subprocess.Popen(['bash', '-c', line], stdout=f, stderr=f, start_new_session=True,
                                      env={**os.environ, 'HOME': self.tmp.name})   # the users folder: never the real home
+        self.addCleanup(_kill_proc, child)
         try:
             rc = child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:

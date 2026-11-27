@@ -4,8 +4,8 @@ The pending-work model: a project declares its test suites (`projects.<p>.tests`
 (an Android device, a machine) and how it shards. Pending work is every shard not passed on the project's latest commit,
 the failed shards with retries left and, for workers, the queued backlog tasks. The dispatcher pulls a pending shard to
 every free compatible target on each tick (the dashboard's probe round) and whenever a shard ends; a run holds a lease with
-a heartbeat, so a run that crashed frees its target. The idle watchdog warns when a target sits idle for more than
-`dispatch.idle_minutes` while compatible work waits, and says what it does about it: dispatching, or what blocks it.
+a heartbeat, so a run that crashed frees its target. An **Idle with work** event is logged when a target sits idle for
+more than `dispatch.idle_minutes` while compatible work waits, or when starting eligible work fails.
 
 A test run changes no code, so a project that is read-only for Tutti still gets test runs; the results stay in the state
 folder (`tutti dispatch status`, the dashboard), never in a commit. Pure planning here; spawning and the run wrapper at the end."""
@@ -387,36 +387,46 @@ def fix_for(target, why):
     return {'action': 'dispatch_now', 'label': 'Check again now'}
 
 
-def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
-    """The idle watchdog: a target idle past dispatch.idle_minutes while compatible work waits gets a warning row, a log
-    line and one telemetry event per idle stretch. Targets that are busy or have nothing to do are not idle."""
+def watch(cfg, st, tgts, pend, p, now, worker_rows=(), failed=None):
+    """Explain blocked work after the idle threshold and report failed launches immediately."""
     limit = float((cfg.get('dispatch') or {}).get('idle_minutes', 5)) * 60
     sent = {a[0]['id'] for a in p['assign']}
+    sent.update(f'device:{n}' for _, w in p['assign'] for n in w.get('holds') or [])
     warnings = []
+    failed = failed or {}
     for t in [*tgts, *worker_rows]:
         work = t.get('work') or [w for w in pend if compatible(t, w)]
-        if t['busy'] or t.get('absent') or not work or t['id'] in sent:   # away or asleep is not idle
+        tid = t['id']
+        waiting = tid in p['blocked'] or tid in failed or bool(t.get('work'))
+        if t['busy'] or t.get('absent') or not work or not waiting or tid in sent:
             st['idle'].pop(t['id'], None)
             st['warned'].pop(t['id'], None)
             continue
         since = st['idle'].setdefault(t['id'], now)
-        if now - since < limit:
+        if tid not in failed and now - since < limit:
             continue
-        why = t.get('why') or p['blocked'].get(t['id']) or ''
+        why = failed.get(tid) or t.get('why') or p['blocked'].get(tid) or ''
         what = t.get('what') or describe(cfg, work)
         minutes = int((now - since) // 60)
         from .devicecard import plain_minutes
         text = f'Idle for {plain_minutes(minutes)} while {what}: ' + (f'blocked by {why}' if why else 'dispatching')
-        warnings.append({'target': t['id'], 'kind': t['kind'], 'name': t['name'], 'minutes': minutes, 'pending': len(work), 'what': what,
-                         'state': 'blocked' if why else 'dispatching', 'reason': why, 'text': text,
+        warnings.append({'target': t['id'], 'kind': t['kind'], 'name': t['name'], 'minutes': minutes, 'pending': len(work),
+                         'what': what, 'state': 'blocked' if why else 'dispatching', 'reason': why, 'text': text,
                          'fix': fix_for(t, why) if why else None})
-        if t['id'] not in st['warned']:
+        if tid in failed or tid not in st['warned']:
             st['warned'][t['id']] = now
-            event(st, now, text)
+            event(st, now, f'Idle with work on {tid}: {text}' if tid in failed else text)
+        if tid in failed:
             telemetry.record('feature', 'dispatch.idle', target_kind=t['kind'], minutes=minutes, pending=len(work),
-                             outcome='blocked' if why else 'dispatching')
-    st['warnings'] = warnings
+                             reason='launch_failed', outcome='blocked')
     return warnings
+
+
+def quiet_check(cfg, now, low):
+    """Callable for plan(): full-disk or quiet-hours reason, or '' when a target may start work."""
+    def quiet(t):
+        return low[0] if low else quiet_now(cfg, now, t.get('zone') or '')
+    return quiet
 
 
 # ---- workers: queued backlog tasks and a ladder step with room
@@ -626,6 +636,37 @@ def start(cfg, st, target, w, now, spawn=subprocess.Popen):
     return lid
 
 
+def start_assigned(cfg, st, p, now, spawn):
+    failed, started = {}, []
+    for t, w in p['assign']:
+        try:
+            start(cfg, st, t, w, now, spawn)
+        except OSError as e:
+            failed[t['id']] = f'could not start {w["key"]} ({e}): dispatch will try another eligible target or retry next tick'
+        else:
+            started.append((t, w))
+    p['assign'] = started
+    return failed
+
+
+def launch_round(cfg, st, tgts, pend, on, quiet, place, now, spawn):
+    """Replan failed launches on other eligible targets without retrying a failed target in this tick."""
+    started, failed = [], {}
+    while True:
+        p = plan(cfg, st, tgts, pend, on, quiet, place)
+        missed = start_assigned(cfg, st, p, now, spawn)
+        started.extend(p['assign'])
+        if not missed:
+            return {'assign': started, 'blocked': p['blocked']}, failed
+        failed.update(missed)
+        used = {t['id'] for t, _ in started}
+        used.update(f'device:{n}' for _, w in started for n in w.get('holds') or [])
+        done = {(w['project'], w['key']) for _, w in started}
+        # Keep unavailable targets in the plan so their power and device holds are still accounted for.
+        tgts = [{**t, 'busy': True} if t['id'] in used or t['id'] in failed else t for t in tgts]
+        pend = [w for w in pend if (w['project'], w['key']) not in done]
+
+
 def quiet_now(cfg, now, zone=''):
     """Why nothing new starts now ('' when it may): dispatch.quiet_hours, read in `zone` (a remote machine's own, read over
     its ssh) or this computer's (time.zone), daylight saving included."""
@@ -689,18 +730,12 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
                 t['roles'] = (mroles if t['kind'] == 'machine' else droles).get(t['name'], [])
         from . import diskroom
         low = diskroom.problems(cfg) if '_disk' not in cfg else cfg['_disk']   # a full disk: nothing new starts, as in quiet hours
-        p = plan(cfg, st, tgts, pend, on, lambda t: low[0] if low else quiet_now(cfg, now, t.get('zone') or ''),
-                 presence.placement(cfg, pst, now))
+        quiet, place = quiet_check(cfg, now, low), presence.placement(cfg, pst, now)
         for line in presence_io(cfg, pst, now, waiting_since(st, [t for t in tgts if t.get('absent')], pend)):
             event(st, now, line)
         kept = [w for w in st['warnings'] if w['kind'] == 'worker'] if accounts is None else []
-        watch(cfg, st, tgts, pend, p, now, rows)
-        st['warnings'] += kept   # a round without the accounts' readings (a run that ended) keeps the workers' rows
-        for t, w in p['assign']:
-            try:
-                start(cfg, st, t, w, now, spawn)
-            except OSError as e:
-                event(st, now, f'{w["project"]} {w["key"]} could not start on {t["id"]} ({e}): it stays queued')
+        p, failed = launch_round(cfg, st, tgts, pend, on, quiet, place, now, spawn)
+        st['warnings'] = watch(cfg, st, tgts, pend, p, now, rows, failed) + kept
         st['last'] = {'at': now, 'on': on, 'sent': len(p['assign']), 'pending': len(pend), 'blocked': p['blocked']}
         for project in touched & set(st['projects']):   # the results where the project's own sessions read them (projects.<p>.report)
             shards.write_report(cfg, project, st['projects'][project], now)

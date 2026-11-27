@@ -87,16 +87,15 @@ there, with `tutti job move` or the dashboard's Move now. See [PRESENCE.md](PRES
 
 ## The idle watchdog
 
-A target idle for more than `dispatch.idle_minutes` (default 5) while compatible work waits gets three things:
+The watchdog shows why compatible work waits on a target after `dispatch.idle_minutes` (default 5). The dashboard
+offers controls for an owner to resume a target, opt in, enable a scheduler, or check again. Scheduler switches
+and resource restrictions apply on every round.
 
-- a warning row on the dashboard's Controls card, for example "Idle 12 min while RoRadio has 14 e2e shards pending:
-  blocked by pixel is paused: ...";
-- one line in the dispatch events;
-- one telemetry event (`dispatch.idle`) per idle stretch.
-
-The row's button fixes the cause: **Resume** a paused target, **Allow lint and unit runs** (the opt-in), **Turn Keep busy
-on**, **Turn the autopilot on**, or **Check again now** (a round with fresh probes). A worker with quota room shows the same
-row while backlog tasks are queued; the autopilot dispatches to it, so its plan's reason is the one shown.
+When starting an eligible shard fails, the watchdog immediately records an **Idle with work** event with the
+target and failure reason and shows it in Controls. The dispatcher tries other eligible targets in the same tick.
+If none can start the shard, it stays queued for the next eligible tick. The telemetry category `launch_failed`
+feeds Insights and recurring failures become self-improvement tasks. Simulator fixtures exercise successful
+dispatch, pause, same-tick fallback, and launch failure followed by retry.
 
 ## Suites in depth
 

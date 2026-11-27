@@ -3,6 +3,7 @@ script against a fake adb, routing of a Termux machine, and `tutti test --device
 transport. No real phone: every adb answer comes from a fake on PATH."""
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -280,8 +281,22 @@ class DeviceRunTest(unittest.TestCase):
         self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
 
     def tutti(self, *args, **kw):
-        return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
-                                env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p = subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
+                             env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(self._stop, p)
+        return p
+
+    @staticmethod
+    def _stop(p):
+        if p.poll() is None:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            p.wait(timeout=5)
+        for stream in (p.stdout, p.stderr):
+            if stream and not stream.closed:
+                stream.close()
 
     def test_the_command_gets_the_serial_and_a_job_record(self):
         p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL')
@@ -299,6 +314,7 @@ class DeviceRunTest(unittest.TestCase):
     def test_a_second_run_waits_for_the_device_lock(self):
         import fcntl
         f = open(self.lock, 'w')
+        self.addCleanup(f.close)
         fcntl.flock(f, fcntl.LOCK_EX)
         p = self.tutti('test', '--device', 'pixel', '--', 'touch', 'ran')
         # deterministic, no sleeps: read the run's output until slot.sh says it queues behind the held lock (a fixed sleep

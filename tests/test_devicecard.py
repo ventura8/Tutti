@@ -28,6 +28,7 @@ class Card(unittest.TestCase):
                'dispatch': {'warnings': [w], 'reroute': ['pixel9pro away (paused or away): 1 shard moved to pixeltablet']}}
         c = devicecard.attach({}, out)['devices']['items'][0]['card']
         self.assertEqual((c['status'], c['tone'], c['why']), ('blocked', 'bad', 'runner w5090 yield flag up'))
+        self.assertEqual(c['label'], 'Idle with work')
         self.assertEqual(c['action']['label'], 'Check again now')
         self.assertEqual(c['waiting'], 'RoRadio has 3 e2e shards pending')
 
@@ -40,7 +41,7 @@ class Card(unittest.TestCase):
 
     def test_idle_while_dispatching_says_so_in_plain_words(self):
         c = devicecard.card(dict(PHONE), warning={'state': 'dispatching', 'minutes': 95, 'what': 'x'})
-        self.assertEqual(c['status'], 'idle')
+        self.assertEqual((c['status'], c['label']), ('idle', 'Idle with work'))
         self.assertIn('1 h 35 min', c['why'])
 
 

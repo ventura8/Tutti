@@ -107,13 +107,14 @@ class DispatchTest(Base):
         self.assertIn(w['text'], [e['text'] for e in dispatch.view(cfg)['events']])
 
     def test_dispatch_off_blocks_every_target_and_offers_the_switch(self):
-        cfg = self.cfg()
+        cfg, spawn = self.cfg(), FakeSpawn()
         dispatch.set_enabled(cfg, False)
-        self.tick(cfg, [phone()])
-        self.tick(cfg, [phone()], now=NOW + 600)
-        w = dispatch.view(cfg)['warnings'][0]
-        self.assertEqual((w['state'], w['fix']['action']), ('blocked', 'dispatch_on'))
+        self.tick(cfg, [phone()], spawn=spawn)
+        p = self.tick(cfg, [phone()], now=NOW + 600, spawn=spawn)
         self.assertFalse(dispatch.view(cfg)['enabled'])
+        self.assertEqual(p['assign'], [])
+        self.assertEqual(spawn.calls, [])
+        self.assertEqual(dispatch.view(cfg)['warnings'][0]['fix']['action'], 'dispatch_on')
 
     def test_lint_on_a_phone_is_opt_in(self):
         cfg = self.cfg({'lint': {'kind': 'lint', 'targets': ['android'], 'run': 'lint'}})
@@ -278,6 +279,83 @@ class DashboardTest(Base):
         self.assertFalse(dispatch.settings(cfg)['enabled'])
         self.assertEqual(dashboard.save_dispatch(c, b'{"action": "now"}')[1]['blocked'], {'device:pixel': 'x'})
         self.assertEqual(dashboard.save_dispatch(c, b'{"enabled": "yes"}')[0], 400)
+
+
+class IdleSimTest(Base):
+    """Simulator ticks with fixtures: eligible capacity never sits idle while work waits."""
+
+    def test_host_and_device_both_pull_eligible_shards_on_the_same_tick(self):
+        cfg = self.cfg({
+            'e2e': {'kind': 'e2e', 'targets': ['android'], 'run': 'run-e2e', 'shards': ['a', 'b']},
+            'unit': {'kind': 'unit', 'targets': ['machine'], 'run': 'run-unit', 'shards': ['a', 'b']},
+        })
+        p = dispatch.tick(cfg, [phone()], [{'name': 'pc', 'status': 'free', 'free': 1}],
+                          now=NOW, is_alive=lambda pid: True, spawn=FakeSpawn())
+        self.assertEqual({(t['id'], w['key']) for t, w in p['assign']}, {('device:pixel', 'e2e/a'), ('machine:pc', 'unit/a')})
+        self.assertEqual(dispatch.view(cfg)['warnings'], [])
+
+    def test_ready_phone_with_shards_has_zero_idle_with_work(self):
+        cfg, spawn = self.cfg(), FakeSpawn()
+        p = self.tick(cfg, [phone()], spawn=spawn)
+        self.assertEqual(len(p['assign']), 1)
+        self.assertEqual(dispatch.read_state(cfg)['warnings'], [])
+        # still holding the lease past idle_minutes: busy, not idle-with-work
+        self.tick(cfg, [phone()], now=NOW + 10 * 60, spawn=spawn)
+        self.assertEqual(dispatch.view(cfg)['warnings'], [])
+
+    def test_device_held_by_a_started_shard_is_not_reported_idle(self):
+        cfg = self.cfg()
+        st = dispatch.read_state(cfg)
+        dispatch.sync(st, 'Radio', 'c1', {'e2e': ['a']}, NOW)
+        st['idle']['device:pixel'] = NOW
+        targets = dispatch.targets([phone()], [], st)
+        plan = {'assign': [({'id': 'machine:pc'}, {'holds': ['pixel']})],
+                'blocked': {'device:pixel': 'its queued shard needs another device'}}
+
+        warnings = dispatch.watch(cfg, st, targets, dispatch.pending(cfg, st), plan, NOW + 600)
+
+        self.assertEqual(warnings, [])
+        self.assertNotIn('device:pixel', st['idle'])
+
+    def test_paused_phone_logs_idle_with_work_and_keeps_the_resume_fix(self):
+        cfg = self.cfg()
+        held = phone('held', 'paused by owner (dashboard) at 10:00')
+        self.tick(cfg, [held])
+        self.tick(cfg, [held], now=NOW + 6 * 60)
+        rows = dispatch.view(cfg)['warnings']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['state'], 'blocked')
+        self.assertEqual(rows[0]['fix']['action'], 'resume')
+        self.assertIn('paused', rows[0]['reason'])
+
+    def test_failed_launch_is_logged_and_the_next_tick_fills_the_device(self):
+        cfg = self.cfg()
+
+        def unavailable(*args, **kwargs):
+            raise OSError('process limit')
+
+        p = self.tick(cfg, [phone()], spawn=unavailable)
+        self.assertEqual(p['assign'], [])
+        state = dispatch.view(cfg)
+        self.assertIn('process limit', state['warnings'][0]['reason'])
+        self.assertIn('Idle with work on device:pixel', state['events'][0]['text'])
+        p = self.tick(cfg, [phone()], now=NOW + 30)
+        self.assertEqual([w['key'] for _, w in p['assign']], ['e2e/a'])
+        self.assertEqual(dispatch.view(cfg)['warnings'], [])
+
+    def test_failed_host_launch_falls_back_to_another_host_in_the_same_tick(self):
+        cfg = self.cfg({'unit': {'kind': 'unit', 'targets': ['machine'], 'run': 'run-unit'}},
+                       machines={'pc': {'host': 'pc.example'}, 'spare': {'host': 'spare.example'}})
+        machines = [{'name': name, 'status': 'free', 'free': 1} for name in ('pc', 'spare')]
+        spawn = mock.Mock(side_effect=[OSError('process limit'), SimpleNamespace(pid=4242)])
+
+        p = dispatch.tick(cfg, [], machines, now=NOW, is_alive=lambda pid: True, spawn=spawn)
+
+        self.assertEqual([(t['id'], w['key']) for t, w in p['assign']], [('machine:spare', 'unit/all')])
+        self.assertEqual(spawn.call_count, 2)
+        view = dispatch.view(cfg)
+        self.assertEqual([w['target'] for w in view['warnings']], ['machine:pc'])
+        self.assertTrue(any('Idle with work on machine:pc' in e['text'] for e in view['events']))
 
 
 if __name__ == '__main__':

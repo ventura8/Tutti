@@ -348,6 +348,25 @@ The household's user model can take its identity from the signed-in user. These 
 - **The Users tab.** If `household.members_by_sub(state_dir) -> {sub: {joined, last_seen}}` exists, the Users tab shows
   "Tutti joined / last seen" for each user.
 
+## Organizations, teams, budgets and SSO (small businesses)
+
+Small businesses (5–50 people, several teams and projects) can organize users into organizations and teams alongside the
+household model.
+
+- **Roles:** `owner` > `admin` > `member` > `viewer` (plus `pending` before approval). Owners and admins manage
+  organizations, teams, members, priorities and budgets; only an owner may assign or remove the `owner` role or delete an
+  organization. The last owner of an organization is never demoted or removed (409).
+- **Teams, priorities and budgets:** Each team declares a `priority` (`1..100`, higher runs first), optional `projects`,
+  and optional `budget` limits (`daily_runs`, `monthly_usd`, `max_parallel`).
+- **Storage and access control:** Stored mode 600 in `<state>/orgs.json` under `auth.lock`. `GET /api/orgs` returns only
+  organizations the signed-in user belongs to (or all for a global admin/owner); `POST /api/orgs` requires org admin/owner
+  and records every change in `<state>/auth-audit.jsonl`.
+- **CLI and UI:** `tutti org [list|create|delete|member|team|budget]` manages organizations from the shell; the
+  dashboard's **Users** tab includes the **Organizations & Teams** card (`tutti/web/orgs.js`).
+- **SSO-ready OIDC (`auth.oidc`):** Standard RS256 OIDC identity providers (Okta, Entra ID, Keycloak, Google Workspace,
+  etc.) can be configured under `auth.oidc` with `provider`, `issuer`, `jwks_url` (`https://` required), `client_id`,
+  `allowed_domains`, and `groups_claim` (default `groups`). When unset, Tutti defaults to Google sign-in.
+
 ## Threat model, in short
 
 - **The first sign-in claims admin.** Before anyone has signed in, whoever reaches the page first becomes admin. Keep the

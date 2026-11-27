@@ -162,6 +162,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/auth/logout` | viewer | `{}` | `{"ok": true}`; clears the cookie. |
 | `/api/auth/users` | admin | `{"action": "approve"\|"role"\|"remove", "sub": "<id>", "role": "viewer"\|"admin"}` | The users view. The last admin is never demoted or removed (409). |
 | `/api/auth/invites` | admin | `{"action": "create", "role": "viewer"}` or `{"action": "revoke", "id": "<id>"}` | `{"url": "<invite link>", "join": "tutti household join <link>", ...}`. |
+| `/api/orgs` | viewer (GET), admin/owner (POST) | `{"action": "create_org\|delete_org\|set_member\|remove_member\|upsert_team\|delete_team", "org_id": ...}` | `{"orgs": {...}}` (only organizations the user is authorized to view). |
 | `/api/me/schedule` | self, admin for others | `{"sub": "<optional>", "mode": ..., "days": ..., "window": ..., "hours": ...}` | One's own schedule; another's only as an admin (403). |
 
 ### Example: a usage reading from a script on the same computer
@@ -1902,6 +1903,34 @@ usage: tutti auth [-h] [--client-id CLIENT_ID] [--yes] [--device-client-id DEVIC
 | `--device-client-id` | setup: the "TVs and Limited Input devices" client ID (sign-in from the LAN and any VPN) |  |
 | `--device-secret-stdin` | setup: read that client's secret from stdin (never argv) |  |
 | `--tailscale` | setup: serve the dashboard on this computer's Tailscale https name (tailnet only) and add that origin |  |
+
+### `tutti org`
+
+organizations, teams, roles, priorities and budgets (docs/AUTH.md): list, create, delete, member, team, budget
+
+```text
+usage: tutti org [-h] [--name NAME] [--owner OWNER] [--role {viewer,member,admin,owner}] [--teams TEAMS]
+                 [--priority PRIORITY] [--daily-runs DAILY_RUNS] [--monthly-usd MONTHLY_USD]
+                 [--max-parallel MAX_PARALLEL] [--projects PROJECTS] [--used-runs USED_RUNS] [--used-usd USED_USD]
+                 [{list,create,delete,member,team,budget}] [org_id] [target]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {list,create,delete,member,team,budget}` |  | `list` |
+| `org_id` | organization id (slug) |  |
+| `target` | member id/email or team id |  |
+| `--name` | display name for organization or team |  |
+| `--owner` | create: initial owner sub or email |  |
+| `--role` | member: role | `member` |
+| `--teams` | member: comma-separated team ids |  |
+| `--priority` | team: priority (1-100, higher runs first) | `10` |
+| `--daily-runs` | team: daily run budget |  |
+| `--monthly-usd` | team: monthly USD budget |  |
+| `--max-parallel` | team: max parallel runs |  |
+| `--projects` | team: comma-separated project names |  |
+| `--used-runs` | budget: runs used today | `0` |
+| `--used-usd` | budget: USD spent this month | `0.0` |
 
 ### `tutti main`
 

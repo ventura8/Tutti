@@ -22,7 +22,7 @@ from . import auth
 FILE = 'invites.json'
 DAYS = 7
 PURPOSES = ('signin', 'household')
-ROLES = ('viewer', 'admin')
+ROLES = ('viewer', 'member', 'admin', 'owner')
 TOKEN_BYTES = 32
 ID_HEX = 16   # an invite's id: the first hex digits of its hash (shown, revoked, sent by the joiner)
 
@@ -79,7 +79,7 @@ class Invites:
     def create(self, role='viewer', by=''):
         """(token, record): the token is shown once, in the link; only its hash is kept."""
         if role not in ROLES:
-            raise InviteError('an invite\'s role is viewer or admin')
+            raise InviteError('an invite\'s role is viewer, member, admin or owner')
         token, now = secrets.token_urlsafe(TOKEN_BYTES), int(self.clock())
         rec = {'role': role, 'created': now, 'expires': now + DAYS * 86400, 'by': by, 'used': {}, 'revoked': False}
         with auth.locked(self.folder):

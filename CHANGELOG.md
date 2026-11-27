@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-23
+
+### Added
+
+- Small-business support alongside households: organizations, teams, roles (`owner`, `admin`, `member`, `viewer`),
+  per-team priorities and budgets (`daily_runs`, `monthly_usd`, `max_parallel`), stored mode 600 in `<state>/orgs.json`
+  with CLI (`tutti org`), dashboard UI (**Users > Organizations & Teams**), and `/api/orgs` (t174).
+- SSO-ready OIDC authentication (`auth.oidc` config with custom issuer, https JWKS URL, `allowed_domains`, and
+  `groups_claim` extraction alongside Google sign-in).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

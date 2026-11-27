@@ -2157,6 +2157,23 @@ def parser():
     s.add_argument('--device-secret-stdin', action='store_true', help='setup: read that client\'s secret from stdin (never argv)')
     s.add_argument('--tailscale', action='store_true', help='setup: serve the dashboard on this computer\'s Tailscale https '
                                                             'name (tailnet only) and add that origin')
+    from . import orgcmd
+    s = add('org', orgcmd.cmd_org, 'organizations, teams, roles, priorities and budgets (docs/AUTH.md): list, create, delete, '
+                                   'member, team, budget')
+    s.add_argument('action', nargs='?', default='list', choices=list(orgcmd.ACTIONS))
+    s.add_argument('org_id', nargs='?', help='organization id (slug)')
+    s.add_argument('target', nargs='?', help='member id/email or team id')
+    s.add_argument('--name', help='display name for organization or team')
+    s.add_argument('--owner', help='create: initial owner sub or email')
+    s.add_argument('--role', default='member', choices=['viewer', 'member', 'admin', 'owner'], help='member: role')
+    s.add_argument('--teams', help='member: comma-separated team ids')
+    s.add_argument('--priority', type=int, default=10, help='team: priority (1-100, higher runs first)')
+    s.add_argument('--daily-runs', type=int, default=None, help='team: daily run budget')
+    s.add_argument('--monthly-usd', type=float, default=None, help='team: monthly USD budget')
+    s.add_argument('--max-parallel', type=int, default=None, help='team: max parallel runs')
+    s.add_argument('--projects', help='team: comma-separated project names')
+    s.add_argument('--used-runs', type=int, default=0, help='budget: runs used today')
+    s.add_argument('--used-usd', type=float, default=0.0, help='budget: USD spent this month')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it; '
                               '`tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)')
     s.add_argument('agent', nargs='?')

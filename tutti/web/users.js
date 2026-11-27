@@ -3,7 +3,8 @@
 // Hiding is for clarity only: the server refuses every change a viewer sends (tutti/authweb.py).
 'use strict';
 
-const ROLE_TONE = { admin: 'accent', viewer: 'ok', pending: 'warn' };
+const ROLE_TONE = { owner: 'accent', admin: 'accent', member: 'ok', viewer: 'ok', pending: 'warn' };
+const isAdminRole = (r) => r === 'admin' || r === 'owner';
 
 async function authPost(path, body, failText) {
     try {
@@ -139,7 +140,7 @@ async function startSchedule() {
 // The admin-only Users tab (#users): shown in place of the dashboard and Settings views. settings.js switches between those
 // two on every hash change; this runs after it and takes over for #users.
 function showUsersView() {
-    const on = location.hash.startsWith('#users') && document.body.dataset.role === 'admin';
+    const on = location.hash.startsWith('#users') && isAdminRole(document.body.dataset.role);
     $('users-view').hidden = !on;
     if (on) {
         $('dashboard-view').hidden = true;
@@ -172,7 +173,7 @@ async function startAuth() {
         if (await authPost('/api/auth/logout', {}, 'You were not signed out.')) location.replace('/');
     });
     await startSchedule();
-    if (me.role !== 'admin') return;
+    if (!isAdminRole(me.role)) return;
     $('users-tab').hidden = false;
     window.addEventListener('hashchange', showUsersView);
     showUsersView();
@@ -181,6 +182,7 @@ async function startAuth() {
         if (answer) { showInvite(answer); renderUsers(answer, me); }
     });
     await loadUsers(me);
+    if (typeof loadOrgs === 'function') await loadOrgs();
     setInterval(() => loadUsers(me), 60000);
 }
 

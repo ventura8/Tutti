@@ -35,6 +35,7 @@
     <script src="vpn.js?v=__TUTTI_VERSION__" defer></script>
     <script src="qr.js?v=__TUTTI_VERSION__" defer></script>
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="orgs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="report.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chat.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chatctl.js?v=__TUTTI_VERSION__" defer></script>
@@ -498,7 +499,7 @@
                     <h2 id="users-h">Users</h2>
                     <p class="card__meta" id="users-meta"></p>
                     <label class="sr-only" for="invite-role">Invite as</label>
-                    <select class="pick" id="invite-role"><option value="viewer" selected>as viewer</option><option value="admin">as admin</option></select>
+                    <select class="pick" id="invite-role"><option value="viewer" selected>as viewer</option><option value="member">as member</option><option value="admin">as admin</option><option value="owner">as owner</option></select>
                     <button class="btn btn--filled" id="invite-create" type="button">Invite someone</button>
                 </header>
                 <div id="invite-new" class="invite" hidden></div>
@@ -507,6 +508,13 @@
                 <ul id="invites" class="list" aria-label="Invite links"></ul>
                 <h3 class="card__sub">Changes</h3>
                 <ul id="audit" class="list" aria-label="Who changed which role, and when"></ul>
+            </section>
+            <section class="card span-full" id="orgs-card" aria-labelledby="orgs-h">
+                <header class="card__head">
+                    <h2 id="orgs-h">Organizations &amp; Teams</h2>
+                    <p class="card__meta" id="orgs-meta"></p>
+                </header>
+                <div id="orgs-body"></div>
             </section>
         <div id="users-manage"></div>
       </div>

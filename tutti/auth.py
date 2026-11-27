@@ -37,7 +37,14 @@ SKEW = 60                 # seconds of clock difference allowed on exp and iat
 MIN_RSA_BITS = 2048
 JWKS_DEFAULT_AGE = 3600   # seconds, when Google's answer names no max-age
 JWKS_RETRY = 60           # an unknown kid fetches the keys again at most this often
-ROLES = ('pending', 'viewer', 'admin')
+ROLES = ('pending', 'viewer', 'member', 'admin', 'owner')
+ADMIN_ROLES = ('admin', 'owner')
+APPROVED_ROLES = ('viewer', 'member', 'admin', 'owner')
+
+
+def is_admin(role):
+    """True for roles that may manage users, organizations, teams and settings."""
+    return role in ADMIN_ROLES
 AUTH_FILE, USERS_FILE, SESSIONS_FILE, LOCK_FILE = 'auth.json', 'users.json', 'sessions.json', 'auth.lock'
 SECRET_MODE = 0o600
 SEEN_EVERY = 300          # seconds: last_seen is written at most this often per user
@@ -77,7 +84,8 @@ def _write(path, data):
 
 def _mtime(path):
     try:
-        return os.stat(path).st_mtime_ns
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_ino, st.st_size)
     except OSError:
         return None
 
@@ -250,13 +258,45 @@ def rsa_verify(n, e, message, signature):
     return hmac.compare_digest(em, expected)
 
 
-def _fetch_google(url=JWKS_URL):
-    """(keys document, max-age seconds) from Google."""
-    with urllib.request.urlopen(url, timeout=5) as res:   # a fixed https URL of Google's
+def fetch_jwks(url=JWKS_URL):
+    """(keys document, max-age seconds) from an https OIDC JWKS endpoint."""
+    if not isinstance(url, str) or not url.startswith('https://'):
+        raise TokenError('OIDC JWKS URL must use https://')
+    with urllib.request.urlopen(url, timeout=5) as res:
         cache = res.headers.get('Cache-Control') or ''
         doc = json.loads(res.read(256 * 1024))
     m = re.search(r'max-age=(\d+)', cache)
     return doc, int(m.group(1)) if m else JWKS_DEFAULT_AGE
+
+
+def _fetch_google(url=JWKS_URL):
+    """(keys document, max-age seconds) from Google."""
+    return fetch_jwks(url)
+
+
+def oidc_config(cfg):
+    """OIDC/SSO provider settings from `auth.oidc`, defaulting to Google."""
+    raw = (cfg.get('auth') or {}).get('oidc') or {}
+    if not isinstance(raw, dict) or not raw.get('issuer'):
+        return {
+            'provider': 'google',
+            'issuers': ISSUERS,
+            'jwks_url': JWKS_URL,
+            'client_id': client_id(cfg),
+            'allowed_domains': [],
+            'groups_claim': 'groups',
+        }
+    issuer = str(raw['issuer']).strip().rstrip('/')
+    jwks_url = str(raw.get('jwks_url') or '').strip()
+    domains = [str(d).strip().lower() for d in (raw.get('allowed_domains') or []) if str(d).strip()]
+    return {
+        'provider': str(raw.get('provider') or 'oidc').strip(),
+        'issuers': (issuer, f'{issuer}/'),
+        'jwks_url': jwks_url,
+        'client_id': str(raw.get('client_id') or '').strip() or client_id(cfg),
+        'allowed_domains': domains,
+        'groups_claim': str(raw.get('groups_claim') or 'groups').strip(),
+    }
 
 
 class Jwks:
@@ -294,6 +334,70 @@ class Jwks:
 def nonce_of(login_secret):
     """The nonce the login page gives Google: the hash of the HttpOnly login cookie, so a token only signs in this browser."""
     return hashlib.sha256(login_secret.encode()).hexdigest()
+
+
+def _aud_matches(aud, client):
+    if isinstance(aud, list):
+        return client in aud
+    return aud == client
+
+
+def verify_oidc(token, client, jwks, now, issuers=ISSUERS, nonce=None, allowed_domains=None, groups_claim='groups'):
+    """The checked claims {sub, email, name, groups} of a standard OIDC RS256 ID token, else TokenError."""
+    parts = token.split('.') if isinstance(token, str) else []
+    if len(parts) != 3 or not client:
+        raise TokenError('not a JWT, or no client ID is set')
+    try:
+        header, claims = json.loads(b64url(parts[0])), json.loads(b64url(parts[1]))
+    except ValueError as e:
+        raise TokenError('the token\'s header or claims are not JSON') from e
+    if not isinstance(header, dict) or not isinstance(claims, dict) or header.get('alg') != 'RS256':
+        raise TokenError('the token is not signed with RS256')
+    key = jwks.key(header.get('kid'))
+    if not key or not rsa_verify(key[0], key[1], f'{parts[0]}.{parts[1]}'.encode(), b64url(parts[2])):
+        raise TokenError('bad signature: the token is not signed by the configured identity provider')
+    return _oidc_claims(claims, client, now, issuers, nonce, allowed_domains, groups_claim)
+
+
+def _check_time_claims(claims, now):
+    exp, iat = claims.get('exp'), claims.get('iat')
+    if not isinstance(exp, (int, float)) or isinstance(exp, bool) or now >= exp + SKEW:
+        raise TokenError('the token has expired: sign in again')
+    if isinstance(iat, (int, float)) and iat > now + SKEW:
+        raise TokenError('the token is issued in the future: check this computer\'s clock')
+
+
+def _check_domain(email, allowed_domains):
+    if not allowed_domains:
+        return
+    domain = email.partition('@')[2].lower()
+    if domain not in allowed_domains:
+        raise TokenError(f'email domain "{domain}" is not allowed by SSO policy')
+
+
+def _extract_groups(claims, groups_claim):
+    raw = claims.get(groups_claim) if groups_claim else None
+    return [str(g) for g in raw if isinstance(g, str)] if isinstance(raw, list) else []
+
+
+def _oidc_claims(claims, client, now, issuers, nonce, allowed_domains, groups_claim):
+    if claims.get('iss') not in issuers:
+        raise TokenError(f'wrong issuer: expected one of {", ".join(issuers)}')
+    if not _aud_matches(claims.get('aud'), client):
+        raise TokenError('wrong audience: the token is for another OAuth client ID')
+    _check_time_claims(claims, now)
+    if nonce is not None and not hmac.compare_digest(str(claims.get('nonce') or ''), nonce):
+        raise TokenError('the sign-in was started in another tab or page: reload the page and sign in again')
+    if not isinstance(claims.get('sub'), str) or not claims['sub'] or claims.get('email_verified') is not True:
+        raise TokenError('the identity account has no verified e-mail address')
+    email = str(claims.get('email') or '')
+    _check_domain(email, allowed_domains)
+    return {
+        'sub': claims['sub'],
+        'email': email,
+        'name': str(claims.get('name') or '')[:80],
+        'groups': _extract_groups(claims, groups_claim),
+    }
 
 
 def verify(token, client, jwks, now, nonce=None):
@@ -403,17 +507,17 @@ class Users:
                     self._save(users)
 
     def _admins(self, users):
-        return [s for s, u in users.items() if u.get('role') == 'admin']
+        return [s for s, u in users.items() if is_admin(u.get('role'))]
 
     def set_role(self, sub, role):
-        if role not in ('viewer', 'admin'):
-            raise AuthError('a role is viewer or admin (approving a pending user makes them a viewer)')
+        if role not in APPROVED_ROLES:
+            raise AuthError('a role is viewer, member, admin or owner (approving a pending user makes them a viewer)')
         with locked(self.folder):
             self._mtime = None
             users = dict(self._load())
             if sub not in users:
                 raise AuthError('no such user: reload the Users list')
-            if role != 'admin' and self._admins(users) == [sub]:
+            if not is_admin(role) and self._admins(users) == [sub]:
                 raise AuthError('this is the last admin: make another user admin first')
             users[sub] = {**users[sub], 'role': role}
             self._save(users)
@@ -470,11 +574,10 @@ def audit(folder, actor, action, target=None, role=None, clock=time.time, detail
 
 def may_act_for(actor, target_sub):
     """The one check for doing something for a user (their schedule, main agent, machine, pairing, join, update...): an admin
-    may act for anyone, so the one technical person in the house can do everything for the others; an approved user only
-    for themselves; a pending user for nobody."""
-    if not actor or actor.get('role') not in ('viewer', 'admin') or not target_sub:
+    or owner may act for anyone; an approved user (viewer or member) only for themselves; a pending user for nobody."""
+    if not actor or actor.get('role') not in APPROVED_ROLES or not target_sub:
         return False
-    return actor['role'] == 'admin' or actor.get('sub') == target_sub
+    return is_admin(actor['role']) or actor.get('sub') == target_sub
 
 
 def act_for(folder, actor, target, action, detail=None, clock=time.time):

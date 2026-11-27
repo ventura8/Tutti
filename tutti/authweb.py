@@ -12,7 +12,7 @@ import secrets
 import time
 from http.cookies import CookieError, SimpleCookie
 
-from . import __version__, auth, authdevice, config, invites, myschedule
+from . import __version__, auth, authdevice, config, invites, myschedule, orgs
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 JSON_TYPE = 'application/json'
@@ -20,7 +20,7 @@ HTML_TYPE = 'text/html; charset=utf-8'
 PUBLIC_GET = ('/api/health', '/api/auth/me')
 PUBLIC_STATIC = ('.js', '.css', '.png', '.svg', '.webmanifest')   # the app's code and icons: no data, no token
 LOGIN_PAGES = ('/login', '/invite')
-USERS, LOGOUT, LOGIN, INVITES = '/api/auth/users', '/api/auth/logout', '/api/auth/login', '/api/auth/invites'
+USERS, LOGOUT, LOGIN, INVITES, ORGS = '/api/auth/users', '/api/auth/logout', '/api/auth/login', '/api/auth/invites', '/api/orgs'
 DEVICE_START, DEVICE_POLL = '/api/auth/device/start', '/api/auth/device/poll'
 SCHEDULE = '/api/me/schedule'   # every user's own schedule (viewers included); anyone's for an admin
 ADMIN_GET = ('/api/settings', '/settings', '/helper', USERS)
@@ -28,7 +28,7 @@ ADMIN_GET = ('/api/settings', '/settings', '/helper', USERS)
 # /api/chat: every user's own conversations; each action has its own role checks (tutti/chat.py)
 VIEWER_POST = (LOGOUT, '/api/telemetry', '/api/report', '/api/github', SCHEDULE, '/api/user/main-machine', '/api/users/manage',
                '/api/chat')
-AUTH_POSTS = (LOGIN, LOGOUT, USERS, INVITES, DEVICE_START, DEVICE_POLL, SCHEDULE)
+AUTH_POSTS = (LOGIN, LOGOUT, USERS, INVITES, ORGS, DEVICE_START, DEVICE_POLL, SCHEDULE)
 LOCAL_SCHEME = 'http'   # the loopback dashboard's own scheme (other origins are https, dashboard.origins)
 MAX_BODY = 8192
 LOGIN_COOKIE_AGE = 900
@@ -48,9 +48,12 @@ class Runtime:
         self.client = auth.client_id(cfg)
         hours = (cfg.get('auth') or {}).get('session_hours') or 72
         self.users = auth.Users(folder, clock)
+        self.orgs = orgs.Orgs(folder, clock)
         self.sessions = auth.Sessions(folder, hours, clock)
         self.invites = invites.Invites(folder, clock)
-        self.jwks = jwks or auth.Jwks(clock=clock)
+        oidc = auth.oidc_config(cfg)
+        self.oidc = oidc
+        self.jwks = jwks or auth.Jwks(fetch=lambda: auth.fetch_jwks(oidc['jwks_url'] or auth.JWKS_URL), clock=clock)
         self.session_cookie, self.login_cookie = f'tutti_session_{port}', f'tutti_login_{port}'
         self.flow_cookie = authdevice.FLOW_COOKIE.format(port=port)
         self.device = authdevice.Flows(cfg, post=google_post, clock=clock)
@@ -142,7 +145,7 @@ def me(rt, headers):
         return jsonr(200, {'enabled': False, 'setup': 'tutti auth setup'})
     _s, user = current(rt, headers)
     out = {'enabled': True, 'client_id': rt.client, 'device': authdevice.enabled(rt.cfg), 'first': not rt.users.all(),
-           'signed_in': bool(user)}
+           'signed_in': bool(user), 'sso': {'provider': rt.oidc['provider'], 'issuer': rt.oidc['issuers'][0]}}
     if user:
         out.update(role=user['role'], email=user['email'], name=user['name'])
     return jsonr(200, out)
@@ -187,10 +190,12 @@ def signed_in_get(rt, path, headers, serve):
     if user['role'] == 'pending':
         return login_page(rt, headers, s['csrf']) if page else \
             jsonr(403, {'error': 'an admin has not approved you yet: ask them to approve you in the Users card'})
-    if path.startswith(ADMIN_GET) and user['role'] != 'admin':
+    if path.startswith(ADMIN_GET) and not auth.is_admin(user['role']):
         return jsonr(403, {'error': 'only an admin may open this: ask an admin to make you admin in the Users card'})
     if path == USERS:
         return jsonr(200, users_view(rt))
+    if path == ORGS:
+        return jsonr(200, {'orgs': rt.orgs.visible_to(user)})
     if path == SCHEDULE:
         return jsonr(200, {'sub': user['sub'], 'schedule': myschedule.read(rt.users.folder, user['sub'], pacing_defaults(rt.cfg))})
     code, body, ctype, cache, extra = serve(s['csrf'])
@@ -236,7 +241,14 @@ def login(rt, headers, read):
     if not secret:
         return 400, {'error': 'the sign-in page expired: reload it and sign in again'}, None
     try:
-        who = auth.verify(data['credential'], rt.client, rt.jwks, rt.clock(), nonce=auth.nonce_of(secret))
+        if rt.oidc['provider'] != 'google':
+            who = auth.verify_oidc(
+                data['credential'], rt.oidc['client_id'], rt.jwks, rt.clock(),
+                issuers=rt.oidc['issuers'], nonce=auth.nonce_of(secret),
+                allowed_domains=rt.oidc['allowed_domains'], groups_claim=rt.oidc['groups_claim'],
+            )
+        else:
+            who = auth.verify(data['credential'], rt.client, rt.jwks, rt.clock(), nonce=auth.nonce_of(secret))
     except auth.TokenError as e:
         return 401, {'error': f'Google sign-in was not accepted: {e}'}, None
     return signed_in(rt, headers, who, invite_of(data), rt.login_cookie)
@@ -383,16 +395,74 @@ def post(rt, headers, path, host, read, inner):
     return allowed_post(rt, headers, path, read, inner, s, user)
 
 
+def _org_delete(rt, oid, _data, actor, org):
+    if orgs.actor_org_role(actor, org) != 'owner':
+        raise PermissionError('only an organization owner may delete an organization')
+    rt.orgs.delete_org(oid)
+    return None, f'delete org {oid}'
+
+
+def _org_set_member(rt, oid, data, actor, org):
+    role = data.get('role')
+    if not orgs.may_assign_role(actor, org, role):
+        raise PermissionError('only an organization owner may assign the owner role')
+    return rt.orgs.set_member(oid, data.get('sub'), role, teams=data.get('teams')), f'{oid} member {data.get("sub")}={role}'
+
+
+def _org_upsert_team(rt, oid, data, _actor, _org):
+    res = rt.orgs.upsert_team(
+        oid, data.get('team_id'), data.get('name'),
+        priority=data.get('priority', orgs.DEFAULT_PRIORITY),
+        budget=data.get('budget'), projects=data.get('projects'),
+    )
+    return res, f'{oid} team {data.get("team_id")}'
+
+
+_ORG_ACTIONS = {
+    'delete_org': _org_delete,
+    'set_member': _org_set_member,
+    'remove_member': lambda rt, oid, d, _a, _o: (rt.orgs.remove_member(oid, d.get('sub')), f'{oid} remove {d.get("sub")}'),
+    'upsert_team': _org_upsert_team,
+    'delete_team': lambda rt, oid, d, _a, _o: (rt.orgs.delete_team(oid, d.get('team_id')), f'{oid} delete team {d.get("team_id")}'),
+}
+
+
+def _org_mutate(rt, data, actor):
+    action, oid = data.get('action'), str(data.get('org_id') or '').strip()
+    if action == 'create_org':
+        return rt.orgs.create_org(oid, data.get('name'), owner_sub=actor.get('sub')), f'org {oid}'
+    org = rt.orgs.get(oid)
+    if not org:
+        raise orgs.OrgError(f'no such organization "{oid}"')
+    if not orgs.may_manage_org(actor, org):
+        raise PermissionError('only an organization admin or owner may change this')
+    fn = _ORG_ACTIONS.get(action)
+    if not fn:
+        raise orgs.OrgError('action must be create_org, delete_org, set_member, remove_member, upsert_team or delete_team')
+    return fn(rt, oid, data, actor, org)
+
+
+def change_orgs(rt, data, actor):
+    try:
+        _res, detail = _org_mutate(rt, data, actor)
+    except PermissionError as e:
+        return 403, {'error': str(e)}
+    except orgs.OrgError as e:
+        return 409 if 'last owner' in str(e) else 400, {'error': str(e)}
+    auth.audit(rt.users.folder, actor, f'org:{data.get("action")}', clock=rt.clock, detail=detail)
+    return 200, {'ok': True, 'orgs': rt.orgs.visible_to(actor)}
+
+
 def allowed_post(rt, headers, path, read, inner, s, user):
     """The role check of a signed-in POST, then the answer."""
     role = user['role']
-    if role == 'pending' or (role != 'admin' and path not in VIEWER_POST):
+    if role == 'pending' or (not auth.is_admin(role) and path not in VIEWER_POST):
         return 403, {'error': 'only an admin may change this: you can look, not change (ask an admin in the Users card)'}, None
-    if role != 'admin' and path == '/api/telemetry':   # a viewer's telemetry: errors and use counts only
+    if not auth.is_admin(role) and path == '/api/telemetry':   # a viewer's telemetry: errors and use counts only
         read = viewer_read(read, headers)
         if read is None:
             return 403, {'error': 'only an admin may change whether reports are sent'}, None
-    if path in (USERS, INVITES, SCHEDULE):
+    if path in (USERS, INVITES, ORGS, SCHEDULE):
         data = body_of(headers, read)
         if data is None:
             return 400, {'error': 'send a small JSON object'}, None
@@ -400,5 +470,7 @@ def allowed_post(rt, headers, path, read, inner, s, user):
             return (*change_schedule(rt, data, user), None)
         if path == USERS:
             return (*change_user(rt, data, user), None)
+        if path == ORGS:
+            return (*change_orgs(rt, data, user), None)
         return (*change_invites(rt, data, user, headers), None)
     return (*inner(s['csrf'], read), None)

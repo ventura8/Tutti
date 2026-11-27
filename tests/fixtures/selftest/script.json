@@ -1,0 +1,5 @@
+{
+  "check": "script",
+  "expected": false,
+  "finding": "The dashboard raised a browser error. Check dashboard script initialization."
+}

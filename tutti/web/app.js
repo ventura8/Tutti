@@ -180,6 +180,23 @@ function renderTiles(s) {
         tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
         tile('Workers', `${t.workers_ready} / ${t.workers} ready`, workersNote(t), t.workers_ready < t.workers || t.outside ? 'warn' : undefined),
     );
+    renderSelfTest(s.selftest);
+}
+
+function renderSelfTest(test) {
+    const status = { ok: 'Pass', fail: 'Fail', unavailable: 'Unavailable' }[test?.status] || 'Pending';
+    const checked = test?.timestamp ? new Date(test.timestamp * 1000).toLocaleString() : 'Waiting for the first run';
+    const card = tile('Self-test', status, checked, test?.status === 'ok' ? 'ok' : test?.status ? 'bad' : undefined);
+    if (test?.message) card.append(el('p', { class: 'tile__note', text: test.message }));
+    card.append(el('h2', { class: 'tile__label', text: 'What did I miss?' }));
+    if (test?.missed?.length) {
+        card.append(el('ul', {}, ...test.missed.filter((note) => typeof note === 'string').map(
+            (note) => el('li', { class: 'tile__note', text: note }))));
+    } else {
+        const text = test?.status === 'ok' ? 'Live checks match the mock browser expectations.' : 'Comparison unavailable.';
+        card.append(el('p', { class: 'tile__note', text }));
+    }
+    $('tiles').append(card);
 }
 
 // ---- usage

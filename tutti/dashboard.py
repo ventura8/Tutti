@@ -57,6 +57,7 @@ from . import (
     remote,
     report,
     scouts,
+    selftest,
     settings,
     setupcmd,
     sleepwatch,
@@ -245,6 +246,9 @@ class Collector:
 
     def acting_rounds(self):
         """Every round that starts work, takes a lease or sends something: only where Tutti is active."""
+        httpd = getattr(self, 'httpd', None)
+        if httpd and not os.environ.get('TUTTI_NO_DAEMONS'):
+            httpd.selftest.tick(self.cfg, f'http://{httpd.selftest_host}', httpd.selftest_permit)
         self.update_round()
         self.autopilot_tick()
         self.dispatch_tick()
@@ -315,6 +319,7 @@ class Collector:
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())
         sharing.busy_for(out['machines']['items'], out['household'])
+        out['selftest'] = selftest.load(self.cfg)
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
@@ -1097,41 +1102,74 @@ def answer_post(handler, code, answer, extra):
     return handler.send(code, json.dumps(answer).encode(), JSON_TYPE, extra=extra)
 
 
+def selftest_get(collector, path, headers):
+    """The synthetic viewer has a small GET allowlist and receives no CSRF token."""
+    if path == '/api/auth/me':
+        return authweb.jsonr(200, selftest.VIEWER)
+    public_asset = not path.startswith('/api/') and path.endswith(authweb.PUBLIC_STATIC)
+    if path in ('/', '/api/state') or public_asset:
+        return get(collector, path, '', headers)
+    return authweb.jsonr(403, {'error': 'the self-test viewer can only open the dashboard and its public assets'})
+
+
+class DashboardHandler(BaseHTTPRequestHandler):
+    server_version = 'tutti'
+    sys_version = ''
+    timeout = SOCKET_TIMEOUT   # a client that sends its request slowly (or never) loses the connection
+
+    def log_message(self, fmt, *args):  # quiet: the dashboard polls every few seconds
+        return
+
+    def send(self, code, body, ctype, cache='no-store', extra=None):
+        self.send_response(code)
+        for k, v in response_headers(code, body, ctype, cache, extra):
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
+    def fail(self, code, text):
+        self.send(code, json.dumps({'error': text}).encode(), JSON_TYPE)
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_GET(self):
+        path = self.path.split('?', 1)[0]
+        if selftest.HEADER in self.headers:
+            return self.answer_selftest(path)
+        if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], reach_origins(self.collector)):
+            return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
+        self.send(*reported('dashboard-get', authweb.get, getattr(self.server, 'auth', None), path, self.headers,
+                            lambda tok: get(self.collector, path, tok, self.headers), self.token))
+
+    def answer_selftest(self, path):
+        if not self.selftest_allowed():
+            return self.fail(403, 'the self-test viewer requires the local dashboard process')
+        code, body, ctype, _, extra = selftest_get(self.collector, path, self.headers)
+        return self.send(code, body, ctype, extra=extra)
+
+    def selftest_allowed(self):
+        host = self.server.selftest_host
+        permit = self.headers.get(selftest.HEADER, '')
+        local = self.client_address[0] == self.connection.getsockname()[0]
+        return (self.command == 'GET' and local and self.headers.get('Host') == host and bool(permit)
+                and hmac.compare_digest(permit.encode(), self.server.selftest_permit.encode()))
+
+    def do_POST(self):
+        if selftest.HEADER in self.headers:
+            return self.fail(403, 'the self-test viewer can only send GET requests')
+        code, answer, extra = reported('dashboard-post', any_post, getattr(self.server, 'auth', None), self.collector,
+                                       self.headers, self.path, self.server.server_address[1], self.token, self.rfile.read)
+        answer_post(self, code, answer, extra)
+
+
 def make_handler(collector, token):
-    class Handler(BaseHTTPRequestHandler):
-        server_version = 'tutti'
-        sys_version = ''
-        timeout = SOCKET_TIMEOUT   # a client that sends its request slowly (or never) loses the connection
+    class Handler(DashboardHandler):
+        pass
 
-        def log_message(self, fmt, *args):  # quiet: the dashboard polls every few seconds
-            return
-
-        def send(self, code, body, ctype, cache='no-store', extra=None):
-            self.send_response(code)
-            for k, v in response_headers(code, body, ctype, cache, extra):
-                self.send_header(k, v)
-            self.end_headers()
-            if self.command != 'HEAD':
-                self.wfile.write(body)
-
-        def fail(self, code, text):
-            self.send(code, json.dumps({'error': text}).encode(), JSON_TYPE)
-
-        def do_HEAD(self):
-            self.do_GET()
-
-        def do_GET(self):
-            if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], reach_origins(collector)):
-                return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
-            path = self.path.split('?', 1)[0]
-            self.send(*reported('dashboard-get', authweb.get, getattr(self.server, 'auth', None), path, self.headers,
-                                lambda tok: get(collector, path, tok, self.headers), token))
-
-        def do_POST(self):
-            code, answer, extra = reported('dashboard-post', any_post, getattr(self.server, 'auth', None), collector, self.headers,
-                                           self.path, self.server.server_address[1], token, self.rfile.read)
-            answer_post(self, code, answer, extra)
-
+    Handler.collector = collector
+    Handler.token = token
     return Handler
 
 
@@ -1149,6 +1187,10 @@ def server(cfg, port, collector=None):
     token = secrets.token_urlsafe(24)   # a new one per start: the page loaded from this server sends it back with a POST
     httpd = Server((bind_of(cfg), port), make_handler(collector, token))
     httpd.token = token
+    address, actual_port = httpd.server_address
+    httpd.selftest_host = f'{BIND if address == "0.0.0.0" else address}:{actual_port}'
+    httpd.selftest_permit = secrets.token_urlsafe(32)
+    httpd.selftest = selftest.Runner(time.time())
     github.use(cfg)   # Connect GitHub: the connections Tutti's GitHub calls use (docs/GITHUB.md)
     httpd.auth = authweb.Runtime(cfg, httpd.server_address[1]) if auth.enabled(cfg) else None
     collector.signed = httpd.auth is not None

@@ -476,3 +476,9 @@ finished-jobs filter and the project filter are kept by item id across refreshes
 (sessionStorage); the render's own opening of a fold is not taken for the owner's choice. A class that sets a
 `display` gets a `[hidden]` rule beside it (a test lists them), so the Users view shows only in its tab, for an admin
 with sign-in on.
+
+## Self-test
+
+The **Self-test** card shows the latest local browser check and its time. **What did I miss?** shows which checks failed
+in the live dashboard while the mock browser suite expects them to pass. Results are saved under the dashboard state
+directory. See [Testing](TESTING.md#live-dashboard-self-test) for browser setup and replay.

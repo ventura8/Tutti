@@ -1,0 +1,5 @@
+{
+  "check": "page",
+  "expected": false,
+  "finding": "The dashboard page did not load. Check the dashboard HTTP response."
+}

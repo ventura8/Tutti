@@ -1,0 +1,5 @@
+{
+  "check": "state",
+  "expected": false,
+  "finding": "The dashboard did not render live state. Check the state API and dashboard rendering."
+}

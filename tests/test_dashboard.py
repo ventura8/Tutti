@@ -13,7 +13,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import cli, config, dashboard, pacing, routing, state, waiting
+from tutti import cli, config, dashboard, pacing, routing, selftest, state, waiting
 
 T = pacing.parse_time
 NOW = T('2026-01-06T02:00Z')
@@ -212,6 +212,24 @@ class ServerTest(unittest.TestCase):
 
     def test_binds_to_loopback_only(self):
         self.assertEqual(self.httpd.server_address[0], '127.0.0.1')
+
+    def test_selftest_identity_is_viewer_and_never_receives_csrf(self):
+        headers = {selftest.HEADER: self.httpd.selftest_permit}
+        response, body = self.get('/api/auth/me', headers=headers)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body)['role'], 'viewer')
+        response, body = self.get('/', headers=headers)
+        self.assertEqual(response.status, 200)
+        self.assertIn(b'name="tutti-token" content=""', body)
+
+    def test_selftest_rejects_wrong_permit_admin_reads_and_posts(self):
+        self.assertEqual(self.get('/api/state', headers={selftest.HEADER: 'invalid'})[0].status, 403)
+        headers = {selftest.HEADER: self.httpd.selftest_permit}
+        self.assertEqual(self.get('/api/settings', headers=headers)[0].status, 403)
+        conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request('POST', '/api/restart', headers=headers)
+        self.assertEqual(conn.getresponse().status, 403)
 
     def test_api_state_carries_the_real_data(self):
         r, body = self.get('/api/state')

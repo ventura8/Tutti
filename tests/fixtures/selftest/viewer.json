@@ -1,0 +1,5 @@
+{
+  "check": "viewer",
+  "expected": false,
+  "finding": "The dashboard did not render the viewer role. Check the read-only sign-in path."
+}

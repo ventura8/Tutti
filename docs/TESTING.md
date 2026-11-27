@@ -75,6 +75,34 @@ admin sees every admin control, the Settings and Users tabs.
 A failure names the role, tab, width and theme, the element (tag, id, classes, text, card) and the numbers. Fix the UI;
 never relax a check.
 
+## Live dashboard self-test
+
+Install the pinned Playwright package and Chromium for the dashboard service's Python environment and user:
+
+```bash
+python3 -m pip install playwright==1.65.2
+python3 -m playwright install chromium
+```
+
+Use the same Python interpreter as the dashboard service. The **Self-test** card shows *Unavailable* if Chromium cannot
+start. The active dashboard starts a background run on its first probe round at least one minute after startup and
+then once a day. Automatic release updates restart the dashboard. For a custom `ship.deploy` command that updates the
+local live instance, restart the dashboard service as the final deploy step. Each restart schedules a fresh run, including
+deployments that keep the same version number.
+
+The browser loads the dashboard as a local synthetic viewer. It sends only same-origin GETs, blocks service workers,
+never signs in to an account, and never clicks. The server only accepts the process-local permit for the app shell, public
+assets, viewer role and read-only state. It issues no session or CSRF token to this viewer.
+
+**What did I miss?** lists live failures against the assertions the signed-in mock browser must pass in CI. Each failing
+assertion generates a replay case in `<state>/selftest-fixtures/` and a backlog task deduplicated by assertion. Cases contain
+fixed check IDs and diagnostics. Browser output, response bodies, session material and live addresses stay out of the files
+and backlog. Replay saved cases alongside the committed cases in the mock suite:
+
+```bash
+TUTTI_SELFTEST_FIXTURES=/path/to/selftest-fixtures PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
+```
+
 ## The formatter and other pure parts
 
 `web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in

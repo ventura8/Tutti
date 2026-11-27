@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+- Run a read-only browser self-test daily and after dashboard restarts. The Self-test card shows live failures against
+  the mock browser contract. Each failure generates a sanitized browser replay case and a deduplicated backlog task.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

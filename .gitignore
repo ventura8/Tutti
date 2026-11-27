@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .ruff_cache/
+.venv/
 node_modules/
 # a real config holds hosts and paths: keep it out of this repository
 /tutti.config.yaml

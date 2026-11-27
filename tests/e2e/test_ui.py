@@ -8,10 +8,14 @@ Run: PYTHONPATH=tests python3 -m unittest discover -s tests/e2e   (scripts/check
 import os
 import re
 import unittest
+from contextlib import closing
 
 import axe_playwright_python
 from harness import Dashboard
 from playwright.sync_api import sync_playwright
+from selftest_cases import MOCK_PERMIT, fixtures, replay
+
+from tutti import selftest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -108,6 +112,40 @@ def axe(page):
     res = page.evaluate('(tags) => axe.run(document, { runOnly: { type: "tag", values: tags }, resultTypes: ["violations"] })', AXE_TAGS)
     return [f'{v["id"]} ({v["impact"]}): {v["help"]} at {", ".join(" ".join(n["target"]) for n in v["nodes"][:4])}'
             for v in res['violations']]
+
+
+class LiveContract(unittest.TestCase):
+    def test_mock_viewer_meets_the_live_browser_contract(self):
+        with closing(new_context(VIEWER)) as ctx:
+            checks = selftest.probe(ctx.new_page(), World.dash.base)
+        self.assertEqual(checks, dict.fromkeys(selftest.CHECKS, True))
+
+    def test_selftest_transport_renders_without_a_user_session(self):
+        with closing(World.browser.new_context(service_workers='block')) as ctx:
+            base = World.dash.base
+            checks = selftest.probe(selftest.live_page(ctx, base, MOCK_PERMIT), base)
+        self.assertEqual(checks, dict.fromkeys(selftest.CHECKS, True))
+
+    def test_selftest_card_shows_live_failure(self):
+        def inject_result(route):
+            state = route.fetch().json()
+            state['selftest'] = selftest.result_for({'state': False}, 100)
+            route.fulfill(json=state)
+
+        with closing(new_context(VIEWER)) as ctx:
+            ctx.route('**/api/state', inject_result)
+            page = open_view(ctx, '#dashboard')
+            card = page.locator('#tiles .tile').filter(has_text='Self-test')
+            self.assertEqual(card.locator('.tile__value').inner_text(), 'Fail')
+            self.assertIn('What did I miss?', card.inner_text())
+            self.assertIn(selftest.CHECKS['state'], card.inner_text())
+
+    def test_sanitized_fixtures_replay_in_the_mock_browser(self):
+        for name, fixture in fixtures():
+            with self.subTest(fixture=name), closing(new_context(VIEWER)) as ctx:
+                self.assertEqual(fixture, selftest.fixture_for(fixture['check']))
+                checks = replay(ctx, World.dash.base, fixture)
+                self.assertIs(checks[fixture['check']], fixture['expected'])
 
 
 class Layout(unittest.TestCase):

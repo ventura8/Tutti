@@ -11,6 +11,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 import yaml
+from selftest_cases import MOCK_PERMIT
 from test_auth import jwks_doc, rsa_key
 
 from tutti import auth, config, dashboard, energy, pacing, routing, state
@@ -114,6 +115,7 @@ def main(folder):
                                     power_fn=power, ollama_fn=ollama)
     collector.refresh()
     httpd = dashboard.server(cfg, 0, collector)
+    httpd.selftest_permit = MOCK_PERMIT
     key = rsa_key()
     httpd.auth.jwks = auth.Jwks(fetch=lambda: (jwks_doc(key), 3600))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

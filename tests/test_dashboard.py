@@ -13,7 +13,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import cli, config, dashboard, pacing, routing, state, waiting
+from tutti import agentcards, cli, config, dashboard, dashboard_tui, pacing, routing, state, waiting
 
 T = pacing.parse_time
 NOW = T('2026-01-06T02:00Z')
@@ -177,6 +177,39 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertTrue(agents['ollama']['installed'])   # its server answers, even with no binary here
         self.assertFalse(agents['copilot']['installed'])
 
+    def test_agents_view_fields(self):
+        self.cfg['workers']['cursor'].update(
+            capabilities=['browser'], limits={'daily cap': 10},
+            benchmarks=[{'name': 'Example', 'score': 0, 'source': 'https://bench.example/results'}, {'score': 10}],
+        )
+        collector = dashboard.Collector(self.cfg, available_fn=lambda w: (True, 'ok'))
+        collector.probes = {'workers': state.workers_state(self.cfg, lambda w: (True, 'ok'))}
+        cards = {card['name']: card for card in collector.snapshot()['agents']}
+        self.assertEqual(set(cards), {'cursor', 'm'})
+        cursor = cards['cursor']
+        self.assertIn('Worker', cursor['roles'])
+        self.assertEqual(cursor['capabilities'], ['browser'])
+        self.assertEqual(cursor['limits']['daily cap'], 10)
+        self.assertTrue(cursor['live_state']['ready'])
+        self.assertEqual(cursor['benchmarks'], [{'name': 'Example', 'score': 0, 'source': 'https://bench.example/results'}])
+        self.assertEqual(cards['m']['cost']['Billing'], 'Electricity only')
+        self.assertIn('Runs locally', cards['m']['capabilities'])
+
+    def test_agent_outcomes_keep_accounts_and_task_kinds_separate(self):
+        tasks = [{'title': 'Fix tests', 'attempts': [{'step': 'account-a', 'ok': False}, {'step': 'account-b', 'ok': True}]}]
+        cards = [{'name': n, 'kind': 'cli'} for n in ('account-a', 'account-b', 'account-c')]
+        agentcards.attach_outcomes(cards, tasks)
+        self.assertEqual(cards[0]['learned']['Backlog attempts'], {'tests': '0 of 1 passed'})
+        self.assertEqual(cards[1]['learned']['Backlog attempts'], {'tests': '1 of 1 passed'})
+        self.assertNotIn('learned', cards[2])
+
+    def test_model_outcomes_require_the_same_worker_and_model(self):
+        tasks = [{'title': 'Fix tests', 'attempts': [{'step': 'local', 'worker': 'one', 'model': 'm', 'ok': True}]}]
+        cards = [{'name': 'm', 'kind': 'ollama', 'model_worker': worker} for worker in ('one', 'two')]
+        agentcards.attach_outcomes(cards, tasks)
+        self.assertEqual(cards[0]['learned']['Backlog attempts'], {'tests': '1 of 1 passed'})
+        self.assertNotIn('learned', cards[1])
+
 
 class ServerTest(unittest.TestCase):
     @classmethod
@@ -287,6 +320,29 @@ class CliTest(unittest.TestCase):
             s = json.loads(out.getvalue())
             self.assertEqual(s['usage']['accounts'][0]['state'], 'no reset')
             self.assertEqual(s['machines']['items'], [])
+
+    def test_agents_prints_the_terminal_inventory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'tutti.config.json')
+            with open(path, 'w', encoding='utf8') as f:
+                json.dump({'project': {'state': os.path.join(folder, 'state')}, 'accounts': {'example': {}}}, f)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main(['--config', path, 'dashboard', '--agents', '--no-probe']), 0)
+            self.assertTrue(out.getvalue().startswith('Agents\n'))
+            self.assertIn('\nexample\n', out.getvalue())
+
+    def test_terminal_agents_can_switch_tabs_and_refresh(self):
+        snapshot = {'agents': [], 'main': {'agent': 'worker'}, 'summary': {'running': 1, 'free_slots': 0}}
+        refresh = mock.Mock(return_value={**snapshot, 'agents': [{'name': 'new'}]})
+        screen = mock.Mock()
+        screen.getmaxyx.return_value = (20, 80)
+        screen.getkey.side_effect = ['\t', '\t', 'R', 'Q']
+        dashboard_tui.navigate(screen, snapshot, refresh)
+        self.assertIn(mock.call(0, 0, 'Overview  [Agents]', 79), screen.addnstr.call_args_list)
+        self.assertIn(mock.call(0, 0, '[Overview]  Agents', 79), screen.addnstr.call_args_list)
+        self.assertIn(mock.call(3, 0, 'new', 79), screen.addnstr.call_args_list)
+        refresh.assert_called_once_with()
 
     def test_a_busy_port_names_the_fix(self):
         with tempfile.TemporaryDirectory() as folder:

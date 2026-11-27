@@ -75,9 +75,11 @@ def _write(path, data):
     os.replace(tmp, path)
 
 
-def _mtime(path):
+def _file_stamp(path):
     try:
-        return os.stat(path).st_mtime_ns
+        info = os.stat(path)
+        # Atomic replacement can leave the timestamp unchanged on a coarse filesystem.
+        return info.st_dev, info.st_ino, info.st_mtime_ns
     except OSError:
         return None
 
@@ -342,7 +344,7 @@ class Users:
         self._cache, self._mtime = {}, None
 
     def _load(self):
-        m = _mtime(self.path)
+        m = _file_stamp(self.path)
         if m != self._mtime:
             data = _read(self.path).get('users')
             self._cache, self._mtime = (data if isinstance(data, dict) else {}), m
@@ -350,7 +352,7 @@ class Users:
 
     def _save(self, users):
         _write(self.path, {'users': users})
-        self._cache, self._mtime = users, _mtime(self.path)
+        self._cache, self._mtime = users, _file_stamp(self.path)
 
     def all(self):
         return {k: dict(v) for k, v in self._load().items()}
@@ -517,7 +519,7 @@ class Sessions:
         self._cache, self._mtime = {}, None
 
     def _load(self):
-        m = _mtime(self.path)
+        m = _file_stamp(self.path)
         if m != self._mtime:
             data = _read(self.path)
             self._cache, self._mtime = data, m
@@ -529,7 +531,7 @@ class Sessions:
             data = {k: v for k, v in self._load().items() if isinstance(v, dict) and v.get('expires', 0) > self.clock()}
             fn(data)
             _write(self.path, data)
-            self._cache, self._mtime = data, _mtime(self.path)
+            self._cache, self._mtime = data, _file_stamp(self.path)
 
     def create(self, sub):
         """(cookie id, csrf token) of a new session for `sub`."""

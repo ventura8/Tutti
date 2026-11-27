@@ -23,6 +23,7 @@ from . import (
     connect,
     controls,
     dashboard,
+    dashboard_tui,
     delegate,
     devices,
     discover,
@@ -1173,13 +1174,17 @@ def files_clean(cfg, a):
 
 
 def cmd_dashboard(cfg, a):
-    if clientmode.role(cfg) == 'client' and not a.once:
+    if clientmode.role(cfg) == 'client' and not (a.once or a.agents):
         return move.client_dashboard(cfg, a, say, lambda c: cmd_dashboard(c, a))
     collector = dashboard.Collector(cfg)
-    if a.once:
+    if a.once or a.agents:
         if not a.no_probe:
             collector.refresh()
-        print(json.dumps(collector.snapshot(), indent=2))
+        snapshot = collector.snapshot()
+        if a.agents:
+            dashboard_tui.show(snapshot, collector.snapshot)
+        else:
+            print(json.dumps(snapshot, indent=2))
         return 0
     port = cfg['dashboard']['port'] if a.port is None else a.port
     try:
@@ -1953,6 +1958,7 @@ def parser():
     s.add_argument('--port', type=int, help='the port on 127.0.0.1 (default: dashboard.port, 4777)')
     s.add_argument('--once', action='store_true', help='print the state as JSON (what /api/state answers) and stop')
     s.add_argument('--no-probe', action='store_true', help='do not probe machines and workers (ssh, model servers)')
+    s.add_argument('--agents', action='store_true', help='open the terminal Agents tab (print the inventory when redirected)')
     s = add('conduct', cmd_conduct, 'another agent (cursor, agy, copilot, a local model) as the main agent: it gets the goal, an '
                                     'instruction file with Tutti\'s commands and the safety limits; on panic the next one takes over')
     s.add_argument('goal')
@@ -2205,7 +2211,7 @@ def main(argv=None):
         return a.fn(None, a)
     # secrets are read from their files at the point of use, never inherited (docs/ARCHITECTURE.md, t116); the dashboard runs
     # again without them so its own /proc environ holds none
-    if real and a.fn is cmd_dashboard and not a.once:
+    if real and a.fn is cmd_dashboard and not (a.once or a.agents):
         secretenv.reexec_clean()
     secretenv.scrub_self()
     try:

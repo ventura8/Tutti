@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Added
+
+- An Agents inventory in the dashboard and terminal, with account pacing, local model availability, retained task outcomes,
+  sourced benchmark entries and links to agent settings.
+
+### Fixed
+
+- Refresh cached sign-in roles and sessions after atomic state-file replacement on filesystems with coarse timestamps.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

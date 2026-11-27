@@ -745,7 +745,8 @@ async function showActivity() {
 function chatView() {
     const h = location.hash || '';
     const admin = typeof document !== 'undefined' && document.body?.dataset.role === 'admin';
-    return h.startsWith('#settings') ? 'settings' : h.startsWith('#users') && admin ? 'users' : h.startsWith('#dashboard') ? 'dashboard' : 'chat';
+    if (admin && h.startsWith('#users')) return 'users';
+    return ['settings', 'dashboard', 'agents'].find((view) => h.startsWith(`#${view}`)) || 'chat';
 }
 
 function showChatView() {

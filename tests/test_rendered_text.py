@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHROME = next((p for p in (shutil.which(n) for n in ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser')) if p),
               None)
 BAD = re.compile(r'\b(null|undefined|NaN)\b|\[object Object\]')
-VIEWS = ('#chat', '#dashboard', '#settings', '#users')
+VIEWS = ('#chat', '#dashboard', '#agents', '#settings', '#users')
 
 
 class Text(HTMLParser):

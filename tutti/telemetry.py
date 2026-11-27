@@ -146,7 +146,8 @@ def sending(folder):
     if not folder:
         return False
     try:
-        stamp = os.stat(os.path.join(folder, CONSENT)).st_mtime_ns
+        stat = os.stat(os.path.join(folder, CONSENT))
+        stamp = stat.st_ino, stat.st_mtime_ns
     except OSError:
         stamp = None
     hit = _consent_cache.get(folder)

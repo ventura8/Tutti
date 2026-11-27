@@ -849,7 +849,11 @@ class CliTest(unittest.TestCase):
         users = auth.Users(config.state_dir(self.cfg))
         users.sign_in({'sub': 'a', 'email': 'a@example.com', 'name': 'A'})
         users.sign_in({'sub': 'b', 'email': 'B@example.com', 'name': 'B'})
+        stamp = (1700000000000000000,) * 2
+        os.utime(users.path, ns=stamp)
+        self.assertEqual(users.get('b')['role'], 'pending')
         self.assertEqual(self.run_auth('promote', email='b@example.com')[0], 0)
+        os.utime(users.path, ns=stamp)
         self.assertEqual(users.get('b')['role'], 'admin')
         self.assertEqual(self.run_auth('promote', email='nobody@example.com')[0], 2)
         self.assertEqual(self.run_auth('reset-admin')[0], 2)

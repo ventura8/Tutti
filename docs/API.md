@@ -98,7 +98,7 @@ dashboard refuses to start otherwise.
 | `/login` | GET | anyone | The sign-in page (Google). |
 | `/invite` | GET | anyone | The page an invite link opens. |
 
-`/api/state` keys: `autopilot`, `config`, `controls`, `devices`, `disk`, `dispatch`, `failover`, `fleet`, `generated_at`,
+`/api/state` keys: `agents`, `autopilot`, `config`, `controls`, `devices`, `disk`, `dispatch`, `failover`, `fleet`, `generated_at`,
 `household`, `household_use`, `hygiene`, `jobs`, `local_models`, `machines`, `main`, `outside`, `presence`, `probe_error`,
 `projects`, `queue`, `refresh_seconds`, `releases_stuck`, `scouts`, `security`, `selfheal`, `setup`, `summary`,
 `telemetry`, `updates`, `usage`, `version`, `where`, `work_browser`, `work_queue`, `workers`. The page tolerates new keys;
@@ -528,6 +528,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
+| `workers.*.roles` | list |  | Roles: Additional roles to describe on the Agents tab. | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |
 | `workers.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |
 | `workers.*.enabled` | switch |  | On: Off takes it out of routing, conduct and review. | admin |
@@ -1441,7 +1442,7 @@ usage: tutti files clean [-h] --on ON [--all] [names ...]
 a local web dashboard (installable app): usage and pacing, machines, workers and jobs
 
 ```text
-usage: tutti dashboard [-h] [--port PORT] [--once] [--no-probe]
+usage: tutti dashboard [-h] [--port PORT] [--once] [--no-probe] [--agents]
 ```
 
 | Argument | What it does | Default |
@@ -1449,6 +1450,7 @@ usage: tutti dashboard [-h] [--port PORT] [--once] [--no-probe]
 | `--port` | the port on 127.0.0.1 (default: dashboard.port, 4777) |  |
 | `--once` | print the state as JSON (what /api/state answers) and stop |  |
 | `--no-probe` | do not probe machines and workers (ssh, model servers) |  |
+| `--agents` | open the terminal Agents tab (print the inventory when redirected) |  |
 
 ### `tutti conduct`
 

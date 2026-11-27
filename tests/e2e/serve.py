@@ -38,6 +38,7 @@ def write_config(home):
     with open(os.path.join(ROOT, 'tutti.config.example.yaml'), encoding='utf8') as f:
         raw = yaml.safe_load(f)
     raw['auth'] = {'client_id': CLIENT}
+    raw['workers']['cursor']['benchmarks'] = [{'name': 'Example score', 'score': 72.125, 'source': 'https://bench.example/cursor'}]
     raw['fleet'] = {'enabled': False}   # no tunnel is ever started from a test
     # a dedicated desktop session on gpu-box's computer with its own model worker: it must fold into gpu-box's one card
     raw['machines']['gpu-box-desktop'] = {**raw['machines']['gpu-box'], 'dedicated': True}

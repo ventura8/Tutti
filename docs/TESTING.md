@@ -10,6 +10,8 @@
 
 CI (`.github/workflows/ci.yml`) runs `scripts/check.sh` on every pull request and every push to `main`, so each step is a
 hard gate. Install the pinned tools once with `python3 -m pip install -r requirements-dev.txt`.
+Install `rsync` on the check runner to exercise the rsync-specific integration test. The stream transport is tested on
+every runner.
 
 Rules for every test: a change in behaviour comes with a good case and a bad one; nothing runs against a real machine
 (tests use the `local` transport and temp folders); hosts are `*.example`.
@@ -67,7 +69,7 @@ viewer; then at 200 % zoom, and with WCAG 1.4.12 text spacing (line height 1.5, 
 - reduced motion: nothing animates or transitions;
 - a refused form value is announced: `aria-invalid` and a `role="alert"` message tied to the field, cleared once fixed.
 
-**Roles**: a viewer sees the Chat and Dashboard tabs and no admin control (the server refuses `/api/settings` with 403); an
+**Roles**: a viewer sees the Chat, Dashboard and Agents tabs and no admin control (the server refuses `/api/settings` with 403); an
 admin sees every admin control, the Settings and Users tabs.
 
 **Numbers**: no number with four or more decimals anywhere on the page.

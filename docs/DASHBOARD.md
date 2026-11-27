@@ -63,6 +63,28 @@ works while their own computer is off. Each action is a card with Undo and goes 
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
 before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
+## Agents
+
+The **Agents** tab (`#agents`) shows configured online accounts, workers and scouts, plus one card per
+local model on each physical machine. The Usage panel keeps quota readings and machine-level energy totals.
+
+- Roles and capabilities come from the worker, scout and fleet configuration. A worker can declare additional
+  `roles` and `capabilities` as lists and `limits` as a mapping.
+- Limits and live state combine usage readings, probe results and running jobs. ETA appears when a job reports an estimate.
+- Learned strengths and limits use retained backlog outcomes by task kind and the fleet's model evidence. Workers
+  and accounts can add `learned` notes.
+- Public benchmarks can be listed under a worker or account's `benchmarks` as entries with `name`, numeric `score`
+  and an HTTP(S) `source`. Benchmark scores show as unavailable until a sourced result is configured.
+- Cost shows the configured billing mode and, for local models, the host's watts and estimated electricity cost per job
+  where available. The electricity figures summarize the whole host.
+- Admin links open the corresponding Settings control for enabling workers and accounts, editing roles, setting the
+  worker order, and editing the retry ladder. **Set as main** switches the conductor using the dashboard's existing control.
+  Viewers can read the inventory.
+
+Run `tutti dashboard --agents` to open the terminal dashboard on the Agents tab. Use Tab to switch to Overview, the
+arrow keys to scroll, R to reread saved state and Q to quit. Redirect the output to print the inventory as plain text.
+Add `--no-probe` to skip the initial machine and worker checks.
+
 ## Layout
 
 The **Dashboard** tab's cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and

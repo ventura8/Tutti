@@ -304,7 +304,7 @@ class Roles(unittest.TestCase):
     def test_a_viewer_sees_no_admin_control(self):
         ctx = new_context(VIEWER)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard'])
+        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Agents'])
         shown = page.evaluate("""[...document.querySelectorAll('[data-admin], button, input, select, textarea, form, a.link')]
             .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, nav.tabs'))
             .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id) && !e.classList.contains('more'))
@@ -319,7 +319,7 @@ class Roles(unittest.TestCase):
     def test_an_admin_sees_every_admin_control(self):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Settings', 'Users'])
+        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Agents', 'Settings', 'Users'])
         hidden = [c for c in ADMIN_CONTROLS if not page.is_visible(c)]
         self.assertEqual(hidden, [])
         go(page, '#settings')
@@ -328,6 +328,31 @@ class Roles(unittest.TestCase):
         self.assertTrue(page.is_visible('#invite-create'))
         self.assertTrue(re.search(r'guest@example\.com', page.text_content('#users')))
         ctx.close()
+
+    def test_agents_inventory_and_admin_settings_link(self):
+        for role in (ADMIN, VIEWER):
+            with self.subTest(role=role):
+                ctx = new_context(role)
+                self.addCleanup(ctx.close)
+                page = open_view(ctx, '#agents')
+                view = page.locator('#agents-view')
+                self.assertTrue(view.is_visible())
+                self.assertFalse(page.locator('#dashboard-view').is_visible())
+                cards = view.locator('.agent-card')
+                titles = cards.get_by_role('heading').all_text_contents()
+                self.assertIn('cursor', titles)
+                self.assertTrue(any('qwen3.5:9b' in title for title in titles), titles)
+                self.assertEqual(len(titles), len(set(titles)))
+                cursor = cards.filter(has=page.get_by_role('heading', name='cursor', exact=True))
+                self.assertIn('Benchmark scores', cursor.locator('dt').all_text_contents())
+                benchmark = cursor.get_by_role('link', name='Example score')
+                self.assertEqual(benchmark.get_attribute('href'), 'https://bench.example/cursor')
+                self.assertEqual(cursor.get_by_role('button', name='Set as main').count(), int(role == ADMIN))
+                action = cursor.get_by_role('link', name='Edit roles')
+                self.assertEqual(action.count(), int(role == ADMIN))
+                if role == ADMIN:
+                    action.click()
+                    page.locator('#set-workers_cursor_roles-row').wait_for(state='visible')
 
     def test_machine_cards_match_the_probe(self):
         """Each card's slot boxes equal its busy, held-back and free slots from /api/state; the text agrees; an empty limit

@@ -912,7 +912,10 @@ function renderMain(s) {
 
 async function switchMain(e) {
     e.preventDefault();
-    const agent = $('main-pick').value;
+    await setMainAgent($('main-pick').value);
+}
+
+async function setMainAgent(agent) {
     try {
         const res = await fetch('/api/main', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ agent }),
@@ -1346,6 +1349,7 @@ function render() {
     renderJobs(s);
     if (typeof renderQueue === 'function') renderQueue(s);   // queue.js: the Queued list beside Running jobs
     renderMachines(s);
+    if (typeof renderAgents === 'function') renderAgents(s);
     renderWorkBrowser(s);
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning
     renderAutopilot(s);

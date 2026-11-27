@@ -145,6 +145,7 @@ function showUsersView() {
         $('dashboard-view').hidden = true;
         $('settings-view').hidden = true;
         $('chat-view').hidden = true;
+        $('agents-view').hidden = true;
     }
     for (const a of document.querySelectorAll('.tabs__tab[data-view]')) {
         const current = on ? a.dataset.view === 'users' : a.dataset.view !== 'users' && a.getAttribute('aria-current') === 'page';
@@ -156,6 +157,9 @@ function showUsersView() {
 async function startAuth() {
     const me = await fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
     if (!me) return;
+    if (me.enabled) document.body.dataset.role = me.role || 'viewer';
+    document.body.dataset.agentAdmin = String(!me.enabled || me.role === 'admin');
+    if (ui.last && typeof renderAgents === 'function') renderAgents(ui.last);
     if (!me.enabled) {
         $('auth-banner').replaceChildren(el('strong', { text: 'Sign-in is off: ' }),
             'this dashboard opens on this computer only. To sign in with Google and let others in, run ', el('code', { text: 'tutti auth setup' }),
@@ -163,7 +167,6 @@ async function startAuth() {
         $('auth-banner').hidden = false;
         return;
     }
-    document.body.dataset.role = me.role || 'viewer';
     $('me').textContent = `${me.email} · ${me.role}`;
     $('viewer-label').hidden = me.role !== 'viewer';
     $('me').hidden = false;

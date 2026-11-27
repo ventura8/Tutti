@@ -21,10 +21,12 @@ from urllib.parse import urlsplit
 
 from . import (
     __version__,
+    agentcards,
     aiassist,
     authweb,
     autocompact,
     autopilot,
+    backlog,
     bridge,
     browsercmd,
     chatrun,
@@ -305,6 +307,7 @@ class Collector:
         out['work_queue'] = workq.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
+        out['agents'] = agentcards.attach_outcomes(agentcards.inventory(self.cfg, out), backlog.load(self.cfg)['tasks'])
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)

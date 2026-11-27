@@ -10,7 +10,7 @@ import subprocess
 import sys
 import urllib.request
 
-from . import config, inuse
+from . import config, inuse, quietmode, remote
 
 STANDING = ['Work only inside the current directory.', 'Do not commit, push or deploy: leave your edits uncommitted for review.',
             'Do not read or print secrets (.env files, tokens, keys).',
@@ -206,6 +206,10 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     env = {**worker_env(cfg), **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)
+    if quietmode.status(cfg)['quiet'] and (remote_name := worker.get('remote')) and (remote_machine := cfg['machines'].get(remote_name)):
+        remote.ensure_master(remote_machine)
+        argv = remote.argv(remote_machine, shlex.join(argv))
+        cwd = None # Sync might not be handled here, so cwd might not exist or be correct.
     with inuse.using(config.state_dir(cfg), argv[0]), \
             subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, errors='replace', bufsize=1, env=env, start_new_session=os.name != 'nt') as p:

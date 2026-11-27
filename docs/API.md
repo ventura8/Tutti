@@ -1632,15 +1632,15 @@ usage: tutti telemetry [-h] [--days DAYS] [--json] [--test] [{status,on,off,setu
 
 ### `tutti github`
 
-connect Tutti to GitHub (pull requests, CI, issues) with a code at github.com/login/device: status, connect, disconnect, or manifest (the App's manifest, for the maintainer)
+connect Tutti to GitHub (pull requests, CI, issues) with a code at github.com/login/device: status, connect, disconnect, manifest (the App's manifest, for the maintainer), or deploy-keys (provision read-only deploy keys on household machines)
 
 ```text
-usage: tutti github [-h] [{status,connect,disconnect,manifest}]
+usage: tutti github [-h] [{status,connect,disconnect,manifest,deploy-keys}]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,connect,disconnect,manifest}` |  | `status` |
+| `action {status,connect,disconnect,manifest,deploy-keys}` |  | `status` |
 
 ### `tutti report`
 

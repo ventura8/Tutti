@@ -382,8 +382,16 @@ def check_strays(ctx):
     return reap(log) if reap else []
 
 
+def check_deploy_keys(ctx):
+    """Ensures every household machine has read-only GitHub deploy keys for the repositories it runs work for."""
+    from . import deploykeys
+    if deploykeys.offline():
+        return []
+    return deploykeys.sync(ctx.cfg)
+
+
 CHECKS = (('ollama', check_ollama), ('strays', check_strays), ('needs', check_needs), ('workers', check_workers),
-          ('tunnels', check_tunnels),
+          ('tunnels', check_tunnels), ('deploy-keys', check_deploy_keys),
           ('adb', check_adb), ('disk', check_disk), ('state', check_state), ('config', check_config),
           ('dashboard', check_dashboard), ('update', check_update), ('hygiene', check_hygiene))
 

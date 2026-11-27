@@ -2033,8 +2033,9 @@ def parser():
     s.add_argument('--json', action='store_true', help='report: print the summary as JSON')
     s.add_argument('--test', action='store_true', help='send: one test event straight to the project, to check the DSN')
     s = add('github', githubcmd.cmd, 'connect Tutti to GitHub (pull requests, CI, issues) with a code at github.com/login/device: '
-            'status, connect, disconnect, or manifest (the App\'s manifest, for the maintainer)')
-    s.add_argument('action', nargs='?', default='status', choices=('status', 'connect', 'disconnect', 'manifest'))
+            'status, connect, disconnect, manifest (the App\'s manifest, for the maintainer), or deploy-keys (provision read-only '
+            'deploy keys on household machines)')
+    s.add_argument('action', nargs='?', default='status', choices=('status', 'connect', 'disconnect', 'manifest', 'deploy-keys'))
     s = add('report', report.cmd, 'report a problem to Tutti\'s maintainers: what happened and what you '
                                                           'expected, with a scrubbed diagnostic bundle you see before it is sent')
     s.add_argument('--what', help='what happened (asked when not given)')

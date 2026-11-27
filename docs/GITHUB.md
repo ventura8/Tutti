@@ -66,3 +66,18 @@ asks for the client secret to refresh tokens, generate one and store it as the A
 into `release.json` (`github_client_secret`, public-client style like the Google device secret).
 
 Until the App exists, Connect GitHub says so and Tutti keeps using `gh`.
+
+## Machine read-only deploy keys
+
+Household machines that run E2E tests or builds for private repositories need read access to clone those repositories,
+without ever receiving write access or a person's GitHub token.
+
+`tutti github deploy-keys` (and the `deploy-keys` check in `tutti selfheal`) automatically provisions a dedicated,
+read-only SSH deploy key per `(machine, repo)` pair:
+
+- Each key lives under `~/.ssh/tutti-deploy/<slug>` (mode 600) on that machine, with a managed `Host tutti-gh-<slug>`
+  block (`IdentitiesOnly yes`) in `~/.ssh/config` and git `url.<alias>.insteadOf` rewrites so `git clone` works without
+  changing any test script.
+- Every key is registered on GitHub with `read_only: true` and title `tutti:<machine>:<owner>/<repo>`; already-registered
+  keys are skipped idempotently.
+- New household machines added to `tutti.config.yaml` are provisioned automatically on the next self-heal round.

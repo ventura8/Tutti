@@ -1,11 +1,11 @@
-"""`tutti github status|connect|disconnect|manifest` (docs/GITHUB.md): the terminal's Connect GitHub, as the household's
-connection (the one the autopilot, `tutti doctor` and the Projects panel use)."""
+"""`tutti github status|connect|disconnect|manifest|deploy-keys` (docs/GITHUB.md): the terminal's Connect GitHub, as the
+household's connection (the one the autopilot, `tutti doctor` and the Projects panel use)."""
 import html
 import json
 import sys
 import time
 
-from . import github
+from . import deploykeys, github
 
 OWNER = 'owner'   # the dashboard with sign-in off and the terminal share this connection
 
@@ -54,6 +54,13 @@ def cmd(cfg, a, out=sys.stdout, flows=None, sleep=time.sleep):
             return 0
         if a.action == 'manifest':
             print(manifest_page(), file=out, end='')
+            return 0
+        if a.action == 'deploy-keys':
+            added = deploykeys.sync(cfg)
+            for line in added:
+                print(f'github: {line}', file=out)
+            if not added:
+                print('github: all household machine read-only deploy keys are in place', file=out)
             return 0
         show(github.status(cfg, OWNER), out)
         return 0

@@ -365,6 +365,16 @@ def pr_merge(c, repo, number, sha, method='squash'):
     c.request('PUT', f'/repos/{repo}/pulls/{int(number)}/merge', {'sha': sha, 'merge_method': method})
 
 
+def list_deploy_keys(c, repo):
+    """Deploy keys currently registered on a repository."""
+    return c.request('GET', f'/repos/{repo}/keys') or []
+
+
+def add_deploy_key(c, repo, title, key):
+    """Registers a read-only deploy key on a repository (never write access)."""
+    return c.request('POST', f'/repos/{repo}/keys', {'title': title, 'key': key, 'read_only': True})
+
+
 def pr_state(c, repo, number):
     """'MERGED', 'OPEN' or 'CLOSED'."""
     pr = c.request('GET', f'/repos/{repo}/pulls/{int(number)}') or {}

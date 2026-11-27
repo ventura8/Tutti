@@ -59,6 +59,17 @@ class Waitlist(unittest.TestCase):
         self.assertEqual(waitlist.act(self.cfg, {'kind': 'task', 'id': 't9', 'action': 'run'})[0], 404)
         self.assertIn('/api/queue', dashboard.ADMIN_PATHS)
 
+    def test_claim_and_retry_only_change_tasks_in_the_right_state(self):
+        action = {'kind': 'task', 'id': 't1'}
+        self.assertEqual(waitlist.act(self.cfg, {**action, 'action': 'claim'})[0], 400)
+        self.assertEqual(waitlist.act(self.cfg, {**action, 'action': 'claim', 'who': 'session-a'})[0], 200)
+        self.assertEqual(backlog.find(backlog.load(self.cfg), 't1')['claimed_by'], 'session-a')
+        self.assertEqual(waitlist.act(self.cfg, {**action, 'action': 'retry'})[0], 404)
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't2')['status'] = 'review'
+        self.assertEqual(waitlist.act(self.cfg, {**action, 'id': 't2', 'action': 'retry'})[0], 200)
+        self.assertEqual(backlog.find(backlog.load(self.cfg), 't2')['status'], 'queued')
+
     @unittest.skipUnless(shutil.which('node'), 'node is not installed')
     def test_the_page_renders_each_queued_item_with_its_reason(self):
         with open(os.path.join(dashboard.WEB, 'queue.js'), encoding='utf8') as f:

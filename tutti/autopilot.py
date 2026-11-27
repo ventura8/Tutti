@@ -1253,33 +1253,68 @@ def last_line(path):
     return lines[-1][:200] if lines else ''
 
 
-def task_view(cfg, t, now):
+def attempt_detail(cfg, attempt):
+    from . import state
+
+    log = run_log(cfg, attempt.get('run'))
+    if log and (os.path.islink(log) or not os.path.isfile(log)):
+        log = None
+    return {**attempt, 'log': log or attempt.get('log'),
+            'tail': attempt.get('tail') or ('\n'.join(state.tail(log)) if log else '')}
+
+
+def detail_facts(cfg, task, job=None):
+    from . import taskdetail
+
+    project = config.project_of_repo(cfg, task['repo'])
+    step = (step_of(cfg, task['step']) or {}) if task.get('step') in ladder(cfg) else {}
+    choice = task.get('choice') or {}
+    fields = ('facts', 'progress', 'tail', 'log', 'machine', 'device', 'started', 'ended', 'duration',
+              'eta_seconds', 'tokens', 'watts', 'cost', 'branch', 'pr', 'ci')
+    run = {k: v for k, v in (job or {}).items() if k in fields}
+    return taskdetail.facts({**run, 'project': project, 'priority': config.project_priority(cfg, project), 'kind': 'task',
+                             **{k: v for k, v in task.items() if v is not None},
+                             'account': task.get('account') or step.get('account') or (run.get('facts') or {}).get('account'),
+                             'model': task.get('model') or choice.get('model'),
+                             'attempts': [attempt_detail(cfg, a) for a in task.get('attempts', [])]})
+
+
+def task_view(cfg, t, now, details=False, jobs=None):
     v = {k: t.get(k) for k in ('id', 'repo', 'title', 'status', 'size', 'source', 'step', 'run', 'branch', 'pr', 'publish_note',
                                'parked', 'diff', 'worktree', 'landing', 'choice', 'picked')}
     v['attempt_count'] = len(t['attempts'])
-    v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
+    v['history'] = [{'step': a.get('step'), 'ok': a.get('ok'), 'why': (a.get('why') or '')[:200],
+                     'signature': a.get('signature'), 'run': a.get('run')}
                     for a in t['attempts']]
     if t['status'] == 'running':
         v['elapsed'] = now - (t.get('started') or now)
         v['last_line'] = last_line(run_log(cfg, t['run']))
         v['credits'] = credits_of(cfg, t['run'])
+    if details:
+        v['detail_facts'] = detail_facts(cfg, {**t, **v}, (jobs or {}).get(t.get('run')))
     return v
 
 
-def view(cfg, now=None):
+def view(cfg, now=None, details=False, jobs=()):
     """The Autopilot panel: on or off, the last decision, the queue, the runs going, the results to review, what is parked."""
     now = now or time.time()
     data = backlog.load(cfg)
     st = read_state(cfg)
-    tasks = [task_view(cfg, t, now) for t in data['tasks'] if t['status'] not in ('done', 'dropped')]
+    runs = detail_jobs(jobs)
+    tasks = [task_view(cfg, t, now, details, runs) for t in data['tasks'] if details or t['status'] not in ('done', 'dropped')]
     s = settings(cfg)
     from . import fill
     return {'enabled': enabled(cfg), 'fill_room': fill.fill_on(cfg), 'fill': st.get('fill'), 'auto_review': fill.review_on(cfg),
             'configured': bool(s['repos']), 'accounts': s['accounts'], 'ladder': ladder(cfg),
             'max_parallel': s.get('max_parallel'), 'parallel': st.get('parallel'), 'parallel_line': parallel_line(st),
             'last': st.get('last'), 'resolver': st.get('resolver'), 'events': st.get('events', [])[:10],
+            'other': [t for t in tasks if t['status'] not in ('queued', 'running', 'review', 'needs-person')],
             'queue': [t for t in tasks if t['status'] == 'queued'], 'running': [t for t in tasks if t['status'] == 'running'],
             'review': [t for t in tasks if t['status'] == 'review'], 'parked': [t for t in tasks if t['status'] == 'needs-person']}
+
+
+def detail_jobs(jobs):
+    return {job['id'][4:-4]: job for job in jobs if job['id'].startswith('run:') and job['id'].endswith('.log')}
 
 
 def parallel_line(st):

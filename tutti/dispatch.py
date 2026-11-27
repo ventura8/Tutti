@@ -1029,6 +1029,33 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
 # ---- what the dashboard and `tutti dispatch status` show
 
 
+def shard_detail(cfg, project, key, shard, commit, lease=None):
+    """Merge the shard and its active lease for the shared task details."""
+    from . import state
+
+    lease = lease or {}
+    detail = {**lease, **shard, 'id': key, 'kind': 'shard', 'title': f'test shard {key}', 'project': project,
+            'priority': config.project_priority(cfg, project), 'commit': commit}
+    if lease.get('kind') in ('machine', 'device'):
+        detail[lease['kind']] = lease.get('name')
+    log = detail.get('log')
+    if isinstance(log, str) and os.path.dirname(os.path.realpath(log)) == os.path.realpath(folder(cfg)):
+        detail['tail'] = state.tail(log)
+    return detail
+
+
+def shard_details(cfg, st):
+    """Nonqueued shards are available on the dashboard alongside the autopilot backlog."""
+    from . import taskdetail
+
+    for project, item in st['projects'].items():
+        for key, shard in (item.get('shards') or {}).items():
+            if shard['status'] != 'queued':
+                detail = shard_detail(cfg, project, key, shard, item.get('commit'), st['leases'].get(shard.get('lease')))
+                yield {**{k: detail[k] for k in ('id', 'title', 'project', 'status', 'kind')},
+                       'detail_facts': taskdetail.facts(detail)}
+
+
 def view(cfg, now=None):
     now = now or time.time()
     st = read_state(cfg)
@@ -1043,6 +1070,7 @@ def view(cfg, now=None):
                          'counts': counts, 'failed': failed[:20]})
     projects.sort(key=lambda x: (x['priority'], x['name']))
     return {'enabled': s.get('enabled', True) is not False, 'idle_minutes': s.get('idle_minutes', 5), 'projects': projects,
+            'shards': list(shard_details(cfg, st)),
             'warnings': st['warnings'], 'reroute': st.get('reroute', []), 'leases': list(st['leases'].values()),
             'events': st['events'][:10], 'last': st.get('last'),
             'suites': len(suites(cfg)), 'at': now}

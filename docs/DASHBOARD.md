@@ -476,3 +476,13 @@ finished-jobs filter and the project filter are kept by item id across refreshes
 (sessionStorage); the render's own opening of a fold is not taken for the owner's choice. A class that sets a
 `display` gets a `[hidden]` rule beside it (a test lists them), so the Users view shows only in its tab, for an admin
 with sign-in on.
+
+## Expanding tasks and jobs
+
+Click a title or focus it and press Enter to expand a task, job, shard, or Needs attention entry. The dashboard remembers
+open rows for the tab across refreshes. Expanded rows show recorded fields, including the repo and project, check,
+notes, attempts, log tails, and progress and usage where available. An attempt log link opens its job in dashboard
+history or takes you to the recorded tail if the job has aged out. Admin actions depend on the task's current status.
+
+Run `tutti tui` to browse the details in a terminal. Use the arrow keys to select a row, Enter to expand it,
+Page Up or Page Down to scroll, and q to quit.

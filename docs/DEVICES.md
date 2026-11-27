@@ -115,6 +115,9 @@ its config are on the requester's computer, one command does all four steps:
 `tutti devices lease googletv --who roradio -- <command ...>` (ANDROID_SERIAL set to the address). It stops with the
 reason, and releases the claim, when the device's wireless address is not found or `adb connect` fails.
 
+If a host or process dies while creating a lease and the next claim reports a busy lease lock, retry first. Once
+you have confirmed that no lease operation is running, remove the empty lock directory named in the error and retry.
+
 ## Other tools that use the same devices
 
 A tool with its own lock file per device names it in `devices.<name>.external_lock` (a path on the device's machine,

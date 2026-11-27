@@ -215,6 +215,16 @@ class UsersTest(unittest.TestCase):
         for name in (auth.USERS_FILE, auth.SESSIONS_FILE):
             self.assertEqual(os.stat(os.path.join(self.folder, name)).st_mode & 0o777, 0o600)
 
+    def test_a_role_change_invalidates_a_cached_file_with_the_same_mtime(self):
+        reader = auth.Users(self.folder)
+        reader.sign_in(self.who('a'))
+        reader.sign_in(self.who('b'))
+        original = os.stat(reader.path)
+        self.assertEqual(reader.get('b')['role'], 'pending')
+        auth.Users(self.folder).set_role('b', 'admin')
+        os.utime(reader.path, ns=(original.st_atime_ns, original.st_mtime_ns))
+        self.assertEqual(reader.get('b')['role'], 'admin')
+
     def test_the_last_admin_cannot_be_removed_or_demoted(self):
         users = auth.Users(self.folder)
         users.sign_in(self.who('a'))

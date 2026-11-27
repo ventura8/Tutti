@@ -297,7 +297,7 @@ class Collector:
         out['local_models'] = {**energy.view(self.cfg, probes.get('energy'), out['machines']['items'], self.clock(),
                                                   worker_items=out['workers']['items'] if probes.get('workers') else None),
                                'error': probes.get('energy_error')}
-        out['autopilot'] = autopilot.view(self.cfg)
+        out['autopilot'] = autopilot.view(self.cfg, details=True, jobs=out['jobs']['items'])
         from . import depbots  # the Dependencies and security card (docs/SECURITY-INTAKE.md)
         out['security'] = depbots.view(self.cfg)
         out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)
@@ -331,7 +331,12 @@ class Collector:
         if theirs:   # a client's own jobs (its scripts, ship checks) after a move: docs/MOVE.md
             out['jobs']['items'] = theirs + out['jobs']['items']
             out['jobs']['total'] += len(theirs)
-        from . import waitlist  # the Queued list beside Running jobs: everything waiting and why
+        from . import taskdetail, waitlist  # the Queued list beside Running jobs: everything waiting and why
+        for group in ('queue', 'running', 'review', 'parked', 'other'):
+            for task in out['autopilot'][group]:
+                task['actions'] = waitlist.task_actions(task)
+        for job in out['jobs']['items']:
+            job['detail_facts'] = taskdetail.facts(job)
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
         last = update.load(self.cfg)

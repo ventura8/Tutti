@@ -946,6 +946,12 @@ def cmd_quiet_mode(cfg, a):
     return 0
 
 
+def cmd_tui(cfg, a):
+    """`tutti tui`: tasks and jobs in the terminal; Enter expands one to all its details (tutti/tui.py)."""
+    from . import tui
+    return tui.Tui(tui.load_items(cfg)).run()
+
+
 def cmd_quiet(cfg, a):
     if a.command[0] in ('status', 'wait', 'guard') and len(a.command) <= 2:
         return cmd_quiet_mode(cfg, a)
@@ -1325,16 +1331,7 @@ def session_change(task, a):
             raise backlog.BacklogError(f'note: give the progress with --note "<text>": tutti backlog note {task["id"]} --note "..."')
         task['notes'] = [*task.get('notes', []), *a.note]
     elif a.action == 'claim':
-        if not who:
-            raise backlog.BacklogError(f'claim: say who works on it: tutti backlog claim {task["id"]} --who <session>')
-        if task['status'] == 'claimed' and task.get('claimed_by') != who:
-            raise backlog.BacklogError(f'{task["id"]} is claimed by {task["claimed_by"]}: pick another task, or ask them to release it')
-        fixes = {'needs-person': f'answer its question first (tutti needs answer {task.get("question") or "<id>"})',
-                 'candidate': f'accept it first (tutti backlog accept {task["id"]})'}
-        if task['status'] not in ('queued', 'claimed', 'review'):
-            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}: only a queued or reviewed task is claimed; '
-                                       + fixes.get(task['status'], '`tutti backlog retry` reopens one'))
-        task.update(status='claimed', claimed_by=who, claimed_at=time.time(), closed_at=None)
+        backlog.claim_task(task, who, time.time())
     else:
         if task['status'] != 'claimed':
             raise backlog.BacklogError(f'{task["id"]} is {task["status"]}, not claimed: nothing to release')
@@ -1908,6 +1905,7 @@ def parser():
               'CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round')
     s.add_argument('--summary', help='the local-model worker that summarises a failure')
     s.add_argument('command', nargs='+')
+    add('tui', cmd_tui, 'tasks and jobs in the terminal: arrows move, Enter expands one to all its details, q quits')
     s = add('progress', cmd_progress, 'report how far a job is (<done>/<total>) for the dashboard\'s progress bar')
     s.add_argument('value')
     s.add_argument('--job', help='the job: its log, or the dashboard id quiet:<log> (default: $TUTTI_PROGRESS_FILE, set by tutti quiet)')

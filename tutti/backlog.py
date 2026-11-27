@@ -90,6 +90,20 @@ def add(data, task):
     return task, True
 
 
+def claim_task(task, who, now):
+    """Claim a task from either the CLI or the admin dashboard."""
+    if not who:
+        raise BacklogError(f'claim: say who works on it: tutti backlog claim {task["id"]} --who <session>')
+    if task['status'] == 'claimed' and task.get('claimed_by') != who:
+        raise BacklogError(f'{task["id"]} is claimed by {task["claimed_by"]}: pick another task, or ask them to release it')
+    fixes = {'needs-person': f'answer its question first (tutti needs answer {task.get("question") or "<id>"})',
+             'candidate': f'accept it first (tutti backlog accept {task["id"]})'}
+    if task['status'] not in ('queued', 'claimed', 'review'):
+        raise BacklogError(f'{task["id"]} is {task["status"]}: only a queued or reviewed task is claimed; '
+                           + fixes.get(task['status'], '`tutti backlog retry` reopens one'))
+    task.update(status='claimed', claimed_by=who, claimed_at=now, closed_at=None)
+
+
 def find(data, task_id):
     for t in data['tasks']:
         if t['id'] == task_id:

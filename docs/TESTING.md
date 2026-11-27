@@ -9,7 +9,8 @@
 5. a CLI smoke test of the example config.
 
 CI (`.github/workflows/ci.yml`) runs `scripts/check.sh` on every pull request and every push to `main`, so each step is a
-hard gate. Install the pinned tools once with `python3 -m pip install -r requirements-dev.txt`.
+hard gate. Install `rsync` on the test runner with its system package manager and install the pinned Python tools
+with `python3 -m pip install -r requirements-dev.txt`.
 
 Rules for every test: a change in behaviour comes with a good case and a bad one; nothing runs against a real machine
 (tests use the `local` transport and temp folders); hosts are `*.example`.

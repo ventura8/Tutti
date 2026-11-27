@@ -579,8 +579,8 @@ class Sandbox(unittest.TestCase):
             self.assertEqual(cdp.call('Browser.getVersion'), {'echo': 'Browser.getVersion'})
             cdp.close()
         finally:
-            p.kill()
-            p.wait()
+            p.terminate()
+            p.wait(timeout=5)
 
     def test_isolate_refuses_a_chrome_the_sandbox_cannot_run(self):
         out = []

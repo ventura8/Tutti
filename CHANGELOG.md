@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-17
+
+### Added
+
+- Dashboard tasks, jobs, shards and Needs attention entries expand by click or Enter and keep their open state across
+  refreshes. Expanded rows show recorded details and status-appropriate admin actions. `tutti tui` shows the same
+  task, job and shard details in the terminal with Enter to expand and Page Up and Page Down to scroll (t237).
+
+### Fixed
+
+- Telemetry consent changes take effect immediately, including when successive writes share a filesystem timestamp.
+- Sign-in and session caches detect atomic file replacements that share a timestamp. The isolated browser bridge reaps
+  its child on shutdown, and device lease requests check for conflicting claims under the lease lock.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

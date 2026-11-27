@@ -75,9 +75,11 @@ def _write(path, data):
     os.replace(tmp, path)
 
 
-def _mtime(path):
+def _revision(path):
     try:
-        return os.stat(path).st_mtime_ns
+        stat = os.stat(path)
+        # Writers replace the file atomically, even when two writes have the same timestamp.
+        return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
     except OSError:
         return None
 
@@ -339,18 +341,18 @@ class Users:
     def __init__(self, folder, clock=time.time):
         self.folder, self.clock = folder, clock
         self.path = os.path.join(folder, USERS_FILE)
-        self._cache, self._mtime = {}, None
+        self._cache, self._revision = {}, None
 
     def _load(self):
-        m = _mtime(self.path)
-        if m != self._mtime:
+        m = _revision(self.path)
+        if m != self._revision:
             data = _read(self.path).get('users')
-            self._cache, self._mtime = (data if isinstance(data, dict) else {}), m
+            self._cache, self._revision = (data if isinstance(data, dict) else {}), m
         return self._cache
 
     def _save(self, users):
         _write(self.path, {'users': users})
-        self._cache, self._mtime = users, _mtime(self.path)
+        self._cache, self._revision = users, _revision(self.path)
 
     def all(self):
         return {k: dict(v) for k, v in self._load().items()}
@@ -365,7 +367,7 @@ class Users:
         to it. Atomic: two first sign-ins cannot both become admin, and an invite is used once."""
         now = int(self.clock())
         with locked(self.folder):
-            self._mtime = None
+            self._revision = None
             users = dict(self._load())
             u = dict(users.get(who['sub']) or {})
             no_admin = not self._admins(users)
@@ -396,7 +398,7 @@ class Users:
         u = self._load().get(sub)
         if u and self.clock() - u.get('last_seen', 0) >= SEEN_EVERY:
             with locked(self.folder):
-                self._mtime = None
+                self._revision = None
                 users = dict(self._load())
                 if sub in users:
                     users[sub] = {**users[sub], 'last_seen': int(self.clock())}
@@ -409,7 +411,7 @@ class Users:
         if role not in ('viewer', 'admin'):
             raise AuthError('a role is viewer or admin (approving a pending user makes them a viewer)')
         with locked(self.folder):
-            self._mtime = None
+            self._revision = None
             users = dict(self._load())
             if sub not in users:
                 raise AuthError('no such user: reload the Users list')
@@ -421,7 +423,7 @@ class Users:
 
     def remove(self, sub):
         with locked(self.folder):
-            self._mtime = None
+            self._revision = None
             users = dict(self._load())
             if sub not in users:
                 raise AuthError('no such user: reload the Users list')
@@ -514,22 +516,22 @@ class Sessions:
     def __init__(self, folder, hours, clock=time.time):
         self.folder, self.ttl, self.clock = folder, float(hours) * 3600, clock
         self.path = os.path.join(folder, SESSIONS_FILE)
-        self._cache, self._mtime = {}, None
+        self._cache, self._revision = {}, None
 
     def _load(self):
-        m = _mtime(self.path)
-        if m != self._mtime:
+        m = _revision(self.path)
+        if m != self._revision:
             data = _read(self.path)
-            self._cache, self._mtime = data, m
+            self._cache, self._revision = data, m
         return self._cache
 
     def _change(self, fn):
         with locked(self.folder):
-            self._mtime = None
+            self._revision = None
             data = {k: v for k, v in self._load().items() if isinstance(v, dict) and v.get('expires', 0) > self.clock()}
             fn(data)
             _write(self.path, data)
-            self._cache, self._mtime = data, _mtime(self.path)
+            self._cache, self._revision = data, _revision(self.path)
 
     def create(self, sub):
         """(cookie id, csrf token) of a new session for `sub`."""

@@ -2,6 +2,14 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## A role change had the same file timestamp
+
+**What happened.** The admin promotion command succeeded while a reader still showed the cached pending role.
+
+**Why.** The replacement file shared the old file's modification time.
+
+**Rule.** Include file identity when checking the cache of an atomically replaced authorization file.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

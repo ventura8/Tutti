@@ -145,15 +145,16 @@ class LeaseTest(Base):
         self.assertEqual(self.get('screen_brightness'), '200')
 
     def test_a_second_requester_waits_and_a_lapsed_lease_frees_the_device(self):
-        self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))
-        r = self.bash(prep.lease_script(self.d, self.claim('map'), 60, 'map'))
+        first, second = self.claim('map-team'), self.claim('map.team')
+        self.assertEqual(self.bash(prep.lease_script(self.d, first, 60, 'map-team')).returncode, 0)
+        r = self.bash(prep.lease_script(self.d, second, 60, 'map.team'))
         self.assertEqual(r.returncode, 3)
-        self.assertIn('in use by claim-roradio', r.stdout)
-        with open(self.claim(), 'w', encoding='utf8') as f:
+        self.assertIn('in use by claim-map-team', r.stdout)
+        with open(first, 'w', encoding='utf8') as f:
             f.write(str(int(time.time()) - 1))   # its requester crashed: the lease ran out
-        r = self.bash(prep.lease_script(self.d, self.claim('map'), 60, 'map'))
-        self.assertIn('leased to map', r.stdout)
-        os.remove(self.claim('map'))
+        r = self.bash(prep.lease_script(self.d, second, 60, 'map.team'))
+        self.assertIn('leased to map.team', r.stdout)
+        os.remove(second)
         self.bash(prep.release_script(self.d))
 
     def fast(self):

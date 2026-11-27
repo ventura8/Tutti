@@ -11,7 +11,7 @@ import unittest
 
 import axe_playwright_python
 from harness import Dashboard
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -298,6 +298,78 @@ ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle
                   '#connect-all', '#main-form', '#autocompact-form')
 
 
+class Expandable(unittest.TestCase):
+    maxDiff = None
+
+    def test_a_queued_task_expands_by_click_and_enter_with_all_its_details_and_passes_axe(self):
+        ctx = new_context(ADMIN, 'phone')
+        self.addCleanup(ctx.close)
+        page = open_view(ctx, '#dashboard')
+        btn = page.locator('#queued').get_by_role('button', name='Expandable task with a long title that has to wrap on a phone')
+        btn.wait_for(state='visible')
+        facts = page.locator(f'[id="{btn.get_attribute("aria-controls")}"]')
+        self.assertEqual(btn.get_attribute('aria-expanded'), 'false')
+        self.assertFalse(facts.is_visible())
+        btn.click()
+        self.assertEqual(btn.get_attribute('aria-expanded'), 'true')
+        text = facts.inner_text()
+        for want in ('ID', 'Title', 'Repo / Project', 'Priority', 'Size', 'Acceptance check', 'bash scripts/check.sh',
+                     'tutti/web/queue.js', 'first note', 'usage limit', 'last log line', 'r1'):
+            self.assertIn(want, text)
+        facts.get_by_role('link', name='Attempt log · r1').press('Enter')
+        self.assertEqual(page.evaluate('document.activeElement.textContent'), 'last log line')
+        self.assertEqual(axe(page), [])
+        btn.press('Enter')
+        self.assertEqual(btn.get_attribute('aria-expanded'), 'false')
+        self.assertFalse(facts.is_visible())
+        btn.press('Enter')
+        self.assertTrue(facts.is_visible())
+        page.reload()
+        expect(btn).to_have_attribute('aria-expanded', 'true')
+        self.assertEqual(page.errors, [])
+
+    def test_viewer_can_expand_a_job_shard_and_attention_entry_with_enter(self):
+        ctx = new_context(VIEWER)
+        self.addCleanup(ctx.close)
+        page = open_view(ctx, '#dashboard')
+        job = page.locator('#running details.job').filter(has_text='ship.sh fix(viewer)').first
+        summary = job.locator('summary')
+        summary.click()
+        expect(summary).to_have_attribute('aria-expanded', 'true')
+        summary.press('Enter')
+        expect(summary).to_have_attribute('aria-expanded', 'false')
+        summary.press('Enter')
+        expect(summary).to_have_attribute('aria-expanded', 'true')
+        self.assertIn('[gate] step', job.locator('pre').inner_text())
+        self.assertIn('Title', job.locator('.facts').inner_text())
+
+        shard = page.locator('#queued').get_by_role('button', name='test shard unit/sample')
+        shard.press('Enter')
+        self.assertIn('abcdef123456', page.locator(f'[id="{shard.get_attribute("aria-controls")}"]').inner_text())
+
+        attention = page.locator('#attention').get_by_role('button', name='Task awaiting review')
+        if not attention.count():
+            page.locator('#attention [data-more]').click()
+        attention.press('Enter')
+        details = page.locator(f'[id="{attention.get_attribute("aria-controls")}"]')
+        self.assertIn('review detail', details.inner_text())
+        self.assertEqual(details.get_by_role('button', name='Retry').count(), 0)
+        self.assertEqual(axe(page), [])
+        self.assertEqual(page.errors, [])
+
+    def test_other_backlog_tasks_and_finished_shards_expand(self):
+        ctx = new_context(ADMIN)
+        self.addCleanup(ctx.close)
+        page = open_view(ctx, '#dashboard')
+        for title, detail in (('Completed backlog task', 'completion detail'), ('test shard unit/finished', 'abcdef123456')):
+            button = page.locator('#autopilot').get_by_role('button', name=title)
+            button.press('Enter')
+            expect(button).to_have_attribute('aria-expanded', 'true')
+            expect(page.locator(f'[id="{button.get_attribute("aria-controls")}"]')).to_contain_text(detail)
+        self.assertEqual(axe(page), [])
+        self.assertEqual(page.errors, [])
+
+
 class Roles(unittest.TestCase):
     maxDiff = None
 
@@ -307,7 +379,8 @@ class Roles(unittest.TestCase):
         self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard'])
         shown = page.evaluate("""[...document.querySelectorAll('[data-admin], button, input, select, textarea, form, a.link')]
             .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, nav.tabs'))
-            .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id) && !e.classList.contains('more'))
+            .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id))
+            .filter((e) => !e.classList.contains('more'))
             .map((e) => e.id || e.className || e.tagName)""")
         self.assertEqual(shown, [])
         for hash_ in ('#settings', '#users'):

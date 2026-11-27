@@ -39,7 +39,7 @@ SANDBOX = (
 )
 
 # Runs inside the unit as tutti-browser: Chrome on a DevTools pipe, offered on the Unix socket to one client at a time.
-BRIDGE = r'''import grp, os, socket, subprocess, sys, threading
+BRIDGE = r'''import grp, os, signal, socket, subprocess, sys, threading
 sock_path, group = sys.argv[1], sys.argv[2]
 r_in, w_in = os.pipe()     # bridge -> Chrome (Chrome reads fd 3)
 r_out, w_out = os.pipe()   # Chrome -> bridge (Chrome writes fd 4)
@@ -47,6 +47,9 @@ def child():
     os.dup2(r_in, 3)
     os.dup2(w_out, 4)
 chrome = subprocess.Popen(sys.argv[3:], pass_fds=(3, 4), preexec_fn=child, stdin=subprocess.DEVNULL)
+def stop(_signum, _frame):
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
 os.close(r_in)
 os.close(w_out)
 if os.path.exists(sock_path):
@@ -68,17 +71,24 @@ def from_chrome():
                 c.sendall(data)
             except OSError:
                 pass
-threading.Thread(target=from_chrome, daemon=True).start()
-while chrome.poll() is None:
-    c, _ = srv.accept()
-    client['c'] = c
-    while True:
-        data = c.recv(65536)
-        if not data:
-            break
-        os.write(w_in, data)
-    client['c'] = None
-    c.close()
+def relay():
+    threading.Thread(target=from_chrome, daemon=True).start()
+    while chrome.poll() is None:
+        c, _ = srv.accept()
+        client['c'] = c
+        with c:
+            while data := c.recv(65536):
+                os.write(w_in, data)
+        client['c'] = None
+try:
+    relay()
+finally:
+    chrome.terminate()
+    try:
+        chrome.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        chrome.kill()
+        chrome.wait()
 '''
 
 

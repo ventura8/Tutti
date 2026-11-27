@@ -598,7 +598,9 @@ function machine(m) {
         text: `Tutti's share ${tuttiPct(m.use_pct)}${m.use_why ? ` (${m.use_why})` : ''}` }));
     if (m.slots_why && !/\.slots$/.test(m.slots_why)) stats.append(el('span', { class: 'row__note', text: `${plural(m.slots, 'slot')}: ${m.slots_why}` }));
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
-    const shards = (ui.last?.dispatch?.leases || []).filter((x) => x.name === m.name && x.why);
+    const activeShards = ui.last?.dispatch?.shards || [];
+    const shards = (ui.last?.dispatch?.leases || []).filter((x) => x.name === m.name)
+        .map((x) => activeShards.find((shard) => shard.project === x.project && shard.id === x.key)).filter(Boolean);
     if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
@@ -608,7 +610,7 @@ function machine(m) {
         hygieneBits(m.name),   // hygiene.js: its yield flag's owner and age, free space, WSL, the week's clean-up
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
         use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
-        ...shards.map((x) => el('p', { class: 'row__note', text: `Running ${x.project} ${x.key}: ${x.why}` })),
+        ...shards.map((shard) => shardRow(shard, `machine:${m.name}`)),
         limitForm(m),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
@@ -700,7 +702,7 @@ function renderMachines(s) {
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
-    $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
+    replaceRows($('machines'), ...(ms.items.length ? ms.items.map(machine)
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
 }
@@ -929,15 +931,20 @@ async function switchMain(e) {
 // ---- the autopilot
 
 const TASK_TONE = { queued: 'idle', running: 'accent', review: 'ok', 'needs-person': 'bad' };
-const AP_GROUPS = [['running', 'Running', 6], ['queue', 'Queue', 5]];   // results to review and parked tasks are under Needs you
+// Results to review and parked tasks are under Needs attention.
+const AP_GROUPS = [['running', 'Running', 6], ['queue', 'Queue', 5], ['other', 'Other backlog tasks', 5]];
 
-function attemptHistory(t) {
-    if (!t.history.length) return null;
-    return el('details', { keep: `history:${t.id}` },
-        el('summary', { text: `${t.attempt_count} attempt(s): failure history` }),
-        el('ol', { class: 'list' }, ...t.history.map((h) => el('li', {
-            text: `${h.step}: ${h.ok ? 'passed' : h.why} (run ${h.run}, signature ${h.signature})`,
-        }))));
+function replaceRows(box, ...children) {
+    const active = document.activeElement;
+    const selector = box.contains(active) && rowFocusSelector(active);
+    box.replaceChildren(...children);
+    if (selector) box.querySelector(selector)?.focus({ preventScroll: true });
+}
+
+function rowFocusSelector(active) {
+    const key = active.getAttribute('aria-controls');
+    if (key) return `button[aria-controls="${CSS.escape(key)}"]`;
+    return active.id ? `#${CSS.escape(active.id)}` : '';
 }
 
 function taskNote(t) {
@@ -954,12 +961,18 @@ function taskNote(t) {
 }
 
 function apTask(t) {
+    const [button, facts] = rowDisclosure(`autopilot:${t.id}`, t.title, t.detail_facts, {}, taskActions(t, ui.autopilot?.ladder || []));
     return el('li', { class: 'row' },
-        el('div', { class: 'row__name', title: t.title }, t.title.length > 110 ? `${t.title.slice(0, 110)}…` : t.title,
+        el('div', { class: 'row__name' }, button,
             el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
         chip(`${t.status} · ${t.attempt_count} attempt(s)`, TASK_TONE[t.status] || 'idle'),
         el('p', { class: 'row__note', text: taskNote(t) }),
-        attemptHistory(t));
+        facts);
+}
+
+function shardRow(shard, scope = 'shards') {
+    const [button, facts] = rowDisclosure(`${scope}:${shard.project}:${shard.id}`, shard.title, shard.detail_facts);
+    return el('div', { class: 'row__details' }, button, facts);
 }
 
 function renderAutopilot(s) {
@@ -975,9 +988,14 @@ function renderAutopilot(s) {
     if (last) stateText = `${last.state}: ${last.reason} (${relative(new Date(last.at * 1000).toISOString())})`;
     else if (ap.configured) stateText = 'Not run yet: turn it on; it checks after every probe.';
     $('autopilot-state').textContent = stateText;
-    const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title, limit]) => el('section', { class: 'autopilot__group' },
+    const groups = AP_GROUPS.filter(([key]) => ap[key]?.length).map(([key, title, limit]) => el('section', { class: 'autopilot__group' },
         el('h3', { class: 'card__sub', text: `${title} (${ap[key].length})` }),
         el('ul', { class: 'list' }, ...more(`ap:${key}`, ap[key].map(apTask), limit))));
+    const shards = s.dispatch?.shards || [];
+    if (shards.length) groups.push(el('section', { class: 'autopilot__group' },
+        el('h3', { class: 'card__sub', text: `Test shards (${shards.length})` }),
+        el('ul', { class: 'list' }, ...more('ap:shards', shards.map((shard) => el('li', { class: 'row' },
+            shardRow(shard), chip(shard.status))))));
     const rv = ap.resolver;   // work waits and no one takes it: the fixes Tutti tried, then the owner's one action
     if (rv) {
         const act = rv.action;
@@ -999,7 +1017,7 @@ function renderAutopilot(s) {
                 ...more('ap:events', ap.events.map((e) => el('li', {},
                     el('time', { datetime: new Date(e.at * 1000).toISOString(), title: utcTitle(new Date(e.at * 1000).toISOString()), text: relative(new Date(e.at * 1000).toISOString()) }), ' ', e.text)), 4))));
     }
-    $('autopilot').replaceChildren(...(groups.length ? groups : [empty('Backlog empty — add tasks',
+    replaceRows($('autopilot'), ...(groups.length ? groups : [empty('Backlog empty — add tasks',
         'tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>.')]));
 }
 
@@ -1182,6 +1200,7 @@ function factList(j) {
 function job(j) {
     const d = el('details', { class: 'job', 'data-status': j.status, 'data-id': j.id, open: ui.open.has(j.id) });
     d.addEventListener('toggle', () => {
+        d.firstElementChild.setAttribute('aria-expanded', String(d.open));
         if (d.open) {
             ui.open.add(j.id);
             saveUi();
@@ -1196,13 +1215,14 @@ function job(j) {
     if (j.status === 'stalled') idle = `no output for ${duration(j.idle_seconds)}`;
     const meta = j.pid ? `${j.kind} · pid ${j.pid}` : j.kind;
     const facts = factList(j);
-    d.append(el('summary', {},
+    d.append(el('summary', { 'aria-expanded': String(d.open) },
         chip(j.status === 'failed' && j.rc !== null ? `failed · ${j.rc}` : j.status, JOB_TONE[j.status]),
         el('span', { class: 'job__title' }, j.title, el('small', { text: meta })),
         progressBar(j),
         el('span', { class: 'job__when', text: idle }),
         ...(facts.length ? [el('span', { class: 'job__facts', text: facts.join(' · ') })] : [])));
-    const body = el('div', { class: 'job__body' });
+    const body = el('div', { class: 'job__body' }, detailList(j.detail_facts?.filter(([label]) => label !== 'Log tail'),
+        `job-${encodeURIComponent(j.id)}`));
     if (j.status === 'stalled') body.append(el('p', { text: 'Its log has not changed for a while. Read the end of the log: stop or restart the job rather than wait on it again.' }));
     if (j.status === 'ended') body.append(el('p', { text: 'Ended; the result was not recorded (a run from before Tutti 0.1.4).' }));
     if (j.handoff) body.append(el('p', { class: 'job__handoff', text: `Stopped from the dashboard: ${j.handoff}` }));
@@ -1254,7 +1274,11 @@ function measureFit() {
     const side = $('side-stack'), stack = $('jobs-stack');
     if (!side || !stack) return;
     const lists = [$('running'), $('queued')];
-    const rowOf = (box) => box.querySelector('.job, .row')?.getBoundingClientRect().height || 72;
+    const rowOf = (box) => {
+        const row = box.querySelector('.job, .row');
+        const body = row?.querySelector(':scope > .row__details:not([hidden]), :scope[open] > .job__body');
+        return ((row?.getBoundingClientRect().height || 0) - (body?.getBoundingClientRect().height || 0)) || 72;
+    };
     const listsH = lists.reduce((h, box) => h + (box?.getBoundingClientRect().height || 0), 0);
     const fit = tuttiFit({ column: side.getBoundingClientRect().height, others: stack.getBoundingClientRect().height - listsH,
         rowRunning: rowOf(lists[0]), rowQueued: rowOf(lists[1]), running: ui.counts?.running || 0, queued: ui.counts?.queued || 0,
@@ -1299,18 +1323,24 @@ function renderJobs(s) {
 const ATTENTION_LABEL = { 'needs-person': 'Needs a person', panic: 'Panic', stalled: 'Stalled', offline: 'Offline', down: 'Down',
     reading: 'Reading', review: 'To review', outside: 'Outside Tutti' };
 
-function attentionItem(it) {
+function attentionItem(it, jobs, index) {
+    const item = it.task || jobs.get(it.job);
+    const [button, facts] = rowDisclosure(`attention:${it.kind}:${item?.id || it.title}:${item ? '' : index}`,
+        it.title, [['Details', it.note], ...(item?.detail_facts || [])], {}, it.task ? taskActions(it.task) : null);
     const open = it.job ? el('button', { class: 'btn btn--text view-ok', type: 'button', text: 'Open its log', onclick: () => openJob(it.job) }) : null;
     return el('li', { class: 'row row--attention', 'data-tone': it.tone },
-        el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
+        el('div', { class: 'row__name' }, button),
         chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
-        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
+        open, facts);
 }
 
 function openJob(id) {
     ui.open.add(id);
     ui.project = '';            // the job may belong to a project the filter hides,
-    ui.expanded.add('running'); // or sit past the fold of the running list
+    ui.expanded.add('running'); // or sit past the fold of either list
+    ui.expanded.add('history');
+    const job = ui.last?.jobs?.items?.find((item) => item.id === id);
+    if (job && !LIVE.has(job.status)) ui.filter = 'all';
     render();
     const box = document.querySelector(`.job[data-id="${CSS.escape(id)}"]`);
     box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1321,7 +1351,8 @@ function renderAttention(s) {
     const items = tuttiAttention(s);
     const urgent = items.filter((i) => i.tone !== 'ok').length;
     $('attention-meta').textContent = items.length ? `${urgent} to act on · ${items.length - urgent} to review` : 'All clear';
-    $('attention').replaceChildren(...(items.length ? more('attention', items.map(attentionItem), 6)
+    const jobs = new Map((s.jobs?.items || []).map((j) => [j.id, j]));
+    replaceRows($('attention'), ...(items.length ? more('attention', items.map((it, i) => attentionItem(it, jobs, i)), 6)
         : [el('li', {}, empty('Nothing needs you', 'No task waits for a person, no result to review, no warning.'))]));
 }
 

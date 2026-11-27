@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from test_auth import jwks_doc, rsa_key
 
-from tutti import auth, config, dashboard, energy, pacing, routing, state
+from tutti import auth, backlog, config, dashboard, dispatch, energy, pacing, routing, state
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLIENT = '1234567890-abcdefgh12345678.apps.googleusercontent.com'
@@ -76,6 +76,25 @@ def seed_jobs(cfg, now):
                 f.write(f'{rc}\n')
 
 
+def seed_task(cfg):
+    """Seed the task and shard disclosures the browser tests open."""
+    with backlog.locked(cfg) as data:
+        task = backlog.new_task('tutti', 'Expandable task with a long title that has to wrap on a phone', scope=['tutti/web/queue.js'],
+                                check='bash scripts/check.sh', size='M', notes=['first note'])
+        task['attempts'] = [{'run': 'r1', 'ok': False, 'why': 'usage limit', 'log': '/state/r1.log', 'tail': 'last log line'}]
+        backlog.add(data, task)
+
+        review = backlog.new_task('tutti', 'Task awaiting review', check='true', notes=['review detail'])
+        review.update(status='review', publish_note='ready to review')
+        backlog.add(data, review)
+        done = backlog.new_task('tutti', 'Completed backlog task', notes=['completion detail'])
+        done['status'] = 'done'
+        backlog.add(data, done)
+    with dispatch.locked(cfg) as data:
+        dispatch.sync(data, 'Example', 'abcdef123456', {'unit': ['sample', 'finished']}, datetime.now(timezone.utc).timestamp())
+        data['projects']['Example']['shards']['unit/finished'].update(status='passed', attempts=1)
+
+
 def probe(machine):
     if machine.get('host') == 'gpu-box.example':
         return routing.Probe(True, 1, 1.75, 8, False, 61000, gpu_temp=55.5, mem_gb=11.333333333)
@@ -109,6 +128,7 @@ def main(folder):
     cfg = config.load(path)
     seed(cfg, datetime.now(timezone.utc))
     seed_jobs(cfg, datetime.now(timezone.utc))
+    seed_task(cfg)
     collector = dashboard.Collector(cfg, probe_fn=probe, available_fn=available, stored_fn=lambda m: None, reader=Readers(),
                                     activity_fn=lambda *a, **k: {}, prs_fn=lambda c: {}, readings_fn=lambda m, d: {'state': 'unreachable'},
                                     power_fn=power, ollama_fn=ollama)

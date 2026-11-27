@@ -2,6 +2,10 @@
 # check.sh: everything CI runs, in one go: shellcheck, ruff (when installed), the unit tests, the dashboard's browser tests and a CLI smoke test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if ! command -v rsync > /dev/null; then
+	echo "check: rsync is missing from PATH. Install rsync on the test runner and rerun scripts/check.sh." >&2
+	exit 1
+fi
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
 export TUTTI_NO_DAEMONS=1   # no real keep-awake loop, tunnel or sleep inhibitor outlives a check (tutti/procs.py)

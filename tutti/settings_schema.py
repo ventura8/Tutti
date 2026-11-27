@@ -41,7 +41,7 @@ SECTIONS = [
     ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review', 'review.repos']),
     ('scouts', 'Scouts', 'Helpers that are not workers (Grok Bot): questions, watches and reviews.', ['scouts']),
     ('telemetry', 'Telemetry and self-improvement', 'Crash reports and usage statistics, and the fixes they turn into.',
-     ['telemetry', 'self_improve', 'ai_assist', 'welcome']),
+     ['telemetry', 'self_improve', 'ai_assist', 'improvements', 'welcome']),
     ('projects', 'Projects and repos', 'Your projects, their checks, shipping, delegation, tests and translation.',
      ['projects', 'ship', 'delegate', 'test', 'translate']),
     ('optins', 'Opt-ins', 'Everything that is off until you turn it on: what costs money per use, and Android runs.', []),
@@ -399,6 +399,20 @@ FIELDS = {
     'welcome.away_hours': field('Away after', 'Gone this long counts as away (empty: the pacing\'s away_after_hours).', **HRS),
     'welcome.ai': field('Written by a local model', 'A local model writes the opening words when AI assist allows; '
                         'otherwise the template.', 'switch'),
+    'improvements.enabled': field('Improvements', 'Household improvement loop: propose and apply changes across routing, '
+                                   'pacing and parallel limits from telemetry; measure then keep or roll back.', 'switch',
+                                   default=True),
+    'improvements.autonomy': field('Autonomy', 'propose: every change waits on the Improvements view; bounded: small safe '
+                                   'changes apply by themselves (within their step), larger ones wait.', 'select',
+                                   choices=['propose', 'bounded'], default='bounded'),
+    'improvements.every_hours': field(LOOK_EVERY, 'How often the loop reviews telemetry for new improvements.', **HRS),
+    'improvements.measure_hours': field('Measure after', 'Hours to wait before keeping or rolling back an applied change.',
+                                        **HRS),
+    'improvements.max_auto_per_day': field('Auto applies a day', 'At most this many automatic applies per day.', 'number', min=0),
+    'improvements.min_count': field('Seen at least', 'Evidence must reach this count before a proposal.', 'number', min=1),
+    'improvements.share': field('Prepare improvement reports', 'Admin opt-in: preview anonymised reports for the Tutti project. '
+                               'Reports contain the setting, evidence and gain. Off by default; '
+                               'revocable and logged.', 'switch', default=False),
     'ai_assist.enabled': field('AI assist (admin opt-in)', 'Tutti uses AI to make itself better: proposals, smarter retries, '
                                'auto-tuning, research. Off until you turn it on.', 'switch', default=False),
     'ai_assist.local': field('Local AI', 'Your local models (ollama workers) read Tutti\'s telemetry, failures and tasks.', 'switch'),

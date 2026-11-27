@@ -96,6 +96,10 @@ DEFAULTS = {
     # off until an admin opts in; local, online and online_code (code to online models) are separate switches
     'ai_assist': {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
                   'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d', 'online_worker': ''},
+    # improvements: household/SB improvement loop (tutti/improve.py, docs/TELEMETRY.md, *Improvements*); on by default;
+    # autonomy propose|bounded; share anonymised kept reports (admin opt-in, default off)
+    'improvements': {'enabled': True, 'autonomy': 'bounded', 'every_hours': 6, 'measure_hours': 48, 'max_auto_per_day': 2,
+                     'share': False, 'min_count': 3},
     # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the
     # dashboard can change the percentage; context_tokens is the window when workers.<w>.context_tokens does not say
     'autocompact': {'enabled': True, 'threshold_pct': 60, 'context_tokens': 200000},
@@ -474,9 +478,9 @@ def validate(cfg):
     # they import modules that import this one
     from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
-    from . import aiassist, needs, selfheal, welcome
+    from . import aiassist, improve, needs, selfheal, welcome
     errs += selfheal.errors(cfg)
-    errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
+    errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg) + improve.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         depbots.errors(cfg) + \

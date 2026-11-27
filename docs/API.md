@@ -137,6 +137,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/vpn` | `{"action": "status"}`, `{"action": "qr", "phone": "<name>"}`, `{"action": "router"}`, `{"action": "open-port", "consent": true}` | The private network card (`tutti vpn`). |
 | `/api/machine-limit` | `{"machine": "build1", "window": "18-01"\|"off", "pct": 60}` | A machine's limited-usage window, saved in the config. |
 | `/api/ai-assist` | `{"switch": "enabled", "on": true}` or `{"undo": "u1"}` | AI assist's switches and undo (`tutti ai-assist`). |
+| `/api/improvements` | `{"enabled": true}`, `{"share": true}`, or `{"proposal": "autopilot.no_progress", "id": "<proposal id>", "apply": true}` | Household improvement loop (`tutti improvements`): switch, share opt-in, apply or dismiss a proposal. |
 
 ### Changing (viewer and self)
 
@@ -734,6 +735,13 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `welcome.enabled` | switch | `True` | Welcome back: When you return after being away, a summary of what happened, and What did I miss? at any time. Each user may turn theirs off. | admin |
 | `welcome.away_hours` | number (hours) |  | Away after: Gone this long counts as away (empty: the pacing's away_after_hours). | admin |
 | `welcome.ai` | switch | `True` | Written by a local model: A local model writes the opening words when AI assist allows; otherwise the template. | admin |
+| `improvements.enabled` | switch | `True` | Improvements: Household improvement loop: propose and apply changes across routing, pacing and parallel limits from telemetry; measure then keep or roll back. | admin |
+| `improvements.autonomy` | select propose, bounded | `bounded` | Autonomy: propose: every change waits on the Improvements view; bounded: small safe changes apply by themselves (within their step), larger ones wait. | admin |
+| `improvements.every_hours` | number (hours) | `6` | Look every: How often the loop reviews telemetry for new improvements. | admin |
+| `improvements.measure_hours` | number (hours) | `48` | Measure after: Hours to wait before keeping or rolling back an applied change. | admin |
+| `improvements.max_auto_per_day` | number | `2` | Auto applies a day: At most this many automatic applies per day. | admin |
+| `improvements.min_count` | number | `3` | Seen at least: Evidence must reach this count before a proposal. | admin |
+| `improvements.share` | switch | `False` | Prepare improvement reports: Admin opt-in: preview anonymised reports for the Tutti project. Reports contain the setting, evidence and gain. Off by default; revocable and logged. | admin |
 | `ai_assist.enabled` | switch | `False` | AI assist (admin opt-in): Tutti uses AI to make itself better: proposals, smarter retries, auto-tuning, research. Off until you turn it on. | admin |
 | `ai_assist.local` | switch | `True` | Local AI: Your local models (ollama workers) read Tutti's telemetry, failures and tasks. | admin |
 | `ai_assist.online` | switch | `False` | Online AI: The scout researches release notes, models and prices, and reviews the scrubbed telemetry; only with spare quota, never your reserve. | admin |
@@ -1705,6 +1713,19 @@ usage: tutti selfimprove [-h] [{status,on,off,tick}]
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `action {status,on,off,tick}` |  | `status` |
+
+### `tutti improvements`
+
+household improvement loop (on by default): propose and apply changes across routing, pacing and parallel limits from telemetry; measure then keep or roll back; status, on, off, tick, share on\|off (anonymised reports, default off)
+
+```text
+usage: tutti improvements [-h] [{status,on,off,tick,share}] [share]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {status,on,off,tick,share}` |  | `status` |
+| `share` | share: on or off (admin opt-in for anonymised kept improvement reports) |  |
 
 ### `tutti needs`
 

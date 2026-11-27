@@ -78,15 +78,15 @@ def write_state(cfg, data):
     telemetry.write_json(path_of(cfg), data)
 
 
-def switch(cfg, name):
+def switch(cfg, name, *, independent=False):
     """A switch: false in the config always wins (the admin's off); else the state folder's (a config the dashboard
-    cannot write) over the config's. Every switch is off while `enabled` is."""
+    cannot write) over the config's. An independent consumer may read a switch without the AI assist master switch."""
     def one(k):
         if (cfg.get('_ai_assist_file') or {}).get(k) is False:   # written in the file, not a default
             return False
         v = (read_state(cfg).get('switches') or {}).get(k)
         return bool(settings(cfg)[k]) if v is None else bool(v)
-    return one('enabled') and (name == 'enabled' or one(name))
+    return (independent or one('enabled')) and (name == 'enabled' or one(name))
 
 
 def may_send_online(cfg, kind):

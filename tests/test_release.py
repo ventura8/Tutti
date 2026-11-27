@@ -210,6 +210,13 @@ class LeaseTest(Base):
                 os.remove(self.claim(w))
         self.bash(prep.release_script(self.d))
 
+    def test_a_lease_that_cannot_be_recorded_fails_and_releases_the_lock(self):
+        bad_claim = os.path.join(os.path.dirname(self.claim()), 'missing', 'claim-a')
+        result = self.bash(prep.lease_script(self.d, bad_claim, 60, 'a'))
+        self.assertEqual(result.returncode, 3)
+        self.assertIn('cannot record the lease', result.stdout)
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(os.path.dirname(self.claim())), 'lease.lock')))
+
 
 class PersonTest(Base):
     """A person picks the device up during a run: Tutti stops, requeues, sends nothing, and undoes nothing of theirs."""

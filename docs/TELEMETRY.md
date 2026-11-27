@@ -95,6 +95,41 @@ last send problem.
 used commands, the slowest (median and p90), the most failing, quota wasted on failed autopilot attempts and delegated runs
 (per tool, with minutes), stall causes, why tasks were parked, escalations, crashes by type and place, and dashboard use.
 
+## Improvements
+
+An always-on household/SB improvement loop (not only code self-improvement). `improvements.enabled` is **on by
+default**; switch it on the dashboard's **Improvements** card or with `tutti improvements on|off`. Each round (every
+`every_hours`, 6) Tutti reads the Insights summary and proposes changes across at least three aspects:
+
+| Aspect | What it tunes | Metric |
+| --- | --- | --- |
+| routing | `autopilot.no_progress` | wasted quota minutes |
+| pacing | `autopilot.max_attempts` | escalations |
+| scheduling | `dashboard.stall_minutes` (review required) | wasted quota minutes |
+| parallel limits | `autopilot.max_parallel` (explicit cap) | crashes |
+
+Every proposal carries **evidence** (counts from telemetry), **expected gain**, and **safe bounds** (lo, hi, step).
+Local models review proposals before apply/propose decisions unless local AI is disabled. Online fallback
+requires the existing online opt-in and pacing allowance. The model receives aggregate metrics and rule proposals.
+`improvements.autonomy` is `bounded` (default): a change inside its step applies by itself (at most
+`max_auto_per_day`, 2), a larger one waits on the Improvements view for Apply or Dismiss. With `propose`, every change
+waits. Pending proposals also appear in **Needs you**. After `measure_hours` (48), Tutti compares equal windows
+before and after application. It keeps a change when the setting is still in effect and the metric per recorded
+attempt improves. It rolls back if the metric stays the same, worsens, or either window records no attempted work.
+Turning the loop off stops new proposals and automatic applies. Pending trials still resolve on schedule.
+Rollback is skipped when the setting changed since apply (for example by an admin), so newer edits are never overwritten
+(`skipped_changed` in the Improvements log and counters).
+All proposed and applied improvements are in the Improvements log (`<state>/improvements.json`).
+
+**Preparing reports for sharing** is an **admin opt-in**, default **off** (`improvements.share`,
+`tutti improvements share on|off`, or the card). The Improvements view previews the anonymised setting changes, rule
+evidence and measured gains for manual sharing with the Tutti project. Revoking consent hides the preview and stops
+creating reports. Consent changes are logged.
+
+`tutti improvements` shows the switches, waiting proposals and the log; `tutti improvements tick` runs one round now.
+`POST /api/improvements` (admin): `{"enabled"}`, `{"share"}`, or `{"proposal": path, "apply": true|false}`.
+Include `id` with a proposal decision to reject it if the displayed proposal has since been replaced.
+
 ## Self-improvement
 
 Crashes and insights become fixes. `self_improve.enabled` is **on by default**; switch it on the dashboard's

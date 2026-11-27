@@ -292,11 +292,11 @@ def ask_online(cfg, prompt, run=None, pick=None):
 
 
 def ask(cfg, prompt, purpose='other', online=True, local_first=True, generate=None, ps_fn=None, yield_fn=None, ask_online_fn=None,
-        clock=time.monotonic, fleet_state=None):
+        clock=time.monotonic, fleet_state=None, *, independent_local=False):
     """THE way Tutti asks a model for itself: (answer, who) from the best free local model in the household, then online
     (within pacing) when `online`; (None, why) when local AI is off or nothing answered. Every answer is logged."""
     from . import aiassist, local
-    if not aiassist.switch(cfg, 'local'):
+    if not aiassist.switch(cfg, 'local', independent=independent_local):
         return None, 'local AI is off (ai_assist.local)'
     generate = generate or local.generate
     tried = []

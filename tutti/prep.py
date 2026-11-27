@@ -297,10 +297,12 @@ def lease_script(device, claim, minutes, who):
     take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
             f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
             f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')
-    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
-            f'mkdir -p {u}; {take}others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
+    return (f'mkdir -p {u} || exit 3; {take}{release_script(device)} > /dev/null; '
+            f'others=$(ls -A {u} | grep -Fvx -- "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then rmdir {lock}; echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
-            f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; rmdir {lock}; '
+            f'if ! echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; then '
+            f'rmdir {lock}; echo "tutti: cannot record the lease for "{name}": check the device state directory"; exit 3; fi; '
+            f'rmdir {lock}; '
             f'{prep_script(device) or ":"}; {unlock(device)}; {awake}'
             f'{addr}echo SERIAL={q(str(device["serial"]))}; echo "tutti: "{name}" leased to "{q(str(who))}" for {int(minutes)} min"')
 

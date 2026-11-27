@@ -1301,10 +1301,13 @@ const ATTENTION_LABEL = { 'needs-person': 'Needs a person', panic: 'Panic', stal
 
 function attentionItem(it) {
     const open = it.job ? el('button', { class: 'btn btn--text view-ok', type: 'button', text: 'Open its log', onclick: () => openJob(it.job) }) : null;
+    const review = it.improvements ? el('button', {
+        class: 'btn btn--text', type: 'button', text: 'Review improvements', onclick: () => $('improvements-h').focus(),
+    }) : null;
     return el('li', { class: 'row row--attention', 'data-tone': it.tone },
         el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
         chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
-        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
+        el('p', { class: 'row__note', text: it.note }), open, review, it.task ? attemptHistory(it.task) : null);
 }
 
 function openJob(id) {

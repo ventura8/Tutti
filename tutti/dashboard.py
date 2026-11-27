@@ -43,6 +43,7 @@ from . import (
     helper,
     householduse,
     httpguard,
+    improve,
     keepon,
     local,
     move,
@@ -414,7 +415,7 @@ API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md);
 # these change the config or the queue: an admin's
 API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
 ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
-               '/api/ai-assist')
+               '/api/ai-assist', '/api/improvements')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
@@ -672,7 +673,7 @@ POSTS = ('/api/reading', '/api/refresh',
          '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT)
+         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', '/api/improvements', API_LIMIT)
 BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
@@ -708,7 +709,7 @@ def post(collector, headers, path, port, token, read):
     path = path.split('?', 1)[0]
     if path not in POSTS and path not in SELF_POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
-                          '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
+                          '{"enabled": ...} to /api/autopilot, /api/self-improve or /api/improvements, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
                           '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect or /api/vpn, '
                           '{"path": ...} to /api/settings, {} to /api/restart, '
@@ -882,6 +883,7 @@ HANDLERS = {
     '/api/telemetry': dashtelemetry.save,
     '/api/self-improve': dashtelemetry.save_self_improve,
     '/api/ai-assist': lambda c, b: aiassist.save(c, b),
+    '/api/improvements': lambda c, b: improve.save(c, b),
     '/api/update': start_update,
 }
 

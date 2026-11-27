@@ -1686,6 +1686,29 @@ def cmd_selfimprove(cfg, a):
     return 0
 
 
+def cmd_improvements(cfg, a):
+    """`tutti improvements [status|on|off|tick|share on|off]` (docs/TELEMETRY.md, *Improvements*)."""
+    from . import improve
+    if a.action in ('on', 'off'):
+        improve.set_enabled(cfg, a.action == 'on')
+    elif a.action == 'share':
+        if a.share not in ('on', 'off'):
+            raise SystemExit('tutti improvements share on|off: admin opt-in for anonymised kept reports (default off)')
+        improve.set_share(cfg, a.share == 'on')
+    elif a.action == 'tick':
+        for e in improve.tick(cfg):
+            say(e)
+    v = improve.view(cfg)
+    skipped = f', {v["skipped_changed"]} rollback skipped' if v.get('skipped_changed') else ''
+    print(f'improvements: {"on" if v["enabled"] else "off"}; autonomy {v["autonomy"]}; share {"on" if v["share"] else "off"}; '
+          f'{v["waiting"]} waiting, {v["applied"]} applied, {v["kept"]} kept, {v["rolled_back"]} rolled back{skipped}')
+    for p in v['proposals']:
+        print(f'  proposed {p["aspect"]} {p["path"]}: {p.get("old")} -> {p.get("value")}: {p.get("evidence", "")[:80]}')
+    for e in v['log'][:10]:
+        print(f'  {e.get("status", "?"):12} {e.get("aspect", "")} {e.get("path", "")}: {e.get("evidence", "")[:70]}')
+    return 0
+
+
 def cmd_security(cfg, a):
     """`tutti security [status|scan]`: dependency bots' pull requests and vulnerability reports (docs/SECURITY-INTAKE.md)."""
     from . import depbots
@@ -2057,6 +2080,11 @@ def parser():
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
+    s = add('improvements', cmd_improvements, 'household improvement loop (on by default): propose and apply changes across '
+                                              'routing, pacing and parallel limits from telemetry; measure then keep or roll '
+                                              'back; status, on, off, tick, share on|off (anonymised reports, default off)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'share'])
+    s.add_argument('share', nargs='?', help='share: on or off (admin opt-in for anonymised kept improvement reports)')
     s = add('needs', cmd_needs, 'the questions only you can answer (a parked task\'s next step, a worker\'s question): list, '
                                  'answer <id> [choice] (empty: the default); the task resumes; backfill (tasks parked before the queue get '
                                  'their question; also at the dashboard\'s start) (docs/NEEDS.md)')

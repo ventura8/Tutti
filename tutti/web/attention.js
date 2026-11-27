@@ -26,6 +26,10 @@ function tuttiAttention(s) {
     for (const t of ap.review || []) {
         items.push({ kind: 'review', tone: 'ok', title: t.title, note: `${t.id} · ${t.repo}: ${t.publish_note || `branch ${t.branch}`}`, task: t });
     }
+    const waiting = s.telemetry?.improvements?.waiting;
+    if (waiting) {
+        items.push({ kind: 'review', tone: 'ok', title: 'Pending improvements', note: `${waiting} waiting for approval`, improvements: true });
+    }
     if (s.summary?.outside) {
         items.push({ kind: 'outside', tone: 'warn', title: `${s.summary.outside} agent(s) started outside Tutti`, note: 'Their usage is not paced: start them with tutti run auto.' });
     }

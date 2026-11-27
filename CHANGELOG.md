@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-17
+
+### Added
+
+- Household improvement loop (backlog t250, docs/TELEMETRY.md, *Improvements*): on by default, Tutti reviews telemetry
+  and proposes changes across at least three aspects (routing, pacing, parallel/scheduling) with evidence, expected gain
+  and safe bounds. Proposals go through local model review when available, with an opt-in paced online fallback.
+  Within `improvements.autonomy` (`bounded` or `propose`) a small change applies by itself or waits on the dashboard's
+  **Improvements** view. Separate before and after windows determine whether each trial is kept or rolled back.
+  Rollback is skipped if the
+  setting changed since apply (`skipped_changed` in the log and counters; newer admin edits are never overwritten).
+  Anonymised reports of kept improvements are admin opt-in (`improvements.share`, default off; preview, revocable,
+  logged). `tutti improvements`, `POST /api/improvements`, Settings under Telemetry and self-improvement.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

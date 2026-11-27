@@ -789,6 +789,8 @@ def conduct(cfg, goal, main=None, fallback=None, cwd='.', commands=(), say=print
         if not reason:
             rc, run['status'] = outcome(cfg, agent, rc, lines, run)
             break
+        if reason[0] != 'limit':
+            tried.append(agent)
         names, handoff = handover_step(cfg, run, names, tried, agent, reason, lines, out_fn, say)
     run['ended'] = datetime.now(timezone.utc).isoformat()
     record(cfg, run)

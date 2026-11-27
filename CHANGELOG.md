@@ -6,6 +6,19 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- Show probe-derived roles and exclusion reasons on machine and device cards and in `tutti roles matrix`. Admins can
+  install pinned Android platform-tools on eligible machines from their card. Add Wear OS pairing, prep and stricter run
+  defaults. See docs/ROLES.md.
+
+### Fixed
+
+- Serialize expired device lease cleanup with new claims and refresh the telemetry consent cache immediately after a change.
+- Make the bridge tests independent of GitHub CLI installation and wait for the browser bridge's fake browser to exit.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

@@ -16,6 +16,12 @@ the task came from, and the sandbox check looked at the machine the job named, n
 Check a sandbox at the place that runs the command, with the runner it really uses. Data from outside goes into a brief
 marked as data, never as a command, and the process that reads it gets no token it does not need.
 
+## Checks depend on everything a fixture starts
+
+A browser bridge test could finish while its fake browser was still closing the DevTools pipe. Wait for EOF on a pipe
+both fixture processes inherit. Test the missing-repository error with Git, a required checkout tool, so an optional
+GitHub CLI installation cannot decide which error the fixture reaches.
+
 ## The test suite filled /tmp's inodes (2026-11-15)
 
 **What happened.** During the audit `/tmp` (a tmpfs) ran out of inodes: 53,000 leftover `tmp*` folders, about 85 files each,

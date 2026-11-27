@@ -32,7 +32,7 @@ KEEP = 'keep'
 RESTORE = [{'setting': 'system accelerometer_rotation', 'value': KEEP}, {'setting': 'system user_rotation', 'value': KEEP},
            {'setting': 'system screen_off_timeout', 'value': KEEP}, {'setting': 'secure screensaver_enabled', 'value': KEEP}]
 DEFAULTS['phone'] = DEFAULTS['phone'] + RESTORE
-DEFAULTS['tablet'] = DEFAULTS['phone']
+DEFAULTS['tablet'] = DEFAULTS['watch'] = DEFAULTS['phone']
 # A TV must never start a run with its screensaver able to come on (its photos covered the app, RoRadio 2026-11-15): these
 # settings are required, and a prep that cannot read one fails loudly instead of running
 REQUIRED = ('screensaver_enabled', 'screensaver_activate_on_sleep', 'screen_off_timeout', 'sleep_timeout',
@@ -54,6 +54,7 @@ def _stream(n, name, value, cap=False):
 
 NIGHT = [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': 1},
          *(_stream(n, name, 0) for n, name in STREAMS.items())]
+NIGHT_BY_KIND = {'watch': [NIGHT[0], {**NIGHT[1], 'value': 0}, *NIGHT[2:]]}
 
 
 def night_now(device, now=None):
@@ -84,7 +85,8 @@ def wanted(device, night=None):
         base = [x for x in DEFAULTS.get(device.get('kind') or 'phone', []) if (x.get('name') or x['setting'].split()[-1]) not in names]
     out = base + own
     if night_now(device) if night is None else night:
-        out = [x for x in out if not _touches(x, ('screen_brightness', '--stream', 'volume'))] + NIGHT
+        preset = NIGHT_BY_KIND.get(device.get('kind'), NIGHT)
+        out = [x for x in out if not _touches(x, ('screen_brightness', '--stream', 'volume'))] + preset
     from . import devclass
     rules = devclass.rules_of(device)
     return [x for x in out if not devclass.denied(rules, ' '.join(str(x.get(k, '')) for k in ('setting', 'set', 'read')))]
@@ -297,8 +299,8 @@ def lease_script(device, claim, minutes, who):
     take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
             f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
             f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')
-    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
-            f'mkdir -p {u}; {take}others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
+    return (f'mkdir -p {u}; {take}{release_script(device)} > /dev/null; '
+            f'others=$(ls -A {u} | grep -Fvx -- "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then rmdir {lock}; echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
             f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; rmdir {lock}; '
             f'{prep_script(device) or ":"}; {unlock(device)}; {awake}'

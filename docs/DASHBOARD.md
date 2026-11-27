@@ -24,6 +24,9 @@ tutti dashboard --once             # print /api/state as JSON and stop (--no-pro
 Start it in the background with
 `mkdir -p ~/.local/state/tutti && nohup tutti dashboard > ~/.local/state/tutti/dashboard.log 2>&1 &`.
 
+Machine and device cards include a **Role matrix** with probe-derived assignments and exclusion reasons. Administrators
+can install Android platform-tools on eligible machines from the matrix. See [ROLES.md](ROLES.md).
+
 ## Install it as an app
 
 Open the page in Chrome or Edge and choose **Install app** (the button in the bar, or the browser's install icon). It

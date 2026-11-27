@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import __version__, config, controls, devices, pacing, routing, waiting, workers
+from . import __version__, config, controls, devices, pacing, roles, routing, waiting, workers
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
@@ -217,7 +217,7 @@ def machines_state(cfg, probe_fn, stored_fn=None):
         p = probe_fn(m)
         here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
         out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
-        out['idle_s'] = here
+        out.update(idle_s=here, tools=getattr(p, 'tools', ()), os=getattr(p, 'os', ''), disk_gb=getattr(p, 'disk_gb', None))
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out
     with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:
@@ -584,21 +584,34 @@ def runs_today(cfg):
 
 def with_cast_roles(cfg, mstate):
     """Each machine's Cast roles from the daily check (tutti/castroles.py's cache), for the machine card."""
-    import json
     try:
         with open(os.path.join(config.state_dir(cfg), 'cast-machines.json'), encoding='utf8') as f:
             seen = json.load(f)
     except (OSError, ValueError, KeyError):
-        return mstate
+        seen = {}
     seen = seen if isinstance(seen, dict) else {}
     for m in mstate or []:
-        m['cast_roles'] = ((cfg.get('machines') or {}).get(m['name']) or {}).get('roles') or (seen.get(m['name']) or {}).get('roles') or []
+        configured = ((cfg.get('machines') or {}).get(m['name']) or {}).get('roles')
+        m['cast_roles'] = configured or (seen.get(m['name']) or {}).get('roles') or []
     return mstate
+
+
+def with_role_matrix(cfg, machines, energy=None):
+    from . import failover
+    backups = set(failover.candidates(cfg)) if failover.opts(cfg)['backup'] != 'none' else set()
+    for row in machines:
+        reading = (energy or {}).get(row['name']) or {}
+        powered = any(reading.get(key) is not None for key in ('cpu_w', 'gpu_w'))
+        facts = {**row, 'ollama': isinstance(reading.get('tags'), dict)}
+        row['role_matrix'] = roles.machine_matrix(facts, row['name'] in backups, powered)
+        row['install_adb'] = roles.can_install_adb(row)
+    return machines
 
 
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
-    return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
+    machines = with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn))
+    return {'machines': with_role_matrix(cfg, machines), 'machines_at': clock(),
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

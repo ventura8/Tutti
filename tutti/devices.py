@@ -6,7 +6,7 @@ import re
 import shlex
 import time
 
-from . import config
+from . import config, roles
 
 READINGS_SCRIPT = 'device-readings.sh'
 
@@ -17,7 +17,9 @@ TERMUX_POLICY = {'min_battery': 50, 'require_charging': True, 'max_battery_c': 4
 SCREENS = ('wake', 'off', 'any')
 # A TV (a Cast receiver: devices.<d>.kind: tv) runs on mains power and has no battery or call state to read.
 TV_POLICY = {'min_battery': 0, 'require_charging': False, 'max_battery_c': 0, 'wifi_only': False, 'screen': 'any'}
-KINDS = ('phone', 'tablet', 'tv')
+# A watch: stricter battery/heat rules, no long runs off the charger
+WATCH_POLICY = {'min_battery': 70, 'require_charging': True, 'max_battery_c': 35, 'wifi_only': True, 'screen': 'off'}
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 
 # Termux's own readings, through the Termux:API app (`pkg install termux-api`): the same keys as device-readings.sh, each
 # line starting `R `. termux-* commands hang when the Termux:API app is missing, so each has a timeout; /sys is the fallback.
@@ -37,7 +39,15 @@ TERMUX_READINGS = (
 
 def policy(entry, termux=False):
     """The device's policy: the defaults for its use, overridden by its own `policy:`."""
-    base = TERMUX_POLICY if termux else TV_POLICY if (entry or {}).get('kind') == 'tv' else E2E_POLICY
+    kind = (entry or {}).get('kind')
+    if kind == 'watch':
+        base = WATCH_POLICY
+    elif termux:
+        base = TERMUX_POLICY
+    elif kind == 'tv':
+        base = TV_POLICY
+    else:
+        base = E2E_POLICY
     out = {**base, **((entry or {}).get('policy') or {})}
     if out.get('screen') is False:   # YAML reads an unquoted `off` as false
         out['screen'] = 'off'
@@ -80,7 +90,7 @@ def errors(cfg):
         from . import prep
         errs += prep.errors(where, d.get('prep'))
         if d.get('kind', 'phone') not in KINDS:
-            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet or tv (a Cast receiver: only suites with targets: [tv] use it)')
+            errs.append(f'{where}.kind is {d["kind"]!r}: use one of {", ".join(KINDS)}')
         if 'calls' in d and not isinstance(d['calls'], bool):
             errs.append(f'{where}.calls is {d["calls"]!r}: use true or false (false: no phone-call check, e.g. a tablet with no SIM)')
         if 'external_lock' in d and not (isinstance(d['external_lock'], str) and d['external_lock'].strip()):
@@ -344,14 +354,16 @@ def _roles(d, readings):
     return castroles.roles_of(d, castroles.decide(readings.get('cast')) if readings.get('cast') else [])
 
 
-def device_state(d, readings):
+def device_state(d, readings, held=''):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
     keep = ('battery', 'charging', 'battery_c', 'battery_present', 'temp_skin', 'temp_soc',
             'screen', 'wifi', 'call', 'external_by', 'prep_left',
             'revived', 'dnd', 'cast')
-    return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),
+    kind, cast = d.get('kind', 'phone'), _roles(d, readings)
+    return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': kind, 'status': st,
+            'reason': reason, 'hours': d.get('hours'), 'roles': cast,
+            'role_matrix': roles.device_matrix(readings, cast, kind, held),
             'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 
@@ -417,7 +429,7 @@ def devices_state(cfg, readings_fn):
     for d in (cfg.get('devices') or {}).values():
         held = held_why(cfg, d)
         if held:
-            out.append({**device_state(d, {}), 'status': 'held', 'reason': held, 'owner_paused': d.get('paused')})
+            out.append({**device_state(d, {}, held), 'status': 'held', 'reason': held, 'owner_paused': d.get('paused')})
             continue
         out.append(device_state(d, readings_fn(cfg['machines'][d['machine']], d)))
     return out

@@ -369,6 +369,9 @@ class Roles(unittest.TestCase):
                 self.assertIn(d['card']['why'], card.text_content())
             if d['card']['action']:
                 self.assertTrue(card.get_by_role('button', name=d['card']['action']['label']).is_visible())
+            matrix = card.locator('details', has_text='Role matrix')
+            matrix.locator('summary').click()
+            self.assertEqual(matrix.get_by_role('listitem').count(), len(d['role_matrix']))
         self.assertNotIn('2.5 °C', page.text_content('#devices'))   # a TV's battery reading is never its temperature
         ctx.close()
 

@@ -129,7 +129,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/restart` | `{}` | `{"ok": true, "restarting": true}`; poll `/api/health` until `started` changes. |
 | `/api/setup` | `{"action": "run"}` | 202 `{"ok": true, "log": "<path>"}`: `tutti setup --yes` in the background. |
 | `/api/update` | `{}` | 202 `{"ok": true, "started": true}`: a round of `tutti update`; 409 when one runs. |
-| `/api/devices/pair` | `{"action": "start", "machine": "build1", "kind": "tv"}`, `{"action": "code", "code": "123456"}`, `{"action": "status"\|"cancel"}` | Wireless pairing (`tutti devices pair`). 404 when no pairing runs. |
+| `/api/devices/pair` | `{"action": "start", "machine": "build1", "kind": "tv"}`, `{"action": "code", "code": "123456"}`, `{"action": "status"\|"cancel"}`, `{"action": "install-adb", "machine": "build1"}` | Wireless pairing (`tutti devices pair`) and admin installation of user-space Android platform-tools on an eligible machine. |
 | `/api/devices/move` | `{"to": "build1", "devices": ["pixel"], "dry_run": true}` | The plan (dry run, the default) or the move started (`tutti devices move`). |
 | `/api/move` | `{"action": "plan", "to": "build1"}`, `{"action": "move", "to": "build1", "jobs": "wait"\|"handover"}`, `{"action": "rollback"}` | Tutti itself to another machine (`tutti move`, docs/MOVE.md): the plan, or 202 when it started. |
 | `/api/work/move` | `{"job": "<id>", "to": "<target>"\|"auto", "bump": false}` or `{"evacuate": "<machine>"}` | `{"ok": true, "done": [...]}`; 409 when the job cannot move. |
@@ -607,7 +607,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `night.devices` | list |  | Night mode on: The devices it applies to; empty: every device. | admin |
 | `devices.*.roles` | list |  | Roles: What the device is for other devices: cast-receiver (a Cast target), cast-sender. | admin |
 | `devices.*.hours` | yaml |  | Blocked hours: Daily local hours when the device is not used at all, e.g. {window: "22-07", days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none. | admin |
-| `devices.*.kind` | select phone, tablet, tv |  | Kind: Set by `tutti devices pair`: phone, tablet or tv. | admin |
+| `devices.*.kind` | select phone, tablet, tv, watch |  | Kind: Set by wireless pairing: phone, tablet, tv or watch. | admin |
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
 | `devices.*.adb` | text |  | adb: The adb on its machine; empty: found by itself (PATH, the Android SDK, Tutti's own copy). | admin |
@@ -1570,6 +1570,19 @@ usage: tutti workq [-h] [{status,tick}]
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `action {status,tick}` |  | `status` |
+
+### `tutti roles`
+
+show machine and device role eligibility (docs/ROLES.md)
+
+```text
+usage: tutti roles [-h] [--interactive] {matrix}
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {matrix}` | probe the fleet and print every role with exclusion reasons |  |
+| `--interactive` | keep the terminal view open for another probe on Enter |  |
 
 ### `tutti fleet`
 

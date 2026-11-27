@@ -7,7 +7,7 @@ needs this file to appear. tests/test_settings.py checks that every key of tutti
 
 Sections go in the order of the tab. A section may later be scoped to one user or to the household (`scope`): the tab
 draws whatever sections the server sends."""
-from . import config, scouts
+from . import config, devices, scouts
 
 MISSING = object()
 DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
@@ -229,7 +229,7 @@ FIELDS = {
                              item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
-    'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
+    'devices.*.kind': field('Kind', 'Set by wireless pairing: phone, tablet, tv or watch.', 'select', choices=list(devices.KINDS)),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),
     'devices.*.capabilities': field('Capabilities', 'Set by `tutti devices pair`: camera, telephony, touchscreen, tv...', 'list',
                                     item='capability'),

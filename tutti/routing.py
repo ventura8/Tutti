@@ -23,6 +23,9 @@ class Probe:
     idle_s: float | None = None    # seconds since a person last used it (graphical session, Windows console); None: nobody
     disk_gb: float | None = None   # the least free space on its work disks (home, a WSL machine's C:), None when unreadable
 
+    tools: list = field(default_factory=list)
+    os: str = ''
+
     def hottest(self):
         """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""
         found = [(t, w) for t, w in ((self.temp, 'CPU'), (self.gpu_temp, 'GPU')) if t is not None]

@@ -50,6 +50,7 @@ function device(d, paused) {
         chip(c.label, c.tone),
         el('div', { class: 'row__stats' }, deviceAction(d)),
         deviceStats(d),
+        roleMatrix(d, 'device'),
         presenceBits(d.presence),
         why ? el('p', { class: 'row__note device__why', text: why }) : null,
         c.waiting ? el('p', { class: 'row__note device__waiting', text: `Waiting for it: ${c.waiting}.` }) : null,
@@ -64,7 +65,8 @@ function blockedHours(d) {
         el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' }))];
     if (d.dnd_now || d.dnd_schedule) bits.push(el('span', { text: `Do Not Disturb: ${d.dnd_now ? 'on now' : 'off now'}${d.dnd_schedule ? `, usually ${d.dnd_schedule}` : ''}.` }));
     if ((d.roles || []).length) bits.push(el('span', { text: `Cast: ${d.roles.map((r) => r.replace('cast-', '')).join(' and ')}.` }));
-    if (d.night) bits.push(el('span', {}, `Night mode: ${d.night.hours} (1 % brightness, volume 0). `, el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' })));
+    if (d.night) bits.push(el('span', {}, `Night mode: ${d.night.hours} (${d.kind === 'watch' ? 0 : 1} % brightness, volume 0). `,
+        el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' })));
     return el('ul', { class: 'device__notes', 'aria-label': `${d.name}: hours and modes` }, ...bits.map((b) => el('li', { class: 'row__note' }, b)));
 }
 

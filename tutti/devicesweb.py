@@ -9,9 +9,10 @@ import sys
 import threading
 import time
 
-from . import adbhost, adbpair, config, devicescmd, devmove, qr
+from . import adbhost, adbpair, config, devicescmd, devmove, qr, roles
 
 PAIR = {'current': None}
+ADB_INSTALL = threading.Lock()
 
 
 class Pairing:
@@ -110,11 +111,37 @@ def _cancel(cur, _data):
     return 200, cur.view()
 
 
+def _install_adb(collector, name, host_fn):
+    if not isinstance(name, str) or name not in collector.cfg['machines']:
+        return 400, {'error': 'Choose a configured machine before installing Android platform-tools'}
+    if not ADB_INSTALL.acquire(blocking=False):
+        return 409, {'error': 'An Android platform-tools install is running. Wait for it to finish and try again.'}
+    try:
+        return _install_on_idle_machine(collector, name, host_fn)
+    finally:
+        ADB_INSTALL.release()
+
+
+def _install_on_idle_machine(collector, name, host_fn):
+    row = next((r for r in collector.snapshot()['machines']['items'] if r['name'] == name), {})
+    if not roles.can_install_adb(row):
+        return 409, {'error': 'The machine must be free, Linux x86_64, and missing adb. Check its role matrix before retrying.'}
+    host = host_fn(name) if host_fn else adbhost.Host(name, collector.cfg['machines'][name])
+    if host.path():
+        return 200, {'ok': True}
+    code, _ = host.install_tools()
+    if code != 0:
+        return 502, {'error': 'Android platform-tools installation failed. Check connectivity and run tutti devices pair --install-adb.'}
+    return 200, {'ok': True}
+
+
 def pair_post(collector, raw, host_fn=None, start=True):
-    """{"action": "start", "machine"?, "kind"?: "tv", "flow"?} | {"action": "code", "code"} | {"action": "status"|"cancel"}."""
+    """Start, finish or cancel wireless pairing, or install pinned adb on an eligible machine."""
     data = _body(raw)
     if data.get('action') == 'start':
         return _start(collector.cfg, data, host_fn, start)
+    if data.get('action') == 'install-adb':
+        return _install_adb(collector, data.get('machine'), host_fn)
     cur = PAIR['current']
     if not cur:
         return 404, {'error': 'no pairing is running: press Pair a device'}

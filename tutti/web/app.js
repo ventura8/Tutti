@@ -575,6 +575,32 @@ function slotText(m) {
     return `${m.free} of ${plural(m.slots, 'slot')} free${held}`;
 }
 
+async function installRoleAdb(machine, button) {
+    button.disabled = true;
+    try {
+        await devicesPost('/api/devices/pair', { action: 'install-adb', machine });
+        showBanner(el('strong', { text: 'Android platform-tools installed.' }), 'The next fleet probe will update the role matrix.');
+    } catch (error) {
+        showBanner(el('strong', { text: 'Android platform-tools installation failed.' }), error.message);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function roleMatrix(row, kind) {
+    if (!row.role_matrix) return null;
+    const rows = Object.entries(row.role_matrix).map(([name, [assigned, reason]]) => {
+        const label = name.replaceAll('_', ' ');
+        const install = name === 'device_host' && row.install_adb && ui.last?.queue?.can_act;
+        return el('li', {},
+            `${label} · ${assigned ? 'Assigned' : `Unavailable — ${reason}`}`,
+            install ? el('button', { type: 'button', class: 'btn btn--small', text: 'Install Android platform-tools',
+                onclick: (event) => void installRoleAdb(row.name, event.currentTarget) }) : null);
+    });
+    return el('details', { class: 'row__note', keep: `roles:${kind}:${row.name}` },
+        el('summary', { text: 'Role matrix' }), el('ul', {}, ...rows));
+}
+
 function machine(m) {
     const stats = el('div', { class: 'row__stats' }, pips(m), el('span', { title: `Slots: ${m.slots_why || ''}`, text: slotText(m) }));
     if (m.load !== null) {
@@ -610,6 +636,7 @@ function machine(m) {
         use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
         ...shards.map((x) => el('p', { class: 'row__note', text: `Running ${x.project} ${x.key}: ${x.why}` })),
         limitForm(m),
+        roleMatrix(m, 'machine'),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
 }

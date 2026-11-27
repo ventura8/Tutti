@@ -17,7 +17,7 @@ import time
 
 PAIRING, CONNECT = '_adb-tls-pairing._tcp', '_adb-tls-connect._tcp'
 FLOWS = ('qr', 'code', 'usb')
-KINDS = ('phone', 'tablet', 'tv')
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 MIN_ADB = 31   # platform-tools 31: `adb mdns services` and mDNS auto-connect (`adb pair` is 30)
 OUR_PREFIX = 'tutti-'
 
@@ -26,6 +26,8 @@ FEATURES = {'android.hardware.camera.any': 'camera', 'android.hardware.telephony
             'android.hardware.wifi': 'wifi', 'android.hardware.bluetooth': 'bluetooth', 'android.software.webview': 'webview'}
 
 TURN_ON = {
+    'watch': ('Settings > About watch > Software info: tap the build number 7 times to enable Developer options.',
+              'Settings > Developer options > Wireless debugging: turn it on and allow this network.'),
     'phone': ('Settings > About phone: tap "Build number" 7 times (type the PIN if asked): Developer options turn on.',
               'Settings > System > Developer options > Wireless debugging: turn it on; tap Allow ("Always allow on this network").'),
     'tablet': ('Settings > About tablet: tap "Build number" 7 times (type the PIN if asked): Developer options turn on.',
@@ -65,7 +67,7 @@ def flow_for(kind=None, asked=None, usb=False):
         if asked not in FLOWS:
             raise PairError(f'there is no "{asked}" pairing: use one of {", ".join(FLOWS)}')
         return asked
-    return 'code' if kind == 'tv' else 'qr'
+    return 'code' if kind in ('tv', 'watch') else 'qr'
 
 
 def steps(kind, flow):
@@ -139,6 +141,8 @@ def kind_of(characteristics, features):
     chars = set((characteristics or '').replace(' ', '').split(','))
     if 'tv' in chars or 'android.software.leanback' in features:
         return 'tv'
+    if 'watch' in chars or 'android.hardware.type.watch' in features:
+        return 'watch'
     return 'tablet' if 'tablet' in chars else 'phone'
 
 

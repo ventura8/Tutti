@@ -104,6 +104,7 @@ function renderDeviceTools(s) {
     bar.append(
         el('button', { class: 'btn btn--small', type: 'button', text: 'Pair a device', title: 'A phone or tablet: scan a QR code', onclick: () => startPair() }),
         el('button', { class: 'btn btn--small', type: 'button', text: 'Pair a TV', title: 'A TV has no camera: type the code it shows', onclick: () => startPair('tv') }),
+        el('button', { class: 'btn btn--small', type: 'button', text: 'Pair a watch', onclick: () => startPair('watch') }),
         el('button', { class: 'btn btn--small', type: 'button', text: 'Move devices', title: 'Move devices to another machine', onclick: () => moveForm(pairing.state) }));
 }
 

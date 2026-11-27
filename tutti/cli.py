@@ -1487,6 +1487,26 @@ def cmd_workq(cfg, a):
     return 0
 
 
+def print_role_matrix(cfg):
+    from . import roles
+    machines = state.with_cast_roles(cfg, state.machines_state(cfg, remote.probe))
+    for row in state.with_role_matrix(cfg, machines) + devices.devices_state(cfg, remote.device_readings):
+        for line in roles.lines(row):
+            print(line)
+
+
+def cmd_roles(cfg, a):
+    print_role_matrix(cfg)
+    while a.interactive:
+        try:
+            if input('Press Enter to probe again or type q to quit. ').strip().lower() == 'q':
+                break
+        except (EOFError, KeyboardInterrupt):
+            break
+        print_role_matrix(cfg)
+    return 0
+
+
 def cmd_fleet(cfg, a):
     """`tutti fleet`: every local model worker, discovered or configured, with its machine, models, speed and hardware."""
     from . import fleet
@@ -2003,6 +2023,9 @@ def parser():
     s = add('workq', cmd_workq, 'the compute work queue: the projects\' gates, tests and reports on machines with a free slot '
                                 '(status, or tick: one round now; docs/FLEET.md)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'tick'])
+    s = add('roles', cmd_roles, 'show machine and device role eligibility (docs/ROLES.md)')
+    s.add_argument('action', choices=['matrix'], help='probe the fleet and print every role with exclusion reasons')
+    s.add_argument('--interactive', action='store_true', help='keep the terminal view open for another probe on Enter')
     s = add('fleet', cmd_fleet, 'the household\'s local models as workers: every machine\'s Ollama, its models, their kinds, '
                                 'speed and hardware (docs/FLEET.md)')
     s = add('security', cmd_security, 'dependency bots\' pull requests (Dependabot, Cursor) and vulnerability reports '

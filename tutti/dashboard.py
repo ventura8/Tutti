@@ -173,6 +173,7 @@ class Collector:
         fresh['prs'] = self.prs_fn(self.cfg)
         try:   # local models: power and models read, energy added to the day's buckets (tutti/energy.py)
             fresh['energy'] = energy.probe_all(self.cfg, self.power_fn, self.ollama_fn)
+            state.with_role_matrix(self.cfg, fresh['machines'], fresh['energy'])
             energy.sample(self.cfg, fresh['energy'], self.clock(), 2 * self.cfg['dashboard']['probe_seconds'])
             fleet.after_probe(self.cfg, fresh, self.clock())   # every machine's models: the local workers follow them
         except (OSError, ValueError) as e:

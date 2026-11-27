@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from . import routing, tz, worktree
+from . import roles, routing, tz, worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # a checkout or a release has scripts/ beside the package; a uv or pipx install ships them inside it (pyproject.toml)
@@ -351,6 +351,7 @@ def probe_script(machine):
             'm=$(awk \'/MemAvailable/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
             f'{IDLE}'
             f'{DISK}'
+            f'{roles.PROBE}'
             f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}} ${{i:--}} ${{d:--}}"')
 
 
@@ -495,6 +496,8 @@ def probe(machine, timeout=20, windows_fn=None, idle_fn=None):
     windows_fn = windows_fn or windows_temp
     lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
     p = routing.parse_probe(lines[-1] if lines else '')
+    p.tools = [line[2:] for line in lines[:-1] if line.startswith('K ')]
+    p.os = next((line[2:] for line in lines[:-1] if line.startswith('O ')), '')
     p.containers = [line[2:].strip() for line in lines[:-1] if line.startswith('C ')]
     p.zone = next((tz.parse_remote(line[2:]) for line in lines[:-1] if line.startswith('Z ')), '')
     if machine['transport'] == 'android':

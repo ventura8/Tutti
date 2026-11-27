@@ -35,3 +35,6 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
   not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
   Desktop entry is put back with a backup.
+- 2026-11-16 (owner): deleting a dated owner reserve on the dashboard dropped pacing.schedule.window/hours, so the work
+  hours fell back to 01-14. Fixed in 0.23.7: date-specific reserve edits route through owner.change, preserving the
+  schedule window, hours and learned profile.

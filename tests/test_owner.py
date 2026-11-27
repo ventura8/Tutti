@@ -185,6 +185,33 @@ class ModeTest(unittest.TestCase):
         self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'{"mode": null}')[0], 200)
         self.assertEqual(owner.owner_of(self.cfg, config.state_dir(self.cfg))['mode'], 'auto')
 
+    def test_deleting_reserved_hours_preserves_schedule_and_learned_profile(self):
+        collector = SimpleNamespace(cfg=self.cfg)
+        folder = config.state_dir(self.cfg)
+        self.assertEqual(dashboard.save_owner(collector, b'{"window": "09-17", "hours": 6}')[0], 200)
+        self.assertEqual(dashboard.save_owner(collector, b'{"date": "2026-11-16", "window": "20-24"}')[0], 200)
+        self.assertEqual(dashboard.save_owner(collector, b'{"date": "2026-11-17", "window": "off"}')[0], 200)
+        before = owner.read(folder)
+        schedule = dict(self.cfg['pacing']['schedule'])
+        t0 = datetime(2026, 11, 9, tzinfo=UTC)
+        rs = [{'at': (t0 + timedelta(hours=i + 1)).isoformat(),
+               'used': (i + 1) * 0.5 + (2.0 if 10 <= (t0 + timedelta(hours=i)).hour < 16 else 0.0)}
+              for i in range(24 * 5)]
+        now = datetime(2026, 11, 16, 8, tzinfo=UTC)
+        profile = owner.context(owner.owner_of(self.cfg, folder), rs, now)
+        self.assertTrue(profile['learned'])
+        self.assertEqual(dashboard.save_owner(collector, b'{"date": "2026-11-16", "window": "bad"}')[0], 400)
+        self.assertEqual(owner.read(folder), before)
+        self.assertEqual(dashboard.save_owner(collector, b'{"date": "2026-11-16", "window": null}')[0], 200)
+        self.assertEqual(owner.read(folder), {**before, 'dates': {'2026-11-17': 'off'}})
+        self.assertEqual(self.cfg['pacing']['schedule'], schedule)
+        view = owner.view(self.cfg, folder, [], now)
+        self.assertEqual((view['schedule']['window'], view['schedule']['hours']), ('09-17', 6))
+        self.assertEqual(view['dates'], {'2026-11-17': 'off'})
+        after = owner.context(owner.owner_of(self.cfg, folder), rs, now)
+        self.assertEqual(after['profile'], profile['profile'])
+        self.assertTrue(after['learned'])
+
 
 if __name__ == '__main__':
     unittest.main()

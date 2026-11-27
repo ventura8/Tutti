@@ -525,6 +525,8 @@ def save_owner(collector, raw):
     except ValueError:
         data = None
     cfg = collector.cfg
+    if isinstance(data, dict) and 'date' in data:
+        return owner.change(cfg, config.state_dir(cfg), data)
     sched = {k: data[k] for k in ('days', 'window', 'hours') if isinstance(data, dict) and k in data}
     rest = {k: v for k, v in data.items() if k not in sched} if isinstance(data, dict) else data
     if not sched:

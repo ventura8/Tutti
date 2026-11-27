@@ -1,5 +1,9 @@
 # Lessons
 
+- **Explicit test environments must not inherit the real secret directory** (2026-11-17): a test passed an empty mapping,
+  but the secret lookup fell back to the user's home and reached a live webhook. Treat an explicit mapping without a
+  configuration directory as isolated, and verify that no secret-file read occurs.
+
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
 ## Untrusted text reached a command by a side door (security audit, 2026-11)

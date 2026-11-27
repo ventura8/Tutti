@@ -25,7 +25,10 @@ if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is 
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
-XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
+# Use a unique worktree name to avoid locking contention on shared resources like "tutti-run"
+# This prevents the job from hanging waiting for a lock held by another process.
+UNIQUE_WORKTREE_NAME="tutti-check-$(date +%s)"
+XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py --worktree "$UNIQUE_WORKTREE_NAME"
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
 if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi

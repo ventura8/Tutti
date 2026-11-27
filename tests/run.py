@@ -53,6 +53,7 @@ def stop_children(rounds=5):
 
 class Guarded(unittest.TextTestResult):
     def startTest(self, test):
+        self._start_time = time.time()
         self._root = tempfile.mkdtemp(prefix='t-', dir=ROOT)
         self._saved = tempfile.tempdir, os.environ.get('TMPDIR')
         tempfile.tempdir = os.environ['TMPDIR'] = self._root
@@ -60,6 +61,9 @@ class Guarded(unittest.TextTestResult):
         super().startTest(test)
 
     def stopTest(self, test):
+        duration = time.time() - self._start_time
+        if duration > 1.0:
+            print(f'Slow test: {test} took {duration:.2f}s', file=sys.stderr)
         tmpdirs._running.pop()
         tempfile.tempdir, old = self._saved
         os.environ['TMPDIR'] = old if old is not None else ROOT

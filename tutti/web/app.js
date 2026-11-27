@@ -940,6 +940,17 @@ function attemptHistory(t) {
         }))));
 }
 
+function taskDetails(t) {
+    const ranked = t.ranked_agents || [];
+    return el('details', { class: 'task-details', keep: `task-details:${t.id}` },
+        el('summary', { text: 'Task brief and agent selection' }),
+        el('div', { class: 'task-details__brief', text: t.brief || t.title }),
+        ranked.length ? el('ol', { class: 'list' }, ...ranked.map((entry, index) => el('li', {
+            text: `${index === 0 ? 'Selected agent' : 'Backup agent'} · ${entry.agent} · ${entry.rationale}`,
+        }))) : null,
+        attemptHistory(t));
+}
+
 function taskNote(t) {
     if (t.status === 'running') {
         const credits = t.credits ? ` · ${t.credits} credits` : '';
@@ -959,7 +970,7 @@ function apTask(t) {
             el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
         chip(`${t.status} · ${t.attempt_count} attempt(s)`, TASK_TONE[t.status] || 'idle'),
         el('p', { class: 'row__note', text: taskNote(t) }),
-        attemptHistory(t));
+        taskDetails(t));
 }
 
 function renderAutopilot(s) {

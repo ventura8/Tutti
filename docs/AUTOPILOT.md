@@ -68,13 +68,12 @@ going finish.
 A failed attempt goes back to the queue; it is never dropped and never retried blindly:
 
 - **It continues from the same worktree** (`ap-<id>`): the next worker sees the earlier changes and is told to continue.
+  Routed acceptance checks also use that task-specific track for their copy and lock.
 - **Its brief carries what went wrong**: the last attempt's diff stat, the end of the failing check's output, the earlier
   failures one line each, and the reviewer's notes.
-- **It climbs the ladder.** A retry starts one step above the step its last attempt failed on in `autopilot.ladder`
-  (default: `autopilot.accounts`), e.g. `agy-gemini → agy-claude → cursor → pc` (a local model); the last step repeats, and
-  a reviewer's `retry` of a passed task stays on its step. A step that has no room now is skipped upwards; when no step
-  above has room, the retry falls back to the steps below, strongest first (0.1.23: before, retries waited behind a
-  paced cursor and a yielding PC while agy-gemini and agy-claude had room).
+- **It advances through eligible agents.** The chain includes steps in `autopilot.ladder` that become eligible on retry.
+  The scheduler rechecks current capacity and prefers agents that have yet to fail this task, then follows the saved
+  order within the applicable scheduling priorities. A reviewer's `retry` of a passed task still prefers the existing step.
   While the main agent (`autopilot.main_accounts`, default `claude`) is in panic or spent, every other account takes its
   work up to its own panic line: as many tasks as fit between its use and `panic_at` at its cost per task (`task_pct`),
   even while ahead of its pace; only its own panic or a spent quota stops it.
@@ -238,7 +237,16 @@ before it expires, as far as the weekly allows. `autopilot.quiet_hours` lists lo
 **Autopilot** on the dashboard: the toggle, the ladder, `max_parallel`, whether it fills free room and reviews results, the last decision and its reason, then the runs
 going (step, elapsed time, credits when the CLI prints them, the last log line), the queue and the latest decisions (four,
 then **Show N more**, in a box that scrolls). Results to review and tasks that need a person are in **Needs you**. Every task
-shows its attempt count and its failure history (step, why, run, signature).
+shows its attempt count. Expand a task for the brief preview, the last dispatch's selected agent and ranked alternatives,
+and its failure history. The preview contains the goal, scope, acceptance check and criteria. Worker output and reviewer
+notes are supplied in the worker brief for continuity.
+
+Autopilot keeps pass and fail counts per configured step in `agent-history.json` under its state directory. It compares
+outcomes for the same task kind and size when available and falls back to the overall pass rate. It ranks candidates
+within the scheduler's priorities for explicit moves, tier fit, local overflow and previous failures. The ladder order
+breaks ties and supplies the order when there is no history. Pacing and available
+slots determine which ranked agent can start. Quota, flaky and environment failures are excluded from the counts.
+Remove the history file while Autopilot is stopped to reset the measured ranking.
 
 ## Priority
 

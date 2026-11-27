@@ -203,6 +203,22 @@ class PlanTest(Base):
         self.assertEqual(room, 0)
         self.assertIn('spend by 16:00', why)                # the planner's reason, said as such
 
+    def test_learned_agent_leads_with_the_other_as_backup(self):
+        cfg = self.cfg()
+        cfg['_agent_history'] = {'agy-gemini': {'failures': 3}, 'agy-claude': {'successes': 3}}
+        p = autopilot.plan(cfg, [task('t1')], self.states(), FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'agy-claude')])
+        self.assertEqual([entry['agent'] for entry in p['ranked_agents']['t1']], ['agy-claude', 'agy-gemini', 'cursor'])
+        self.assertIn('100% success', p['ranked_agents']['t1'][0]['rationale'])
+
+    def test_learned_agent_in_panic_is_skipped(self):
+        cfg = self.cfg()
+        cfg['_agent_history'] = {'agy-claude': {'successes': 3}}
+        states = self.states(**{'agy-claude': account('agy-claude', panic=True, used=96)})
+        p = autopilot.plan(cfg, [task('t1')], states, FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'agy-gemini')])
+        self.assertIn('panic', p['ranked_agents']['t1'][1]['rationale'])
+
     def test_a_fresh_task_goes_only_to_a_trigger_account_behind_its_line(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', 'on pace')})
         p = autopilot.plan(self.cfg(), [task('t1')], states, FREE, True)
@@ -356,6 +372,8 @@ class RoundTest(Base):
 
     def run_now(self, argv, **kw):
         """The spawned run, done at once in this process (the real `tutti run`), so the next tick finds its report."""
+        self.assertNotIn('--remote-track', argv)
+        self.assertTrue(argv[argv.index('--track') + 1].startswith('ap-'))
         with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
             cli.main(argv[2:])
         return SimpleNamespace(pid=os.getpid())
@@ -369,6 +387,7 @@ class RoundTest(Base):
             backlog.add(data, backlog.new_task('app', 'Mark a.txt fixed', ['a.txt'], ''))
         p, events = self.tick()
         self.assertEqual(p['dispatch'], [('t1', 'fake-a')])
+        self.assertEqual([entry['agent'] for entry in p['ranked_agents']['t1']], ['fake-a', 'fake-b'])
         p, events = self.tick()                            # collects the failure, sends attempt 2 to the next step
         self.assertIn('failed on fake-a', events[0])
         self.assertEqual(p['dispatch'], [('t1', 'fake-b')])
@@ -376,6 +395,7 @@ class RoundTest(Base):
         self.assertIn('passed on fake-b', events[0])
         t = backlog.load(self.c)['tasks'][0]
         self.assertEqual(t['status'], 'review')
+        self.assertEqual(t['ranked_agents'][0]['agent'], 'fake-b')
         self.assertEqual([a['ok'] for a in t['attempts']], [False, True])
         self.assertEqual(t['attempts'][1]['why'], 'passed')
         self.assertTrue(t['branch'].startswith('autopilot/t1-'))

@@ -40,6 +40,37 @@ class Choice:
     reason: str
 
 
+def rank_agents(history, steps, category=None):
+    """The ladder steps ranked best first by their measured success rate (an unmeasured step counts 0.5, ladder order breaks
+    ties): [{agent, rationale}]. The first is the choice, the rest the backup chain."""
+    ranked = []
+    for step in steps:
+        wins, total = comparable_counts(history.get(step), category)
+        rate = wins / total if total else 0.5
+        rationale = f'{rate:.0%} success over {total} attempt(s)' if total else 'No recorded outcomes'
+        ranked.append((rate, {'agent': step, 'rationale': rationale}))
+    return [entry for _, entry in sorted(ranked, key=lambda pair: -pair[0])]
+
+
+def comparable_counts(entry, category):
+    categories = entry.get('categories') if isinstance(entry, dict) else None
+    if category and isinstance(categories, dict):
+        wins, total = agent_counts(categories.get(category))
+        if total:
+            return wins, total
+    return agent_counts(entry)
+
+
+def agent_counts(entry):
+    """Read nonnegative counters from an agent-history entry."""
+    if not isinstance(entry, dict):
+        return 0, 0
+    wins, losses = entry.get('successes', 0), entry.get('failures', 0)
+    if type(wins) is not int or type(losses) is not int or min(wins, losses) < 0:
+        return 0, 0
+    return wins, wins + losses
+
+
 def parse_temp(word):
     """Millidegrees from /sys/class/thermal (`96050`), or 0 / missing when nothing is readable: degrees C or None."""
     try:

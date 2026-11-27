@@ -15,7 +15,24 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, durable, github, planner, priority, remote, routing, telemetry, tiers, tz, worktree
+from . import (
+    backlog,
+    compact,
+    config,
+    delegate,
+    durable,
+    github,
+    learning,
+    planner,
+    priority,
+    remote,
+    routing,
+    scrub,
+    telemetry,
+    tiers,
+    tz,
+    worktree,
+)
 
 try:
     import fcntl
@@ -309,6 +326,46 @@ def tier_last(prefer, size):
     return lambda n: bool(prefer.get(n)) and size not in prefer[n]
 
 
+def ranked_candidates(cfg, t, steps, prefer, over):
+    """Keep explicit preferences, overflow and tier fit ahead of the measured success rate."""
+    ranked = routing.rank_agents(cfg.get('_agent_history', {}), steps, learning.cohort(t))
+    tier_mismatch = tier_last(prefer, t.get('size'))
+    last = t['attempts'][-1] if t['attempts'] else {}
+    retry_here = last.get('ok') or last.get('class') in ('flaky', 'environment')
+    first = steps[0] if retry_here and steps else None
+    failed = {a['step'] for a in t['attempts'] if not a['ok']}
+    backups = {entry['agent']: i for i, entry in enumerate(t.get('ranked_agents') or ())}
+    return sorted(ranked, key=lambda r: (
+        r['agent'] != t.get('prefer'),
+        tier_mismatch(r['agent']),
+        first is not None and r['agent'] != first,
+        bool(over) and not is_local(cfg, r['agent']),
+        r['agent'] in failed,
+        backups.get(r['agent'], len(backups)) if last and not retry_here else 0,
+    ))
+
+
+def dispatch_ranking(ranked, pick, rooms, size):
+    """Show the agent that could start first and why each alternate was held, if its room was insufficient."""
+    out = []
+    for entry in ranked:
+        name = entry['agent']
+        room, why = rooms.get(name, (0, 'unavailable'))
+        if name != pick and room < size:
+            entry = {**entry, 'rationale': f'{entry["rationale"]} · {why or "insufficient room"}'}
+        out.append(entry)
+    return sorted(out, key=lambda entry: entry['agent'] != pick)
+
+
+def retry_only_backups(cfg, task, pick, ranked, prefer, over, machines):
+    """Include agents that become eligible once the current attempt has failed."""
+    future = {**task, 'attempts': [*task['attempts'], {'step': pick, 'ok': False}]}
+    known = {entry['agent'] for entry in ranked}
+    steps = [name for name in candidates(cfg, future, over, machines) if name not in known]
+    return [{**entry, 'rationale': f'{entry["rationale"]} · eligible on retry'}
+            for entry in ranked_candidates(cfg, future, steps, prefer, over)]
+
+
 def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
@@ -319,13 +376,16 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
     for t in queued:
         if free <= 0 and local <= 0:
             break
-        steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
-        steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
+        ranked = ranked_candidates(cfg, t, candidates(cfg, t, over, machines), prefer, over)
+        steps = [r['agent'] for r in ranked if local > 0 and (is_local(cfg, r['agent']) or free > 0)]
         pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
                                                 f'{t["size"]} task' for n in steps) or 'no step it may go to'
             continue
+        chain = dispatch_ranking(ranked, pick, rooms, units(t))
+        chain += retry_only_backups(cfg, t, pick, ranked, prefer, over, machines)
+        out.setdefault('ranked_agents', {})[t['id']] = chain
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
         out['dispatch'].append((t['id'], pick))
@@ -588,8 +648,9 @@ def retry_lines(tries):
     if not tries:
         return []
     last = tries[-1]
+    result = 'passed' if last.get('ok') else f'failed: {first_line(last["why"], 400)}'
     lines = ['', f'This is attempt {len(tries) + 1}. The worktree already holds the earlier attempts\' changes: continue from '
-                 'them, do not start over.', f'The last attempt ({last["step"]}) failed: {first_line(last["why"], 400)}']
+                 'them, do not start over.', f'The last attempt ({last["step"]}) {result}']
     if last.get('summary'):
         lines.append(f'The cause, as a local model read it ({last.get("class") or "real"}): {last["summary"]}')
     if last.get('stat'):
@@ -603,17 +664,28 @@ def retry_lines(tries):
     return lines
 
 
-def brief(task, repo):
-    """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
+def brief_goal(task, repo):
+    """The goal and acceptance criteria shared by the worker brief and the dashboard preview."""
     lines = [task['title'], '']
     if task['scope']:
         lines.append('Change only these paths (and tests or docs that belong to them): ' + ', '.join(task['scope']))
+    elif task.get('local_scope'):
+        lines.append('Likely relevant files: ' + ', '.join(task['local_scope']))
     check = acceptance(task, repo)
     if check:
         lines.append(f'Acceptance: this command must pass from the repository root: {check}')
     if task.get('criteria'):
         lines += ['Done when:'] + [f'- {c}' for c in task['criteria']]
+    return lines
+
+
+def brief(task, repo, preview=False):
+    """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
+    lines = brief_goal(task, repo)
     lines.append('Keep the change small and bounded; if the task is not safe to do as described, change nothing and say why.')
+    if preview:
+        # The shared dashboard state does not expose raw worker output or reviewer notes.
+        return scrub.secrets_only('\n'.join(lines))
     lines += retry_lines(task['attempts'])
     if task.get('resume_note'):
         lines += ['', f'Note: {task["resume_note"]}. The worktree holds that run\'s changes: continue from them.']
@@ -621,7 +693,7 @@ def brief(task, repo):
         lines += ['', 'The reviewer\'s notes (follow them):'] + [f'- {n}' for n in task['notes']]
     if task.get('source') in UNTRUSTED_SOURCES:
         lines += ['', UNTRUSTED_NOTE]
-    return '\n'.join(lines)
+    return scrub.secrets_only('\n'.join(lines))
 
 
 # tasks whose words came from outside this login (event text, another member, a scout's answer): the brief says so
@@ -664,8 +736,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
             task['picked'] = (f'{model["name"]} ({power.TIER_NAMES[tier]} tier: {why}) for a difficulty-'
                               f'{power.difficulty(task)} task on {step_name}')
             task['model'] = model['name']
-    argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
-             '--remote-track', cfg['delegate']['remote_track']]
+    # The delegate also defaults its routed check copy and lock to this task's track.
+    argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id]
     if check:
         from . import parallel  # a heavy gate, or any gate while this machine is short of memory, goes to a machine with room
         argv += ['--check', check, '--check-where', parallel.check_where(cfg, repo.get('where', 'local'), check, cfg.get('_host'))]
@@ -1101,6 +1173,8 @@ def step_index(cfg, attempt):
 def record_attempt(cfg, t, a, now):
     """One autopilot attempt for telemetry: the step's worker kind, the outcome, how long; never the task or its failure."""
     step = step_of(cfg, a['step']) if a.get('step') in ladder(cfg) else {}
+    if not a['why'].startswith(QUOTA_SIDE) and a.get('class') not in ('flaky', 'environment'):
+        learning.record_outcome(cfg, a.get('step'), a['ok'], learning.cohort(t))
     telemetry.record('feature', 'autopilot.attempt', outcome='passed' if a['ok'] else 'failed', attempt=len(t['attempts']),
                      worker_kind=telemetry.tool_of(a.get('worker')), account=telemetry.tool_of(step.get('account')),
                      step_kind=step.get('kind'), source=t.get('source'), size=t.get('size'),
@@ -1203,6 +1277,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
             events += fill.review_round(cfg, data, now, is_alive, spawn)
             events += depbots.apply(cfg, data, sec)
+        cfg['_agent_history'] = learning.read_history(cfg)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc), hold)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
@@ -1214,6 +1289,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             except OSError as e:
                 events.append(f'{task_id} could not be started on {step} ({e}): it stays queued')
                 continue
+            t['ranked_agents'] = p['ranked_agents'][task_id]
             backlog.save(cfg, data)
             events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
             if t['repo'] in shared['keys']:
@@ -1259,6 +1335,8 @@ def task_view(cfg, t, now):
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]
+    v['ranked_agents'] = t.get('ranked_agents') or []
+    v['brief'] = brief(t, settings(cfg)['repos'].get(t['repo']) or {}, preview=True)
     if t['status'] == 'running':
         v['elapsed'] = now - (t.get('started') or now)
         v['last_line'] = last_line(run_log(cfg, t['run']))

@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- Autopilot ranks eligible agents using recorded pass and fail counts, retries with the same worktree, and shows
+  the brief preview, selected agent and ranked alternatives in the expanded task view (t245).
+
+### Fixed
+
+- Autopilot's routed checks use a task-specific lock and copy (t245).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

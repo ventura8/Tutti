@@ -85,7 +85,7 @@ dashboard refuses to start otherwise.
 | Route | Method | Who | Answer |
 | --- | --- | --- | --- |
 | `/api/state` | GET | viewer | The whole dashboard as one object (keys below). Sent with an `ETag`; `If-None-Match` gets a 304 when nothing changed; gzip when asked. |
-| `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.5"}`; `started` changes on a restart. |
+| `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.6"}`; `started` changes on a restart. |
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/vpn/status` | GET | viewer | The private network card: `{"state": ..., ...}`, 200 also when no VPN is set up. |
 | `/api/needs` | GET | viewer (self) | The viewer's own open questions (an admin: everyone's) and notify settings. |
@@ -106,7 +106,7 @@ treat them as additive.
 
 ```bash
 curl -s http://127.0.0.1:4777/api/health
-# {"ok": true, "started": 1763300000.0, "host": "laptop", "version": "0.23.5"}
+# {"ok": true, "started": 1763300000.0, "host": "laptop", "version": "0.23.6"}
 ```
 
 ### Changing (admin)

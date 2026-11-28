@@ -276,5 +276,27 @@ class WorkerEnvTest(unittest.TestCase):
         self.assertEqual(env, {'PATH': '/bin', 'HOME': '/h', 'XAI_API_KEY': 'the worker\'s own'})
 
 
+class DesktopSessionInjectTest(unittest.TestCase):
+    """P1 (docs/SECURITY-AUDIT-POST-QUEUE.md): a hostile desktop.user broke out of the WSL bash wrapper."""
+
+    def test_a_hostile_windows_user_or_dir_is_refused(self):
+        from tutti import winsession
+        for bad in ('ventu;id', 'ventu$(id)', '../ventu', 'ventu bar', '-ventu', '', 'ventu\n', 'ventu\r'):
+            self.assertTrue(winsession.errors('k.desktop', {'user': bad}), bad)
+            with self.assertRaisesRegex(ValueError, 'Windows login'):
+                winsession.wrap('echo ok', bad)
+        self.assertTrue(winsession.errors('k.desktop', {'user': 'ventu', 'dir': 'C:\\work & calc'}))
+        self.assertTrue(winsession.errors('k.desktop', {'user': 'ventu', 'dir': 'C:\\work\n'}))
+        with self.assertRaisesRegex(ValueError, 'Windows path'):
+            winsession.wrap('echo ok', 'ventu', 'C:\\work & calc')
+        with self.assertRaisesRegex(ValueError, 'Windows path'):
+            winsession.wrap('echo ok', 'ventu', 'C:\\work\n')
+        line = winsession.wrap('echo ok', 'ventu', r'C:\work\tree')
+        self.assertIn('/ru ventu /it', line)
+        self.assertEqual(winsession.user_refusal('ventu'), '')
+        self.assertFalse(winsession.USER_RX.match('ventu\n'))   # $ would match; \Z must not
+        self.assertFalse(winsession.DIR_RX.match('C:\\work\n'))
+
+
 if __name__ == '__main__':
     unittest.main()

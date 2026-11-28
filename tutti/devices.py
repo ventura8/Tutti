@@ -302,7 +302,9 @@ def external_wrap(found, command, who='tutti'):
                                      *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]
     wake = '; '.join(prep.unlock(d) for d in found)
-    watch = ''.join(prep.person_watch(d) for d in found)
+    from . import procs
+    # person_watch's getevent loop outlives a short test command; TUTTI_NO_DAEMONS (checks) skips it (lease_script already does)
+    watch = ''.join(prep.person_watch(d) for d in found) if procs.daemons_allowed() else ''
     used = ' || '.join(prep.person_recent(d) for d in found)
     # a person picks the device up: the run ends cleanly and its shard is queued again (shards.PERSON), nothing undone
     guard = (f'while kill -0 $cmd 2>/dev/null; do if {used}; then echo "{PERSON_LINE}"; kill -TERM -- -$cmd 2>/dev/null; '

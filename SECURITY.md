@@ -32,9 +32,11 @@ fc00::/7), never a public one or 0.0.0.0, and every origin must resolve only to 
 
 ## Audits
 
-The last full audit (dashboard, MCP, household, workers and autopilot, secrets, subprocesses, install and update, devices,
-telemetry) is [docs/SECURITY-AUDIT-2026-11.md](docs/SECURITY-AUDIT-2026-11.md): every finding by severity, what was fixed
-and its test, what is still open and why. In short, beyond the above:
+The November 2026 full audit (dashboard, MCP, household, workers and autopilot, secrets, subprocesses, install and update,
+devices, telemetry) is [docs/SECURITY-AUDIT-2026-11.md](docs/SECURITY-AUDIT-2026-11.md): every finding by severity, what
+was fixed and its test, what is still open and why. The follow-up after roles, RoRadio/dispatch, intake/MCP session tools,
+resilience, security intake and remote Windows/WSL paths is
+[docs/SECURITY-AUDIT-POST-QUEUE.md](docs/SECURITY-AUDIT-POST-QUEUE.md) (t169). In short, beyond the above:
 
 - A household member's code runs only in a container, from plain files, on the machine and runner that really run it; a
   member's shell `check` never runs on another member's computer; answers from the coordinator are signed.

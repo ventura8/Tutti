@@ -3,6 +3,7 @@ transport into temp folders (rsync and the stream fallback, resume, skip, damage
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,8 @@ from tutti import cli, config, files, routing, state, transfer
 from tutti.files import Entry
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Tutti's test containers often ship without rsync(1); stream fallback tests still cover the send path.
+NEED_RSYNC = unittest.skipUnless(shutil.which('rsync'), 'rsync is not installed')
 
 GB = files.GB
 
@@ -131,6 +134,7 @@ class SendTest(unittest.TestCase):
         with open(os.path.join(self.src, rel), 'rb') as a, open(os.path.join(self.cache, rel), 'rb') as b:
             return a.read() == b.read()
 
+    @NEED_RSYNC
     def test_rsync_sends_a_file_and_a_folder_verified_then_skips_them(self):
         base, out = self.send([self.archive, os.path.join(self.src, 'set')], use_rsync=True)
         self.assertEqual(base, self.cache)
@@ -195,6 +199,7 @@ class SendTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'free'):
             self.send([self.archive], dest=os.path.join(self.d, 'elsewhere'))
 
+    @NEED_RSYNC
     def test_dest_puts_the_item_there_and_the_job_is_recorded(self):
         dest = os.path.join(self.d, 'elsewhere')
         base, _ = self.send([os.path.join(self.src, 'set')], dest=dest, use_rsync=True)
@@ -213,6 +218,8 @@ class SendTest(unittest.TestCase):
         _, out = self.send([os.path.join(self.src, 'set')], use_rsync=False)
         self.assertEqual(out[0][1], 'sent')
         self.assertFalse(os.path.exists(os.path.join(self.cache, 'set', 'a.csv')))
+        if not shutil.which('rsync'):
+            return
         os.makedirs(os.path.join(self.src, 'blank'))
         self.assertEqual(self.send([os.path.join(self.src, 'blank')], use_rsync=True)[1][0][1], 'sent')
 

@@ -2,6 +2,18 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## A config field concatenated into a bash path (post-queue audit, t169)
+
+**What happened.** `desktop.user` for a Windows UI suite was pasted into `/mnt/c/Users/<user>/...` and into the
+scheduled-task wrapper. A value with `;` or `$()` would have run as shell on the PC when the suite started (admin-written
+config, but the same class of bug as a host starting with `-`).
+
+**Why.** The field was treated as a path segment because only an admin edits config; validation lived only for ssh hosts.
+
+**Rule.** Anything interpolated into a shell or a path built for a shell is validated at the edge (`errors` + the
+builder), even when it comes from this login's config. Anchor with `\Z`, not `$` (Python's `$` still matches before a
+trailing newline). See docs/SECURITY-AUDIT-POST-QUEUE.md, P1.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

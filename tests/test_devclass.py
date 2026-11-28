@@ -130,6 +130,7 @@ class DesktopSession(unittest.TestCase):
         from tutti import winsession
         self.assertEqual(winsession.errors('k', None), [])
         self.assertTrue(winsession.errors('k', {'dir': 'x'}))
+        self.assertTrue(winsession.errors('k', {'user': 'ventu;rm -rf /'}))   # P1: never a shell metacharacter
         cfg = {'projects': {'R': {'tests': {'p': {'run': 'pwsh {shard}', 'desktop': {'user': 'ventu'}, 'shards': ['a'],
                                                   'targets': ['machine']}}}}, 'machines': {}, '_path': '/x'}
         s = dispatch.suites(cfg)[0]

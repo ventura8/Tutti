@@ -3,16 +3,25 @@ reaches the PC over ssh runs in session 0, where UI automation (Appium, WinAppDr
 with `desktop: {user, dir, before}` has its Windows command run as a one-time scheduled task with `/ru <user> /it`: it
 runs inside that user's console session while they are logged on (no password asked or stored). The wrapper writes the
 output to a log Tutti follows and the exit code to a file it waits for; the task and its folder are removed however the
-run ends. Pure: shell generation only."""
+run ends. Pure: shell generation only. `user` is validated (docs/SECURITY-AUDIT-POST-QUEUE.md, P1): it lands in a bash path."""
+import re
 import shlex
 
 POLL = 5
+# a Windows SAM account name: never shell metacharacters (it is concatenated into a WSL path before schtasks).
+# \Z (not $): Python's $ also matches before a trailing newline, which would still break the bash path.
+USER_RX = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z')   # never starts with "-" (schtasks /ru)
+# a cmd.exe working directory: no new lines or shell metacharacters that would break out of `cd /d`
+DIR_RX = re.compile(r'^[A-Za-z]:\\[^&\r\n|<>"]{0,240}\Z')
 
 
 def wrap(command, user, cwd='', before=''):
     """The bash line (run in the PC's WSL, with Windows interop) that runs `command` (a cmd.exe line) in `user`'s
     interactive session and exits with its exit code. `before` runs first in bash (a yield-flag check);
-    what it puts in $tutti_after runs at the end."""
+    what it puts in $tutti_after runs at the end. Raises ValueError when `user` or `cwd` would break the shell."""
+    why = user_refusal(user) or (dir_refusal(cwd) if cwd else '')
+    if why:
+        raise ValueError(why)
     q = shlex.quote
     name = 'tutti-ui-$$'
     d = f'/mnt/c/Users/{user}/AppData/Local/Temp/{name}'
@@ -31,9 +40,28 @@ def wrap(command, user, cwd='', before=''):
             f'exit "$(tr -dc 0-9 < "$d/rc.txt")"; }}')
 
 
+def user_refusal(user):
+    if not isinstance(user, str) or not USER_RX.match(user):
+        return (f'desktop.user is {user!r}: use a Windows login name (letters, digits, ".", "_" or "-", at most 64), '
+                'never a shell or path character')
+    return ''
+
+
+def dir_refusal(cwd):
+    if not isinstance(cwd, str) or not DIR_RX.match(cwd):
+        return (f'desktop.dir is {cwd!r}: use a Windows path like C:\\work\\tree (drive letter, no &, |, <, > or quotes)')
+    return ''
+
+
 def errors(key, d):
     if d is None:
         return []
     if not isinstance(d, dict) or not isinstance(d.get('user'), str) or not d['user'].strip():
         return [f'{key} is {d!r}: write it as {{user: <the logged-on Windows user>, dir: <C:\\\\work\\\\tree>, before: <bash line>}}']
-    return []
+    out = []
+    # validate the raw value (no .strip): a trailing newline must fail, same as wrap()
+    if why := user_refusal(d['user']):
+        out.append(f'{key}.user: {why}')
+    if d.get('dir') and (why := dir_refusal(d['dir'])):
+        out.append(f'{key}.dir: {why}')
+    return out

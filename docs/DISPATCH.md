@@ -170,7 +170,9 @@ desktop. A suite with `desktop: {user, dir, before}` runs its `run` (a cmd.exe l
 session (`tutti/winsession.py`): a one-time scheduled task created with `schtasks /create /ru <user> /it` (no password
 asked or stored), started at once; its output goes to a log Tutti follows, its exit code to a file Tutti waits for, and
 the task and its folder are removed however the run ends. `before` is a bash line run first in WSL (a yield-flag check
-that exits 3 with a requeue line); a clean-up it needs goes in `$tutti_after`, run when the task ends. The user must be logged on with the desktop unlocked.
+that exits 3 with a requeue line); a clean-up it needs goes in `$tutti_after`, run when the task ends. `user` is a Windows
+login name (letters, digits, `.`, `_`, `-` only) and `dir` a `X:\...` path without shell metacharacters: both are checked
+before they enter the wrapper (docs/SECURITY-AUDIT-POST-QUEUE.md, P1). The user must be logged on with the desktop unlocked.
 
 ## Dedicated machines
 

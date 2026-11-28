@@ -601,7 +601,59 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 .link { color: var(--accent-line); font-size: 0.8125rem; font-weight: 500; margin-left: 8px; }
 
 /* ---- the Settings view */
-.settings { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
+.settings-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: var(--gap);
+    align-items: start;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.settings-sidebar {
+    position: sticky;
+    top: 80px; /* Adjust based on app bar height */
+    padding: 16px;
+    background: var(--surface-1);
+    border-radius: var(--r-m);
+    border: 1px solid var(--outline-2);
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    max-width: 100%;
+}
+
+.settings-nav {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-nav-item {
+    display: block;
+    padding: 8px 12px;
+    border-radius: var(--r-s);
+    text-decoration: none;
+    color: var(--on-surface);
+    font-size: 0.875rem;
+}
+
+.settings-nav-item:hover {
+    background: var(--surface-2);
+}
+
+.settings-nav-item--active {
+    background: var(--accent-c);
+    font-weight: 500;
+}
+
+.settings-content {
+    display: grid;
+    gap: var(--gap);
+    min-width: 0;
+}
+
 .settings[hidden], #dashboard-view[hidden] { display: none; }
 .settings__head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; justify-content: space-between; }
 .settings__head h2 { font-size: 1.5rem; font-weight: 600; }
@@ -609,9 +661,6 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 .settings__search { flex: 1 1 14rem; max-width: 28rem; }
 .settings__changed { display: inline-flex; gap: 8px; align-items: center; min-height: 40px; }
 .settings__body { display: grid; gap: var(--gap); min-width: 0; }
-.setting-nav { display: flex; flex-wrap: wrap; gap: 6px; }
-.setting-nav .chip { text-decoration: none; color: var(--on-surface); min-height: 32px; }
-.setting-nav .chip::before { display: none; }
 .setting-card { display: grid; gap: 4px; min-width: 0; scroll-margin-top: 140px; }
 .setting, .entry { scroll-margin-top: 140px; }
 .setting-card__title { font-size: 1.125rem; font-weight: 600; }
@@ -658,7 +707,14 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 .entry__kind { color: var(--on-surface-2); font-size: 0.8125rem; }
 
 @media (max-width: 640px) {
+    .settings-layout {
+        grid-template-columns: 1fr;
+    }
+    .settings-sidebar {
+        position: static;
+    }
     .setting { grid-template-columns: minmax(0, 1fr); }
+
     /* the views' bar sits at the bottom of a phone's screen, over the safe area */
     .tabs {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; justify-content: space-around; gap: 0;

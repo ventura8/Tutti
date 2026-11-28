@@ -316,13 +316,46 @@ function copiesBlock(copies) {
 function renderSettings(data) {
     if (!data) return [h('p', { class: 'setting__note', text: 'Loading the settings…' })];
     const sections = data.sections.map(sectionBlock).filter(Boolean);
-    const nav = h('nav', { class: 'setting-nav', 'aria-label': 'Settings sections' },
-        ...data.sections.filter((s) => s.rows.length || s.groups.some((g) => g.entries.length))
-            .map((s) => h('a', { class: 'chip', href: `#settings/${s.id}`, text: s.title })));
+    
+    // Create sidebar navigation
+    const navItems = data.sections.filter((s) => s.rows.length || s.groups.some((g) => g.entries.length))
+        .map((s) => h('a', { class: 'settings-nav-item', href: `#settings-${s.id}`, text: s.title }));
+    const nav = h('nav', { class: 'settings-sidebar', 'aria-label': 'Settings navigation' }, h('div', { class: 'settings-nav' }, ...navItems));
+    
     const head = h('p', { class: 'setting__note' }, data.writable ? `Saved into ${data.path}, its comments and order kept; a backup is made first.`
         : `${data.path || 'The config'} cannot be saved from here (only a YAML file you may write can): the values are shown read-only.`);
-    return [head, copiesBlock(data.copies), nav, ...(SET.query || SET.changed ? [] : [secretsBlock(data.secrets)]),
-        ...(sections.length ? sections : [h('p', { class: 'setting__note', text: 'No setting matches: clear the search or the filter.' })])];
+    
+    const content = h('div', { class: 'settings-content' }, 
+        head, 
+        copiesBlock(data.copies), 
+        ...(SET.query || SET.changed ? [] : [secretsBlock(data.secrets)]),
+        ...(sections.length ? sections : [h('p', { class: 'setting__note', text: 'No setting matches: clear the search or the filter.' })])
+    );
+    
+    return [h('div', { class: 'settings-layout' }, nav, content)];
+}
+
+let scrollSpyObserver = null;
+
+function initScrollSpy() {
+    if (scrollSpyObserver) scrollSpyObserver.disconnect();
+    scrollSpyObserver = new IntersectionObserver((entries) => {
+        let maxRatio = 0;
+        let activeId = null;
+        entries.forEach(entry => {
+            if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
+                maxRatio = entry.intersectionRatio;
+                activeId = entry.target.id;
+            }
+        });
+        if (activeId) {
+            document.querySelectorAll('.settings-nav-item').forEach(nav => {
+                nav.classList.toggle('settings-nav-item--active', nav.getAttribute('href') === `#${activeId}`);
+            });
+        }
+    }, { rootMargin: '-100px 0px -60% 0px', threshold: [0, 0.25, 0.5, 0.75, 1] });
+
+    document.querySelectorAll('.setting-card').forEach(section => scrollSpyObserver.observe(section));
 }
 
 // ---- the tab
@@ -333,6 +366,9 @@ function drawSettings() {
     const active = document.activeElement?.id;
     box.replaceChildren(...renderSettings(SET.data));
     if (active && active !== 'settings-search' && document.getElementById(active)) document.getElementById(active).focus({ preventScroll: true });
+    
+    // Initialize scroll spy
+    initScrollSpy();
 }
 
 async function loadSettings(force) {

@@ -19,21 +19,35 @@ def _project(cfg, name):
     return {'project': name or 'no project', 'priority': config.project_priority(cfg, name)}
 
 
+def task_item(cfg, task, waiting, reason, tasks, group):
+    tid = task['id']
+    blocked = backlog.blocked_reason(task, tasks, group)
+    lane = 'Blocked' if blocked else 'Grouped' if group else 'Ready'
+    steps = autopilot.candidates(cfg, task) if task['repo'] in autopilot.settings(cfg)['repos'] else []
+    return {**_project(cfg, config.project_of_repo(cfg, task['repo'])), 'kind': 'task', 'id': tid, 'title': task['title'][:160],
+            'size': task.get('size') or 'S', 'to': task.get('prefer') or (steps[0] if steps else 'no ladder step'),
+            'eta': dependency_eta(task, tasks, group) if blocked else ('when it clears' if tid in waiting else 'the next round'),
+            'why': blocked or waiting.get(tid) or reason, 'rank': task.get('rank', 0), 'urgent': bool(task.get('urgent')),
+            'actions': list(ACTIONS), 'lane': lane, 'group': sorted(group - {tid})}
+
+
+def dependency_eta(task, tasks, group):
+    if task.get('merged_into'):
+        return f'with {task["merged_into"]}'
+    roots = {task['id'], *group}
+    links = {tid: [d for d in (t.get('merged_into'), *backlog.blockers(t, tasks)) if d] for tid, t in tasks.items()}
+    prerequisites = backlog.reachable(None, {**links, None: roots}) - roots - {None}
+    return 'after ' + ', '.join(sorted(prerequisites)) + ' land' if prerequisites else 'when its dependencies clear'
+
+
 def task_items(cfg, tasks, last):
     """The autopilot's queued tasks with the last round's reason for each (its waiting map, else the round's reason)."""
     waiting = (last or {}).get('waiting') or {}
     reason = (last or {}).get('reason') or 'the autopilot has not run a round yet'
-    out = []
-    for t in tasks:
-        if t.get('status') != 'queued' or backlog.is_question(t):
-            continue
-        steps = autopilot.candidates(cfg, t) if t['repo'] in autopilot.settings(cfg)['repos'] else []
-        to = t.get('prefer') or (steps[0] if steps else 'no ladder step')
-        out.append({**_project(cfg, config.project_of_repo(cfg, t['repo'])), 'kind': 'task', 'id': t['id'], 'title': t['title'][:160],
-                    'size': t.get('size') or 'S', 'to': to, 'eta': 'the next round' if not waiting.get(t['id']) else 'when it clears',
-                    'why': waiting.get(t['id']) or reason, 'rank': t.get('rank', 0), 'urgent': bool(t.get('urgent')),
-                    'actions': list(ACTIONS)})
-    return out
+    by_id = {task['id']: task for task in tasks}
+    groups = backlog.group_index(tasks)
+    return [task_item(cfg, task, waiting, reason, by_id, groups.get(task['id'], frozenset()))
+            for task in tasks if task.get('status') == 'queued' and not backlog.is_question(task)]
 
 
 def shard_items(cfg, st):
@@ -88,16 +102,28 @@ def group(items):
             for (pr, p), xs in sorted(by.items())]
 
 
+def group_by_lane(items):
+    """The task board always has all three lanes. Other work stays on the project list."""
+    lanes = {lane: [] for lane in ('Blocked', 'Ready', 'Grouped')}
+    for item in items:
+        if item['kind'] == 'task':
+            lanes[item['lane']].append(item)
+    return [{'lane': lane, 'items': sorted(xs, key=lambda i: (not i.get('urgent'), i.get('priority', 0), i.get('rank', 0)))}
+            for lane, xs in lanes.items()]
+
+
 def view(cfg, where=None, running=0, can_act=True, now=None):
-    """{groups, queued, running, header, can_act}."""
+    """{groups, board, queued, running, header, can_act}."""
     now = now or time.time()
-    items = task_items(cfg, backlog.load(cfg)['tasks'], autopilot.read_state(cfg).get('last'))
+    tasks = backlog.load(cfg)['tasks']
+    items = task_items(cfg, tasks, autopilot.read_state(cfg).get('last'))
     items += shard_items(cfg, dispatch.read_state(cfg))
     items += scout_items(cfg, scouts.load(cfg)['requests'] if cfg.get('scouts') else [], now)
     items += move_items(where)
     if not can_act:
         items = [{**i, 'actions': []} for i in items]
-    return {'groups': group(items), 'queued': len(items), 'running': running, 'can_act': can_act,
+    return {'groups': group(items), 'board': group_by_lane(items), 'graph': backlog.relationship_graph(tasks),
+            'queued': len(items), 'running': running, 'can_act': can_act,
             'header': f'{running} running · {len(items)} queued'}
 
 

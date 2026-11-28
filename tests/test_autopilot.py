@@ -140,6 +140,23 @@ class PlanTest(Base):
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])
         self.assertEqual(p['state'], 'dispatching')
 
+    def test_a_connected_group_waits_for_capacity_and_then_dispatches_in_one_round(self):
+        tasks = [{**task('t1'), 'together_with': ['t2']}, task('t2'), task('t3')]
+        p = autopilot.plan(self.cfg(max_parallel=1), tasks, self.states(), FREE, True)
+        self.assertEqual([tid for tid, _ in p['dispatch']], ['t3'])
+        p = autopilot.plan(self.cfg(max_parallel=2), tasks, self.states(), FREE, True)
+        self.assertEqual([tid for tid, _ in p['dispatch']], ['t1', 't2'])
+
+    def test_a_group_waits_for_prerequisites_and_for_a_held_member(self):
+        tasks = [{**task('t1'), 'together_with': ['t2']}, {**task('t2'), 'depends_on': ['t3']}, task('t3')]
+        p = autopilot.plan(self.cfg(), tasks, self.states(), FREE, True)
+        self.assertEqual([tid for tid, _ in p['dispatch']], ['t3'])
+        self.assertIn('t2', p['waiting']['t1'])
+        tasks[2]['status'] = 'done'
+        p = autopilot.plan(self.cfg(), tasks, self.states(), FREE, True, hold={'t2': 'lease held'})
+        self.assertEqual(p['dispatch'], [])
+        self.assertIn('group', p['waiting']['t1'])
+
     def test_an_account_at_its_line_or_in_panic_takes_nothing(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', panic=True, used=96)})
         cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])

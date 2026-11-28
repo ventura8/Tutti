@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import cli, config, dashtelemetry, insights, scrub, sentry, telemetry, telemetrycmd
+from tutti import cli, config, dashtelemetry, insights, official, scrub, sentry, telemetry, telemetrycmd
 
 HOME = os.path.expanduser('~')
 SECRETS = [
@@ -86,6 +86,9 @@ class Base(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {**clean, **self.env}, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
+        release_target = mock.patch.object(official, 'sentry_dsn', return_value='')
+        release_target.start()
+        self.addCleanup(release_target.stop)
         self.folder = telemetry.configure(self.state, {'machines': {'nuc': {'host': 'my-nuc', 'user': 'alice'}}}, 'test', env=self.env)
 
     def tearDown(self):
@@ -186,6 +189,15 @@ class Recording(Base):
             telemetry.record('command', 'b')
         telemetry.cap(os.path.join(self.folder, telemetry.OUTBOX), limit=3, max_bytes=0)
         self.assertEqual(telemetry.status(self.folder)['queued'], 3)
+
+    def test_a_release_target_cannot_send_before_consent_is_given(self):
+        telemetry.record('command', 'run')
+        post = mock.Mock()
+        with mock.patch.object(official, 'sentry_dsn', return_value='https://publickey@collector.example/42'):
+            result = telemetry.flush(self.folder, env=self.env, post_fn=post, force=True)
+        self.assertIsNone(telemetry.consent(self.folder)['send'])
+        self.assertIn('off', result['why'])
+        post.assert_not_called()
 
     def test_the_install_id_is_random_and_kept(self):
         a = telemetry.consent(self.folder)['install_id']
@@ -380,6 +392,8 @@ class Sending(Base):
         telemetry.record('command', 'run')
         self.assertIn('setup', telemetry.flush(self.folder, self.cfg(), env=self.env, force=True)['why'])
         telemetry.set_consent(self.folder, False)
+        with mock.patch.object(official, 'sentry_dsn', return_value=f.dsn()):
+            self.assertIn('off', telemetry.flush(self.folder, self.cfg(), env=self.env, force=True)['why'])
         self.assertIn('off', telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)['why'])
         self.assertEqual(f.calls, [])
 

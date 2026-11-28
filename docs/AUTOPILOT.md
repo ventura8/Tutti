@@ -43,6 +43,22 @@ person meant it), and the lines the repo's `gaps` command prints (`<path>: <what
 A task whose title starts with `scout:` or `research:` is a research question for a scout (docs/SCOUTS.md, *The week's
 plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.59: retitle a worker's task that starts with it).
 
+### Task relationships
+
+Use `tutti backlog link <id> --depends-on <id>`, `--together-with <id>` or `--merged-into <id>` to record task
+relationships. Repeat the first two options for multiple IDs. Each supplied field replaces its previous value. Pass
+an empty value to clear that field. Use `tutti backlog deps <id>` for a one-shot lookup or `tutti ui` to inspect IDs
+interactively.
+
+Prerequisites must be done before a task starts. If a prerequisite was folded into another task, the replacement
+must be done. A missing or dropped prerequisite still blocks the task. Keep references to external pull requests
+and device moves in task notes until there is a backlog task whose completion can gate the dependent work.
+
+Group links are bidirectional and transitive among active tasks. Autopilot reserves enough worker room and slots
+for all queued group members in one round. If the group cannot fit, it waits while other eligible work can start.
+Each task keeps its own worktree and check. If a launch fails after another member starts, a later round can retry the
+queued member. Set capacity high enough for the largest group you want to run.
+
 ## A round
 
 The dashboard runs one round after every probe while the autopilot is on (`tutti autopilot tick` runs one by hand):

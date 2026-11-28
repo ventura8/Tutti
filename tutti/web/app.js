@@ -953,13 +953,13 @@ function taskNote(t) {
     return `${t.source} · size ${t.size}`;
 }
 
-function apTask(t) {
+function apTask(t, graph) {
     return el('li', { class: 'row' },
         el('div', { class: 'row__name', title: t.title }, t.title.length > 110 ? `${t.title.slice(0, 110)}…` : t.title,
             el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
         chip(`${t.status} · ${t.attempt_count} attempt(s)`, TASK_TONE[t.status] || 'idle'),
         el('p', { class: 'row__note', text: taskNote(t) }),
-        attemptHistory(t));
+        dependencyGraph(t.id, graph, 'autopilot'), attemptHistory(t));
 }
 
 function renderAutopilot(s) {
@@ -977,7 +977,7 @@ function renderAutopilot(s) {
     $('autopilot-state').textContent = stateText;
     const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title, limit]) => el('section', { class: 'autopilot__group' },
         el('h3', { class: 'card__sub', text: `${title} (${ap[key].length})` }),
-        el('ul', { class: 'list' }, ...more(`ap:${key}`, ap[key].map(apTask), limit))));
+        el('ul', { class: 'list' }, ...more(`ap:${key}`, ap[key].map((t) => apTask(t, s.queue?.graph)), limit))));
     const rv = ap.resolver;   // work waits and no one takes it: the fixes Tutti tried, then the owner's one action
     if (rv) {
         const act = rv.action;
@@ -1299,12 +1299,13 @@ function renderJobs(s) {
 const ATTENTION_LABEL = { 'needs-person': 'Needs a person', panic: 'Panic', stalled: 'Stalled', offline: 'Offline', down: 'Down',
     reading: 'Reading', review: 'To review', outside: 'Outside Tutti' };
 
-function attentionItem(it) {
+function attentionItem(it, graph) {
     const open = it.job ? el('button', { class: 'btn btn--text view-ok', type: 'button', text: 'Open its log', onclick: () => openJob(it.job) }) : null;
     return el('li', { class: 'row row--attention', 'data-tone': it.tone },
         el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
         chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
-        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
+        el('p', { class: 'row__note', text: it.note }), open,
+        it.task ? dependencyGraph(it.task.id, graph, 'attention') : null, it.task ? attemptHistory(it.task) : null);
 }
 
 function openJob(id) {
@@ -1321,7 +1322,7 @@ function renderAttention(s) {
     const items = tuttiAttention(s);
     const urgent = items.filter((i) => i.tone !== 'ok').length;
     $('attention-meta').textContent = items.length ? `${urgent} to act on · ${items.length - urgent} to review` : 'All clear';
-    $('attention').replaceChildren(...(items.length ? more('attention', items.map(attentionItem), 6)
+    $('attention').replaceChildren(...(items.length ? more('attention', items.map((it) => attentionItem(it, s.queue?.graph)), 6)
         : [el('li', {}, empty('Nothing needs you', 'No task waits for a person, no result to review, no warning.'))]));
 }
 

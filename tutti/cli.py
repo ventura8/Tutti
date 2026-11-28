@@ -1277,11 +1277,38 @@ def cmd_backlog(cfg, a):
         if a.action == 'list':
             print(backlog.listing(backlog.load(cfg), a.all))
             return 0
+        if a.action == 'deps':
+            print(backlog.deps(backlog.load(cfg), a.repo))
+            return 0
         with backlog.locked(cfg) as data:
             return backlog_change(cfg, a, data)
     except backlog.BacklogError as e:
         say(str(e))
         return 2
+
+
+def cmd_ui(cfg, _args):
+    """Interactive terminal lookup of a task's dependencies."""
+    while True:
+        try:
+            task_id = input('Task ID (Enter to exit): ').strip()
+        except EOFError:
+            return 0
+        if not task_id:
+            return 0
+        try:
+            print(backlog.deps(backlog.load(cfg), task_id))
+        except backlog.BacklogError as e:
+            say(str(e))
+
+
+def backlog_link(data, a):
+    changes = {key: list(dict.fromkeys(filter(None, values))) for key, values in
+               [('depends_on', a.depends_on), ('together_with', a.together_with)] if values is not None}
+    if a.merged_into is not None:
+        changes['merged_into'] = a.merged_into or None
+    backlog.link(data, a.repo, changes)
+    print(backlog.deps(data, a.repo))
 
 
 def backlog_change(cfg, a, data):
@@ -1293,6 +1320,8 @@ def backlog_change(cfg, a, data):
     elif a.action == 'seed':
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
         print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
+    elif a.action == 'link':
+        backlog_link(data, a)
     else:
         task_change(backlog.find(data, a.repo), a)   # rm, retry and done take the task id in the first argument
     return 0
@@ -1963,12 +1992,17 @@ def parser():
     s = add('handoff', cmd_handoff, 'inside `tutti conduct`: record a finished step (done) or the next one (next) for the handoff note')
     s.add_argument('section', choices=['done', 'next'])
     s.add_argument('text')
+    add('ui', cmd_ui, 'open the terminal task dependency viewer')
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
-                                    'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
-    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
-                                           'the task id')
+                                    'accept <id> (a suggested candidate), deps <id> (task relationships)')
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note',
+                                      'deps', 'link'])
+    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; '
+                                          'rm, retry, done, accept, claim, release, note, deps, link: the task id')
+    s.add_argument('--depends-on', action='append', metavar='ID', help='link: replace prerequisites (repeat for multiple IDs)')
+    s.add_argument('--together-with', action='append', metavar='ID', help='link: replace group links (repeat for multiple IDs)')
+    s.add_argument('--merged-into', metavar='ID', help='link: set the task that supersedes this one')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
     s.add_argument('title', nargs='?')
     s.add_argument('--scope', action='append', metavar='PATH', help='a path the task may change (repeat it)')

@@ -1479,20 +1479,31 @@ usage: tutti handoff [-h] {done,next} text
 | `section {done,next}` |  |  |
 | `text` |  |  |
 
-### `tutti backlog`
+### `tutti ui`
 
-the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> (FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, accept <id> (a suggested candidate)
+open the terminal task dependency viewer
 
 ```text
-usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
-                     [--all]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note} [repo] [title]
+usage: tutti ui [-h]
+```
+
+### `tutti backlog`
+
+the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> (FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, accept <id> (a suggested candidate), deps <id> (task relationships)
+
+```text
+usage: tutti backlog [-h] [--depends-on ID] [--together-with ID] [--merged-into ID] [--who WHO] [--scope PATH]
+                     [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE] [--all]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,deps,link} [repo] [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note}` |  |  |
-| `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,deps,link}` |  |  |
+| `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note, deps, link: the task id |  |
+| `--depends-on` | link: replace prerequisites (repeat for multiple IDs) |  |
+| `--together-with` | link: replace group links (repeat for multiple IDs) |  |
+| `--merged-into` | link: set the task that supersedes this one |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |
 | `--scope` | a path the task may change (repeat it) |  |

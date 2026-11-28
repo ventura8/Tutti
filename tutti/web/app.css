@@ -488,6 +488,12 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 .segmented button[aria-pressed='true'] { background: var(--accent-c); }
 .segmented button[aria-pressed='true']::before { content: '✓ '; }
 
+.queue-board { display: grid; gap: 12px; }
+.queue-board > section { min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 75rem) {
+    .queue-board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 .jobs { display: grid; gap: 8px; }
 
 .job { border-radius: var(--r-m); background: var(--tint-1); border: 1px solid var(--outline-2); }

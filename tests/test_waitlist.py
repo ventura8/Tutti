@@ -44,6 +44,31 @@ class Waitlist(unittest.TestCase):
         self.assertIn('run', t1['actions'])
         self.assertEqual(waitlist.view(self.cfg, can_act=False)['groups'][0]['items'][0]['actions'], [])   # viewers: read-only
 
+    def test_board_preserves_empty_lanes_and_handles_non_task_work(self):
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't1')['depends_on'] = ['t2']
+            backlog.find(data, 't2')['depends_on'] = ['t3']
+        where = {'current': {'status': 'running', 'log': ['waiting for checks']}}
+        v = waitlist.view(self.cfg, where=where, can_act=False)
+        self.assertEqual([lane['lane'] for lane in v['board']], ['Blocked', 'Ready', 'Grouped'])
+        self.assertEqual(v['queued'], 4)
+        blocked = {item['id']: item for item in v['board'][0]['items']}
+        self.assertEqual(blocked['t1']['eta'], 'after t2, t3 land')
+        self.assertEqual(blocked['t1']['actions'], [])
+        self.assertEqual(v['graph']['t2']['depends_on'], ['t3'])
+        self.assertEqual(v['board'][2]['items'], [])
+
+    def test_board_shows_a_group_and_moves_it_to_blocked_when_a_member_waits(self):
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't1')['together_with'] = ['t2']
+        board = waitlist.view(self.cfg)['board']
+        self.assertEqual({item['id'] for item in board[2]['items']}, {'t1', 't2'})
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't2')['depends_on'] = ['t3']
+        board = waitlist.view(self.cfg)['board']
+        self.assertEqual({item['id']: item['eta'] for item in board[0]['items']}, {'t1': 'after t3 land', 't2': 'after t3 land'})
+        self.assertEqual(board[2]['items'], [])
+
     def test_an_admin_reorders_moves_and_cancels_and_a_bad_action_is_named(self):
         self.assertEqual(waitlist.act(self.cfg, {'kind': 'task', 'id': 't3', 'action': 'up'})[0], 200)
         self.assertEqual(waitlist.act(self.cfg, {'kind': 'task', 'id': 't1', 'action': 'move', 'to': 'agy-claude'})[0], 200)
@@ -70,14 +95,23 @@ function text(n) { return typeof n === 'string' ? n : n ? [(n.attrs || {}).text 
 const $ = (id) => nodes[id] || (nodes[id] = { id, textContent: '', replaceChildren(...k) { this.kids = k; } });
 let TOKEN = '', refresh = async () => {}, showBanner = () => {};
 '''
+        with backlog.locked(self.cfg) as data:
+            backlog.find(data, 't2')['depends_on'] = ['t3']
         state = {'autopilot': {'ladder': ['agy-gemini']}, 'queue': waitlist.view(self.cfg, running=1)}
-        show = 'console.log(JSON.stringify([nodes.queued.kids.map(text).join(" "), nodes["queued-meta"].textContent]));'
-        js = f'{stub}\n{src}\nrenderQueue({json.dumps(state)});\n{show}'
+        show = '''
+const projects = nodes.queued.kids.map(text).join(" ");
+queueBoard = true;
+renderQueue(state);
+console.log(JSON.stringify([projects, nodes["queued-meta"].textContent, nodes.queued.kids.map(text).join(" ")]));
+'''
+        js = f'{stub}\n{src}\nconst state = {json.dumps(state)}; renderQueue(state);\n{show}'
         out = json.loads(subprocess.run(['node', '-e', js], capture_output=True, text=True, check=True).stdout)
         self.assertIn('Waiting: agy-claude weekly binding until 12:55 (UTC+2)', out[0])
         self.assertIn('Tutti · priority 0 · 2 queued', out[0])
         self.assertIn('Run now', out[0])
         self.assertEqual(out[1], '1 running · 3 queued')
+        for label in ('Blocked', 'Ready', 'Grouped', 'Dependency graph', 't2 → t3 (queued)'):
+            self.assertIn(label, out[2])
 
 
 if __name__ == '__main__':

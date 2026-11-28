@@ -122,6 +122,10 @@ held by another tool, a machine asleep). An admin acts on a task: **Run now** (f
 queued scout question (`POST /api/queue`, admins only). A viewer sees the list read-only. Household jobs wait at the
 household's coordinator and show on the shared machine's own dashboard once claimed.
 
+Use **Board view** in **Queued** to see tasks in the **Blocked**, **Ready** and **Grouped** lanes. A blocked
+task's start estimate names the outstanding task chain. Expand **Dependency graph** on a task to see its
+prerequisites, group and merge links with the linked tasks' statuses.
+
 ## Autopilot
 
 The **Autopilot** card turns it on or off (`POST /api/autopilot {"enabled": true}`, same-origin and token checks as a

@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-25
+
+### Added
+
+- Link backlog prerequisites, groups and merges. Autopilot waits for prerequisites and reserves capacity for groups
+  in one round. The dashboard shows dependency graphs and a Blocked / Ready / Grouped board. Use
+  `tutti backlog deps <id>` or the interactive `tutti ui` to inspect task relationships from a terminal.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

@@ -55,6 +55,8 @@ def start(cfg, repo, title, size='S', check='', notes=(), now=None, state_fn=Non
         task, new = backlog.add(data, {**t, 'pin': f'worker:{WORKER}'})
         if not new and task['status'] != 'queued':
             return task['id'], task.get('run'), f'already in the backlog as {task["status"]}'
+        if backlog.is_blocked(task, data['tasks']) or task['id'] in backlog.group_index(data['tasks']):
+            return task['id'], None, 'queued for the autopilot to check its dependencies and group'
         if go != 'start':
             return task['id'], None, why
         run = (dispatch_fn or autopilot.dispatch)(cfg, task, name, now)

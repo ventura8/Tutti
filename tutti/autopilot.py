@@ -333,6 +333,50 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
         free -= 0 if is_local(cfg, pick) else 1
 
 
+def assign_groups(cfg, queued, rooms, free, out, prefer, over, machines, groups):
+    """Reserve a full group's capacity before publishing any of its assignments."""
+    eligible = {t['id']: t for t in queued}
+    seen = set()
+    for task in queued:
+        tid = task['id']
+        if tid in seen:
+            continue
+        members = groups.get(tid, {tid})
+        seen.update(members)
+        if not members <= eligible.keys():
+            out['waiting'].update(dict.fromkeys(members & eligible.keys(), 'waiting for the rest of its group to be eligible'))
+            continue
+        batch = [eligible[i] for i in [tid, *sorted(members - {tid})]]
+        free = reserve_batch(cfg, batch, rooms, free, out, prefer, over, machines)
+
+
+def reserve_batch(cfg, batch, rooms, free, out, prefer, over, machines):
+    trial_rooms = rooms.copy()
+    trial = {'dispatch': [], 'waiting': {}}
+    assign(cfg, batch, trial_rooms, free, trial, prefer, over, machines)
+    picks = trial['dispatch']
+    if len(picks) != len(batch):
+        if len(batch) > 1:
+            out['waiting'].update(dict.fromkeys((t['id'] for t in batch), 'waiting for enough capacity for its group'))
+        out['waiting'].update(trial['waiting'])
+        return free
+    out['dispatch'].extend(picks)
+    rooms.update(trial_rooms)
+    return free[0] - sum(not is_local(cfg, step) for _, step in picks), free[1] - len(picks)
+
+
+def dependency_holds(tasks, groups):
+    by_id = {t['id']: t for t in tasks}
+    return {tid: why for tid, task in by_id.items() if task['status'] == 'queued'
+            if (why := backlog.blocked_reason(task, by_id, groups.get(tid, ())))}
+
+
+def pending_groups(tasks, groups):
+    # Running/review members have already started. A subsequent round can recover a failed spawn.
+    started = {t['id'] for t in tasks if t['status'] in ('running', 'review')}
+    return {tid: group - started for tid, group in groups.items() if tid not in started}
+
+
 def spent_units(tasks, states):
     """{step: units} the readings do not show yet: the runs going, and every attempt started on an account after its newest
     reading (a finished run's cost stays counted until a new reading includes it)."""
@@ -410,9 +454,11 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}. `now` (a datetime):
     nothing new starts in `autopilot.quiet_hours`; finished runs are still collected. `hold`: {task id: why} of shared
     tasks this member may not start now (tutti/sharing.py: leased by another member, or the coordinator unreachable)."""
-    hold = hold or {}
+    groups = backlog.group_index(tasks)
+    hold = {**(hold or {}), **dependency_holds(tasks, groups)}
     queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos'] and t['id'] not in hold
-              and not backlog.is_question(t)]   # a `scout:` question goes to a scout (tutti/spendrest.py), never a worker
+              and not backlog.is_question(t)]
+    # a `scout:` question goes to a scout (tutti/spendrest.py), never a worker
     unchecked = [t for t in queued if not (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))]
     queued = [t for t in queued if t not in unchecked]
     running = [t for t in tasks if t['status'] == 'running']
@@ -442,7 +488,8 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
     out['overflow'] = over
-    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer, over, machines or ())
+    ordered = priority.by_repo(cfg, queued, lambda t: t['repo'], going)
+    assign_groups(cfg, ordered, rooms, free, out, prefer, over, machines or (), pending_groups(tasks, groups))
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +

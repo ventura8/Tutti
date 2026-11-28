@@ -63,6 +63,10 @@ def load(cfg):
         data = {}
     data.setdefault('next', 1)
     data.setdefault('tasks', [])
+    for t in data['tasks']:
+        t.setdefault('depends_on', [])
+        t.setdefault('together_with', [])
+        t.setdefault('merged_into', None)
     return data
 
 
@@ -70,13 +74,15 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
-def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
+def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=(),
+             depends_on=None, together_with=None, merged_into=None):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
     if not title.strip():
         raise BacklogError('a task needs a title that says what to change')
     return {'repo': repo, 'title': title.strip()[:300], 'scope': [s for s in scope if s], 'check': check, 'size': size,
-            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time()}
+            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time(),
+            'depends_on': depends_on or [], 'together_with': together_with or [], 'merged_into': merged_into}
 
 
 def add(data, task):
@@ -289,3 +295,109 @@ def seed(data, name, repo, run=subprocess.run):
         if new:
             added.append(task)
     return added
+
+
+def link(data, task_id, changes):
+    """Replace the supplied relationship fields on an existing task."""
+    task = find(data, task_id)
+    if task['status'] == 'running':
+        raise BacklogError(f'{task_id} is running: wait for its run before editing task links')
+    if not changes:
+        raise BacklogError('link: supply --depends-on, --together-with or --merged-into (use an empty value to clear)')
+    refs = [*changes.get('depends_on', ()), *changes.get('together_with', ()), changes.get('merged_into')]
+    for ref in filter(None, refs):
+        if ref == task_id:
+            raise BacklogError(f'{task_id} cannot link to itself: supply a different task ID')
+        find(data, ref)
+    task.update(changes)
+
+
+def group_index(tasks):
+    """Index connected groups, treating declarations as undirected links between active tasks."""
+    active = {t['id']: t for t in tasks if t['status'] not in ('done', 'dropped') and not t.get('merged_into')}
+    links = {tid: set() for tid in active}
+    for tid, task in active.items():
+        for other in (set(task.get('together_with') or ()) & active.keys()) - {tid}:
+            links[tid].add(other)
+            links[other].add(tid)
+    groups = {}
+    for tid in links:
+        if tid not in groups and links[tid]:
+            members = frozenset(reachable(tid, links))
+            groups.update(dict.fromkeys(members, members))
+    return groups
+
+
+def reachable(root, links):
+    seen, pending = set(), [root]
+    while pending:
+        node = pending.pop()
+        if node not in seen:
+            seen.add(node)
+            pending.extend(links.get(node, ()))
+    return seen
+
+
+def landed(task_id, tasks):
+    seen = set()
+    while task_id in tasks and task_id not in seen:
+        seen.add(task_id)
+        task = tasks[task_id]
+        task_id = task.get('merged_into')
+        if not task_id:
+            return task['status'] == 'done'
+    return False
+
+
+def blockers(task, tasks):
+    return [tid for tid in task.get('depends_on') or () if not landed(tid, tasks)]
+
+
+def blocked_reason(task, tasks, group=()):
+    if task.get('merged_into'):
+        return f'merged into {task["merged_into"]}'
+    waiting = blockers(task, tasks)
+    if waiting:
+        return f'waiting for {", ".join(waiting)} to land'
+    held = [tid for tid in sorted(group) if blockers(tasks[tid], tasks)]
+    return f'group waits for dependencies of {", ".join(held)}' if held else ''
+
+
+def is_blocked(task, all_tasks):
+    groups = group_index(all_tasks)
+    return bool(blocked_reason(task, {t['id']: t for t in all_tasks}, groups.get(task['id'], ())))
+
+
+def relationship_graph(tasks):
+    """The directed edges and statuses used by the terminal and dashboard."""
+    graph = {t['id']: {'status': t['status'], 'depends_on': t.get('depends_on') or [],
+                       'together_with': set(t.get('together_with') or ()), 'merged_into': t.get('merged_into')}
+             for t in tasks}
+    for tid, node in graph.items():
+        for member in node['together_with']:
+            if member in graph and member != tid:
+                graph[member]['together_with'].add(tid)
+    return {tid: {**node, 'together_with': sorted(node['together_with'])} for tid, node in graph.items()}
+
+
+def deps(data, task_id):
+    task = find(data, task_id)
+    graph = relationship_graph(data['tasks'])
+    group = group_index(data['tasks']).get(task_id, ())
+    links = {tid: [other for other in (node['merged_into'], *node['depends_on'], *node['together_with']) if other]
+                  for tid, node in graph.items()}
+    out = [f'Task {task_id} ({task["status"]}): {task["title"]}']
+    for tid in [task_id, *sorted(reachable(task_id, links) - {task_id})]:
+        node = graph.get(tid, {})
+        if tid != task_id:
+            out.append(f'{tid} ({node.get("status", "missing")})')
+        out.extend(relation_lines(node))
+    if group:
+        out.append(f'  Active group: {", ".join(sorted(group))}')
+    return '\n'.join(out)
+
+
+def relation_lines(node):
+    fields = [('Depends on', node.get('depends_on')), ('Together with', node.get('together_with')),
+              ('Merged into', [node['merged_into']] if node.get('merged_into') else None)]
+    return [f'  {label}: {", ".join(ids)}' for label, ids in fields if ids]

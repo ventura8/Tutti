@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-17
+
+### Added
+
+- Cursor and Greptile security report ingestion in `tutti/depbots.py` (docs/SECURITY-INTAKE.md): ingests Cursor's
+  Vulnerability Remediation API findings (`GET /security/findings`) saved by the owner as JSON (`autopilot.repos.<n>.reports`),
+  mapping severities to the common scale (critical 4 to info 0), deduplicating by finding ID or file/title (merging with
+  pull request review comments), and generating backlog tasks and dashboard card entries. Explicitly handles scanners
+  without an API, webhook, export or email digest (Greptile is refused in `reports` with the reason, and its pull request
+  review comments remain its report).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

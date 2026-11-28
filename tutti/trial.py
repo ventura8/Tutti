@@ -28,6 +28,14 @@ TASK = ('Review pull request {repo}#{number} ({url}) through your GitHub connect
         'they claim, docs that contradict the code. Post ONE comment on the pull request. Its first line is exactly "{marker}". '
         'Then one Markdown bullet per finding: `path:line` - what is wrong - the fix; at most 15, most serious first. If there is '
         'nothing worth fixing, write "No findings." under the first line. Never push, approve, request changes or edit anything.')
+SECURITY_TASK = (
+    'Review pull request {repo}#{number} ({url}) through your GitHub connection with a focus on security: '
+    'read its description and its whole diff. Report only real security problems: vulnerabilities, credential/secret leaks, '
+    'injection, authentication/authorization flaws, unsafe input handling, permission issues, or unsafe dependencies. '
+    'Post ONE comment on the pull request. Its first line is exactly "{marker}". '
+    'Then one Markdown bullet per finding: `path:line` - what is wrong - the fix; at most 15, most serious first. '
+    'If there is nothing worth fixing, write "No findings." under the first line. Never push, approve, request changes or edit anything.'
+)
 
 
 class TrialError(scouts.ScoutError):
@@ -167,30 +175,38 @@ def active(cfg, rid):
     return None
 
 
-def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=None, accounts=None, listed=False):
+def _settle_trial_review(cfg, name, repo, number, payload, new, security):
+    """Records a trial review outcome unless this was a security-focus ask (those skip the trial ledger)."""
+    if not security:
+        settle(cfg, name, key_of(repo, number), payload, new)
+
+
+def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=None, accounts=None, listed=False, security=False):
     """Sends the scout a review of one pull request (it answers on the pull request) and returns the request. A pull request
     of the trial whose review already went out is not sent again. `listed`: the scout is in review.reviewers, which is the
-    owner's consent to its reviews whatever its trial says."""
+    owner's consent to its reviews whatever its trial says. `security`: a security-focus ask that does not share the trial
+    ledger with a general review."""
     why = '' if listed else may_review(cfg, name)
     if why:
         raise TrialError(why)
     sc = scouts.settings(cfg, name)
     scouts.guard(cfg, sc, accounts)
     target, key = scouts.secrets(sc, env)
-    p, new = reserve(cfg, name, repo, number)
+    p, new = (None, False) if security else reserve(cfg, name, repo, number)
     sent = active(cfg, (p or {}).get('request'))
     if sent:
         return sent
-    task = TASK.format(repo=repo, number=number, url=url, marker=scouts.REVIEW_MARKER)
+    tmpl = SECURITY_TASK if security else TASK
+    task = tmpl.format(repo=repo, number=number, url=url, marker=scouts.REVIEW_MARKER)
     try:
         with scouts.locked(cfg) as data:
             r = scouts.new_request(data, sc, task, 'review', repo=repo, skill='review')
             r.update(issue=number, url=url)
             scouts.send(sc, r, target, key, gh_fn, post_fn)
     except BaseException:
-        settle(cfg, name, key_of(repo, number), {'status': 'failed'}, new)
+        _settle_trial_review(cfg, name, repo, number, {'status': 'failed'}, new, security)
         raise
-    settle(cfg, name, key_of(repo, number), r, new)
+    _settle_trial_review(cfg, name, repo, number, r, new, security)
     return r
 
 

@@ -402,12 +402,32 @@ def _test_errors(cfg):
     return errs
 
 
+def _bad_rounds_value(v):
+    """True when `v` is set and is not a whole number of 0 or more."""
+    if v is None:
+        return False
+    return isinstance(v, bool) or not isinstance(v, int) or v < 0
+
+
+def _security_round_pairs(r):
+    out = [('review.security_rounds', r.get('security_rounds'))]
+    for n, o in (r.get('repos') or {}).items():
+        if isinstance(o, dict):
+            out.append((f'review.repos.{n}.security_rounds', o.get('security_rounds')))
+    return out
+
+
+def _security_rounds_errors(r):
+    return [f'{k} is {v!r}: use a whole number, 0 or more' for k, v in _security_round_pairs(r) if _bad_rounds_value(v)]
+
+
 def _review_errors(cfg):
     r = cfg['review']
     errs = [f'review.fallback names "{n}", which is not a cli worker under workers:' for n in r.get('fallback') or []
             if (cfg['workers'].get(n) or {}).get('kind') != 'cli']
-    errs += [f'review.reviewers has "{n}": use copilot, coderabbit, greptile or a scout named under scouts: (e.g. grok)'
-             for n in r.get('reviewers') or [] if n not in ('copilot', 'coderabbit', 'greptile') and n not in (cfg.get('scouts') or {})]
+    errs += [f'review.reviewers has "{n}": use copilot, coderabbit, greptile, bugbot or a scout named under scouts: (e.g. grok)'
+             for n in r.get('reviewers') or [] if n not in ('copilot', 'coderabbit', 'greptile', 'bugbot')
+             and n not in (cfg.get('scouts') or {})]
     pols = ('wait', 'fallback', 'skip', 'skip-when-unavailable')
     bots = ('coderabbit', 'greptile')
     where = [(f'review.{b}', r.get(b)) for b in bots] + [(f'review.repos.{n}.{b}', o.get(b)) for n, o in (r.get('repos') or {}).items()
@@ -419,6 +439,7 @@ def _review_errors(cfg):
     pairs = rounds.items() if isinstance(rounds, dict) else [('', rounds)]
     errs += [f'review.rounds.{n} is {v!r}: use a whole number, 0 or more (0: that reviewer is not called)'
              for n, v in pairs if isinstance(v, bool) or not isinstance(v, int) or v < 0]
+    errs += _security_rounds_errors(r)
     v = r.get('timeout_minutes')
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
         errs.append(f'review.timeout_minutes is {v!r}: use minutes, 0 or more (0: do not wait, fall back at once)')

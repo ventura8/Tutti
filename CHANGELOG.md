@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Added
+
+- A security review round in the review policy (`review.rounds.security` or `review.security_rounds`, admin only;
+  enabled by default for the Tutti project with 1 round): requests Cursor Security Review / Bugbot (`bugbot run`),
+  Greptile (`@greptileai review`), CodeRabbit (`@coderabbitai review`), and a Grok scout with a security focus.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

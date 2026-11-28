@@ -281,6 +281,44 @@ def backup_config_text(cfg, text, backup, home_here, home_there):
     return text.replace(home_here.rstrip('/') + '/', home_there.rstrip('/') + '/')
 
 
+def route_aliases(cfg, backup):
+    """ssh Host names the backup needs in ~/.ssh/config to reach the other machines (their `host` fields)."""
+    out = []
+    for name, m in cfg['machines'].items():
+        host = m.get('host')
+        if name != backup and host and host != 'local' and m.get('transport') != 'local':
+            out.append(host)
+    return list(dict.fromkeys(out))
+
+
+def synth_route(alias, hostname, user='', port=22):
+    """A Host block (host, user, port) for the backup's ~/.ssh/config when this computer has none for `alias`."""
+    lines = [f'Host {alias}', f'  HostName {hostname}']
+    if user:
+        lines.append(f'  User {user}')
+    port = int(port or 22)
+    if port != 22:
+        lines.append(f'  Port {port}')
+    return {'alias': alias, 'hostname': hostname, 'port': str(port), 'block': '\n'.join(lines) + '\n', 'keys': []}
+
+
+def route_entries(cfg, backup, home, carry_fn=None, resolve_fn=None):
+    """{alias: entry} to write on the backup: from this computer's ~/.ssh/config, else synthesised from ssh -G / machine."""
+    from . import movetools, remote
+    aliases = route_aliases(cfg, backup)
+    carry_fn = carry_fn or (lambda names, h: movetools.ssh_carry(names, h))
+    resolve_fn = resolve_fn or remote.ssh_route
+    found = carry_fn(aliases, home)
+    by_host = {m.get('host'): m for m in cfg['machines'].values() if m.get('host')}
+    for alias in aliases:
+        if alias in found:
+            continue
+        m = by_host.get(alias) or {}
+        hostname, port, user = resolve_fn(alias)
+        found[alias] = synth_route(alias, hostname, m.get('user') or user, m.get('port') or port)
+    return found
+
+
 def dashboard_pid_file(cfg):
     return state_file(cfg, 'failover-dashboard.pid')
 

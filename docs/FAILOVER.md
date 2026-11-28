@@ -14,8 +14,10 @@ hands Tutti back when it returns. Nobody has to do anything.
   answer, the change is refused (it could still take over when it is only cut off) unless you add `--yes`.
 
 `tutti failover setup` copies Tutti, its config (turned into the backup's: the backup becomes `host: local`, paths move
-under `failover.dir`, default `~/.tutti-failover`) and the state to the backup, and starts the failover round as a user
-service (`tutti-failover.service`) on both machines.
+under `failover.dir`, default `~/.tutti-failover`) and the state to the backup, syncs each machine's ssh route (host,
+user, port) into the backup's `~/.ssh/config`, and starts the failover round as a user service (`tutti-failover.service`)
+on both machines. Run `tutti sync` any time to re-sync machine ssh routes to the backup; `tutti doctor` flags any
+missing route on the backup before failover.
 
 ## Keeping it current
 

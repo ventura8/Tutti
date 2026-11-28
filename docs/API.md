@@ -1073,6 +1073,14 @@ usage: tutti rsh [-h] machine ...
 | `machine` |  |  |
 | `args` |  |  |
 
+### `tutti sync`
+
+sync route info to the backup main
+
+```text
+usage: tutti sync [-h]
+```
+
 ### `tutti ship`
 
 format, commit, check, push and deploy the work tree you are in

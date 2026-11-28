@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Added
+
+- `tutti sync` (and `tutti failover setup`) now syncs each machine's SSH route (host, user, port, and key when known)
+  to the backup main's `~/.ssh/config`, and `tutti doctor` flags missing SSH routes on the backup before failover.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

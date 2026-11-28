@@ -136,7 +136,7 @@ def cmd_doctor(cfg, a):
         lines, over = statebudget.report(config.state_dir(cfg), statebudget.opts(cfg))
         print('\n'.join(lines))
         print(failovercmd.describe(failover.view(cfg)))
-        problems += over
+        problems += over + failovercmd.readiness(cfg)
     for line in problems:
         say(f'problem: {line}')
     for line in [w for w in [github.doctor_line(cfg)] if w]:   # a note, not a problem: GitHub is optional (docs/GITHUB.md)
@@ -519,6 +519,21 @@ def cmd_ship(cfg, a):
         raise ship.ShipError(f'a main agent is conducting (run {os.environ["TUTTI_CONDUCT"]}): ship only with --dry-run and without '
                              '--allow-protected; a person ships after reading the plan')
     ship.ship(cfg, a.dir, a.message, full=a.full, no_add=a.no_add, track=a.track, allow_protected=a.allow_protected, dry_run=a.dry_run)
+    return 0
+
+
+def cmd_sync(cfg, a):
+    """`tutti sync`: sync machine ssh routes (host, user, port) to the backup main."""
+    from . import failover, failovercmd
+    try:
+        backup, why = failovercmd.chosen_backup(cfg)
+        if not backup:
+            say(f'no backup main machine ({why}): pick one with `tutti main backup <machine>`')
+            return 2
+        failovercmd.sync_routes(cfg, backup)
+    except (failover.FailoverError, subprocess.SubprocessError) as e:
+        say(str(e))
+        return 2
     return 0
 
 
@@ -1809,6 +1824,7 @@ def parser():
     s = add('rsh', cmd_rsh, 'remote-shell shim for git and rsync on a WSL machine (internal)')
     s.add_argument('machine')
     s.add_argument('args', nargs=argparse.REMAINDER)
+    add('sync', cmd_sync, 'sync route info to the backup main')
     s = add('ship', cmd_ship, 'format, commit, check, push and deploy the work tree you are in')
     s.add_argument('message')
     s.add_argument('--full', action='store_true', help='run ship.full_checks instead of the targeted ship.checks')

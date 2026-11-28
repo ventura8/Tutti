@@ -423,5 +423,61 @@ class WatchdogTest(unittest.TestCase):
         self.assertEqual(started, [1])
 
 
+class RouteSyncTest(unittest.TestCase):
+    def test_route_entries_uses_local_ssh_config_and_synthesises_missing(self):
+        cfg = make_cfg(backup='nuc')
+        home = tmpdirs.mkdtemp()
+        os.makedirs(os.path.join(home, '.ssh'))
+        with open(os.path.join(home, '.ssh', 'config'), 'w', encoding='utf8') as f:
+            f.write('Host pc.example\n  HostName 10.0.0.5\n  User alice\n  Port 2222\n')
+        entries = failover.route_entries(cfg, 'nuc', home, resolve_fn=lambda h: ('10.0.0.9', 8022, 'phoneuser'))
+        self.assertEqual(sorted(entries), ['pc.example', 'phone.example'])
+        self.assertIn('HostName 10.0.0.5', entries['pc.example']['block'])
+        self.assertIn('HostName 10.0.0.9', entries['phone.example']['block'])
+        self.assertIn('User phoneuser', entries['phone.example']['block'])
+        self.assertIn('Port 8022', entries['phone.example']['block'])
+
+    def test_readiness_flags_missing_routes_and_passes_after_sync(self):
+        cfg = make_cfg(backup='nuc')
+        home = tmpdirs.mkdtemp()
+        backup_ssh = ''
+
+        def fake_run(argv, **kw):
+            nonlocal backup_ssh
+            cmd = argv[-1]
+            if 'grep -iE "^Host' in cmd:
+                out = '\n'.join(line for line in backup_ssh.splitlines() if line.startswith('Host '))
+                return type('R', (), {'returncode': 0, 'stdout': out, 'stderr': ''})()
+            if cmd == 'true':
+                return type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+            if '~/.ssh/config' in cmd or '$HOME/.ssh/config' in cmd:
+                for alias in failover.route_aliases(cfg, 'nuc'):
+                    backup_ssh += f'Host {alias}\n  HostName {alias}\n'
+                return type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+            return type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+
+        before = failovercmd.readiness(cfg, run=fake_run)
+        self.assertEqual(len(before), 1)
+        self.assertIn('missing ssh routes', before[0])
+        self.assertIn('pc.example', before[0])
+        notes = []
+        count = failovercmd.sync_routes(cfg, 'nuc', run=fake_run, say_fn=notes.append, home=home)
+        self.assertEqual(count, 2)
+        self.assertEqual(failovercmd.readiness(cfg, run=fake_run), [])
+
+    def test_readiness_and_sync_report_unreachable_backup_and_skip_when_off(self):
+        self.assertEqual(failovercmd.readiness(make_cfg(backup='none')), [])
+        self.assertEqual(failovercmd.readiness(make_cfg(backup='')), [])
+        cfg = make_cfg(backup='nuc')
+
+        def down(argv, **kw):
+            return type('R', (), {'returncode': 255, 'stdout': '', 'stderr': 'timeout'})()
+        problems = failovercmd.readiness(cfg, run=down)
+        self.assertIn('cannot be reached', problems[0])
+        with self.assertRaises(failover.FailoverError) as e:
+            failovercmd.sync_routes(cfg, 'nuc', run=down, say_fn=lambda _: None, home=tmpdirs.mkdtemp())
+        self.assertIn('cannot be reached', str(e.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.15 (2026-11-23)
+
+### Fixed
+
+- `scripts/check.sh` and `tests/run.py` clear `TUTTI_BACKGROUND` and `TUTTI_HH_JOB` so a check under the autopilot or a
+  household member job no longer marks every test job `class:background` / `class:member`, and test helpers (`prep.person_watch`,
+  `procs.strays`, `telemetry.set_consent`, `tests/test_browser.py`, `tests/test_files.py`, `tests/test_move.py`) no longer
+  leak background processes or assume optional tools (`rsync`, `gh`) are installed (t117).
+
 ## 0.31.14 (2026-11-23)
 
 ### Added

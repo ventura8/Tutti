@@ -4,7 +4,8 @@
 
 1. `shellcheck` on the scripts and the installer;
 2. `ruff` (CI always has it; locally it is skipped when not installed);
-3. the unit tests, `python3 -m unittest discover -s tests`, in a temp `XDG_CONFIG_HOME` (never the owner's `grok.env`);
+3. the unit tests via `tests/run.py`, in a temp `XDG_CONFIG_HOME` (never the owner's `grok.env`), with host Tutti markers
+   cleared (`TUTTI_BACKGROUND`, `TUTTI_HH_JOB`) so a check under the autopilot does not mark every job;
 4. the dashboard's browser tests, `tests/e2e` (below);
 5. a CLI smoke test of the example config.
 

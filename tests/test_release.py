@@ -179,12 +179,16 @@ class LeaseTest(Base):
     def test_one_loop_per_device_and_it_restores_the_device_when_the_lease_runs_out(self):
         self.fast()
         pidfile = os.path.join(self.tmp, '.tutti', 'devices', 'pixel', 'awake.pid')
+        wpidfile = os.path.join(self.tmp, '.tutti', 'devices', 'pixel', 'watch.pid')
         with mock.patch.dict(os.environ, {'TUTTI_NO_DAEMONS': ''}):   # this test is about the real loop: it ends below
             script = prep.lease_script(self.d, self.claim(), 60, 'roradio')
         self.bash(script)
         with open(pidfile, encoding='utf8') as f:
             first = f.read().strip()
-        self.addCleanup(lambda: self.wait_for(lambda: not os.path.exists(f'/proc/{first}'), 10))
+        with open(wpidfile, encoding='utf8') as f:
+            wfirst = f.read().strip()
+        self.addCleanup(lambda: self.wait_for(
+            lambda: not os.path.exists(f'/proc/{first}') and (not wfirst or not os.path.exists(f'/proc/{wfirst}')), 10))
         self.bash(script)   # the same requester again: no second loop
         with open(pidfile, encoding='utf8') as f:
             self.assertEqual(f.read().strip(), first)

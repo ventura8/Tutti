@@ -1,5 +1,10 @@
 # Lessons
 
+- **Autopilot's env leaked into the unit tests** (t117): `tutti-check` failed because autopilot's `TUTTI_BACKGROUND=1`
+  leaked into the test runner and `test_job` appended `class:background` to every test job's `.target`. The test harness
+  (`scripts/check.sh`, `tests/run.py`) must clear host Tutti markers (`TUTTI_BACKGROUND`, `TUTTI_HH_JOB`) just as it sets
+  `TUTTI_NO_DAEMONS`.
+
 - **Plex/NUC heat** (t444): Tutti `check.sh` in docker (`--cpus=8`) plus host HCM `npm run test:e2e` / Playwright
   (dozens of `chrome-headless-shell` gpu-processes) plus a stuck `ollama` runner (5d at 100%) took the Plex NUC to
   Package 105°C / load ~55. Killing leaf chrome is useless while the parent e2e/pipeline respawns it — stop the

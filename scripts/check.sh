@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
 export TUTTI_NO_DAEMONS=1   # no real keep-awake loop, tunnel or sleep inhibitor outlives a check (tutti/procs.py)
+# autopilot / household mark their jobs; a check under them must not inherit those into unit tests
+unset TUTTI_BACKGROUND TUTTI_HH_JOB
 # the dev tools (Playwright, axe, shellcheck) from requirements-dev.txt: when this python3 lacks them (a machine's system Python, a
 # work-queue job), a venv of their own in the cache, installed with hashes and reused (t75/t76/t89, 2026-11-16)
 if ! python3 -c 'import playwright, axe_playwright_python' 2> /dev/null || ! command -v shellcheck > /dev/null; then
@@ -28,6 +30,11 @@ trap 'rm -rf "$TMPDIR"' EXIT
 XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
+if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+	if ! mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" 2> /dev/null || [ ! -w "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+		export PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
+	fi
+fi
 echo "check: installing Playwright's headless Chromium and system dependencies when needed"
 bash scripts/check-browser-install.sh
 echo "check: running dashboard browser tests"

@@ -278,6 +278,8 @@ class DeviceRunTest(unittest.TestCase):
                        'machines': {'here': {'host': 'local', 'slots': 1, 'min_free_gb': 0, 'lock_prefix': os.path.join(t, 'slot-')}},
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
         self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
+        self.env.pop('TUTTI_BACKGROUND', None)   # host autopilot must not mark this suite's jobs
+        self.env.pop('TUTTI_HH_JOB', None)
 
     def tutti(self, *args, **kw):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
@@ -295,6 +297,16 @@ class DeviceRunTest(unittest.TestCase):
             self.assertEqual(f.read().split(), ['machine:here', 'device:pixel'])
         with open(os.path.join(folder, logs[0])) as f:
             self.assertIn('serial=R58', f.read())
+
+    def test_an_explicit_background_env_marks_the_job(self):
+        p = self.tutti('test', '--device', 'pixel', '--', 'true', TUTTI_BACKGROUND='1')
+        out, err = p.communicate(timeout=60)
+        self.assertEqual(p.returncode, 0, err or out)
+        folder = os.path.join(self.tmp.name, 'state', 'devices')
+        logs = [f for f in os.listdir(folder) if f.endswith('.log')]
+        self.assertEqual(len(logs), 1)
+        with open(os.path.join(folder, logs[0] + '.target')) as f:
+            self.assertEqual(f.read().split(), ['machine:here', 'device:pixel', 'class:background'])
 
     def test_a_second_run_waits_for_the_device_lock(self):
         import fcntl

@@ -275,14 +275,15 @@ def lease_script(device, claim, minutes, who):
     addr = (f'a=$({q(device.get("adb") or "adb")} mdns services 2>/dev/null | tr -d "\\r" | '
             f'awk -v g={q(guid)} \'$1 == g && $2 ~ /_adb-tls-connect/ {{print $3; exit}}\'); '
             'echo "ADDR=${a:-unknown}"; ') if guid else f'echo ADDR={q(str(device["serial"]))}; '
-    pid, lock = f'{u}/../awake.pid', f'{u}/../lease.lock'
+    pid, wpid, lock = f'{u}/../awake.pid', f'{u}/../watch.pid', f'{u}/../lease.lock'
     live = (f'live=; for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
             f'[ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; ')
     # the end is decided under the lease's lock: a lease written meanwhile is seen, and its device is never restored under it
     # a folder gone (a test's temp home removed) ends the loop: its mkdir could never succeed (161 spinning loops, 2026-11-15);
     # nothing is restored then: the device's saved values lived in that folder too
     end = (f'if [ -z "$live" ]; then until mkdir {lock} 2>/dev/null; do [ -d {u} ] || break 2; sleep 0.1; done; {live}'
-           f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
+           f'if [ -z "$live" ]; then rm -f {pid}; kill "$(cat {wpid} 2>/dev/null)" 2>/dev/null; rm -f {wpid}; '
+           f'{release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
     # one loop per device: a loop that awake.pid does not name (a second one) ends at its next round
     mine = f'[ "$(cat {pid} 2>/dev/null)" = "$$" ] || break; '
     loop = (f'sleep 1; {not_tv(device)} && k=1 || k=0; while :; do {mine}{live}{end}'
@@ -293,12 +294,13 @@ def lease_script(device, claim, minutes, who):
              f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
     tag = q(f'{procs.MARK}=claim:{device["name"]}')   # the reaper's marker (tutti/procs.py)
     awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 & '
-             f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 & fi; ') if procs.daemons_allowed() else ''
+             f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 & echo $! > {wpid}; fi; '
+             ) if procs.daemons_allowed() else ''
     take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
             f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
             f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')
-    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
-            f'mkdir -p {u}; {take}others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
+    return (f'mkdir -p {u}; {take}{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases cleared under the lock
+            f'others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then rmdir {lock}; echo "tutti: "{name}" is in use by $others: try again when it is free"; exit 3; fi; '
             f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; rmdir {lock}; '
             f'{prep_script(device) or ":"}; {unlock(device)}; {awake}'
@@ -321,6 +323,9 @@ def idle_seconds(device):
 def person_watch(device):
     """A background loop that notices a person: `getevent` sees only physical touches and keys (the test's own taps and
     Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
+    from . import procs
+    if not procs.daemons_allowed():
+        return ''
     p = person_path(device)
     one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
     loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'

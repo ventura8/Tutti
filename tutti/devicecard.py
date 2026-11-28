@@ -62,7 +62,7 @@ def attach(cfg, out):
     """Sets `card` on every device row of the dashboard state `out` (after controls and dispatch are in it)."""
     paused = {p['name']: p for p in (out.get('controls') or {}).get('paused') or [] if p.get('kind') == 'device'}
     disp = out.get('dispatch') or {}
-    warns = {w['name']: w for w in disp.get('warnings') or [] if w.get('kind') in ('android', 'tv', 'device')}
+    warns = {w['name']: w for w in disp.get('warnings') or [] if w.get('kind') in ('android', 'tv', 'device', 'watch')}
     for d in (out.get('devices') or {}).get('items') or []:
         label = ((cfg.get('devices') or {}).get(d['name']) or {}).get('model') or d['name']
         moved = next((line.split(': ', 1)[-1] for line in disp.get('reroute') or [] if line.startswith(f'{label} away')), '')

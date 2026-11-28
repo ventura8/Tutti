@@ -64,7 +64,7 @@ def errors(cfg):
     if classes is None:
         return errs
     if not isinstance(classes, dict):
-        return [f'device_classes is {classes!r}: a mapping of device kind (phone, tablet, tv) to {{deny: [regex, ...]}}']
+        return [f'device_classes is {classes!r}: a mapping of device kind (phone, tablet, tv, watch) to {{deny: [regex, ...]}}']
     for k, v in classes.items():
         if not isinstance(v, dict) or not isinstance(v.get('deny', []), list):
             errs.append(f'device_classes.{k} is {v!r}: write it as {{deny: [<regex of a command never run on a {k}>]}}')

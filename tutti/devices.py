@@ -17,7 +17,9 @@ TERMUX_POLICY = {'min_battery': 50, 'require_charging': True, 'max_battery_c': 4
 SCREENS = ('wake', 'off', 'any')
 # A TV (a Cast receiver: devices.<d>.kind: tv) runs on mains power and has no battery or call state to read.
 TV_POLICY = {'min_battery': 0, 'require_charging': False, 'max_battery_c': 0, 'wifi_only': False, 'screen': 'any'}
-KINDS = ('phone', 'tablet', 'tv')
+# A watch (a Wear OS watch: devices.<d>.kind: watch) runs on battery, tends to run warm when debugging, screen wakes for tests.
+WATCH_POLICY = {'min_battery': 40, 'require_charging': False, 'max_battery_c': 40, 'wifi_only': False, 'screen': 'wake'}
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 
 # Termux's own readings, through the Termux:API app (`pkg install termux-api`): the same keys as device-readings.sh, each
 # line starting `R `. termux-* commands hang when the Termux:API app is missing, so each has a timeout; /sys is the fallback.
@@ -37,7 +39,8 @@ TERMUX_READINGS = (
 
 def policy(entry, termux=False):
     """The device's policy: the defaults for its use, overridden by its own `policy:`."""
-    base = TERMUX_POLICY if termux else TV_POLICY if (entry or {}).get('kind') == 'tv' else E2E_POLICY
+    kind = (entry or {}).get('kind')
+    base = TERMUX_POLICY if termux else (TV_POLICY if kind == 'tv' else (WATCH_POLICY if kind == 'watch' else E2E_POLICY))
     out = {**base, **((entry or {}).get('policy') or {})}
     if out.get('screen') is False:   # YAML reads an unquoted `off` as false
         out['screen'] = 'off'
@@ -80,7 +83,10 @@ def errors(cfg):
         from . import prep
         errs += prep.errors(where, d.get('prep'))
         if d.get('kind', 'phone') not in KINDS:
-            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet or tv (a Cast receiver: only suites with targets: [tv] use it)')
+            errs.append(
+                f'{where}.kind is {d["kind"]!r}: use phone, tablet, tv or watch '
+                '(a Cast receiver: only suites with targets: [tv] use it)'
+            )
         if 'calls' in d and not isinstance(d['calls'], bool):
             errs.append(f'{where}.calls is {d["calls"]!r}: use true or false (false: no phone-call check, e.g. a tablet with no SIM)')
         if 'external_lock' in d and not (isinstance(d['external_lock'], str) and d['external_lock'].strip()):
